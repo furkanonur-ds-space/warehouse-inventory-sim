@@ -1,0 +1,211 @@
+# Warehouse Inventory Simulation
+
+A UAV scans a warehouse and reports where every box is. The vehicle flies a
+planned route past each shelf face, reads the QR label on every box, and writes
+a JSON inventory mapping each code to a 3D position. No GPS is used at any
+point.
+
+The project has two halves, developed separately:
+
+- `warehouse/` - the simulated warehouse: real pallet-racking dimensions, 432
+  boxes with shipping labels, floor markers, and the ground truth to score
+  against. Built by Ibrahim Cobankose.
+- `scanner/` - the vehicle, the route and the scanning pipeline. Built by
+  Furkan Onur.
+
+The halves meet at one file, `scanner/layout.json`, which is the only place the
+scanner learns anything about a warehouse.
+
+## Results
+
+Latest run, 2026-08-23, against `warehouse/ground_truth.json`:
+
+| Metric | Value |
+|---|---|
+| Box QR codes decoded | 426 / 432 (99%) |
+| Waypoints reached | 48 / 48 |
+| Position error, median | 0.062 m |
+| Position error, p95 | 0.087 m |
+| Marker fixes applied | 614, across all eight markers |
+| Final drift offset | 0.032 m |
+
+By shelf level: 97%, 100%, 99%. Six of the eight shelf faces scanned 100%.
+
+The six misses and the two positions worse than 0.2 m all fall in one window,
+on face F, where the simulator stalled: the console showed
+`vehicle_imu timestamp error` and `NodeShared::Publish() Interrupted system
+call`, and the position estimate froze for a few seconds. The battery was
+checked and ruled out - it never went below 50%, and `vehicle_status.failsafe`
+was never set in 1800 samples.
+
+## Localization: no GPS
+
+Warehouses are indoor, so GNSS is either unavailable or too coarse. GPS is
+disabled at three levels: the vehicle declares no GPS hardware, the simulator
+publishes no usable fix, and EKF2 is told not to fuse GPS even if one appears.
+Position comes from visual odometry, delivered to EKF2 as an external vision
+source.
+
+Measured live during this run:
+
+```
+cs_gnss_pos: False        xy_valid:   True
+cs_ev_pos:   True         v_xy_valid: True
+cs_ev_vel:   True
+cs_ev_hgt:   True
+cs_opt_flow: False
+```
+
+The parameters live in `scanner/px4_config/4023_gz_x500_c27`.
+
+## layout.json
+
+Everything the scanner knows about a warehouse. Nothing here is baked into
+`scanner.py`, so flying a different warehouse is a new layout file.
+
+| Field | Meaning | Where it comes from in `warehouse.yaml` |
+|---|---|---|
+| `world` | Gazebo world name | the world `gen_world.py` writes |
+| `model` | vehicle model name | `scanner/build_c27_drone.py` |
+| `aisle_faces` | one entry per scannable shelf face: the x of the shelf surface, and the heading held to look at it | `racking.rows` (`y0`, `facing`) mapped through `world_yaw` |
+| `flight_z` | one altitude per shelf level | median z of the QR labels at each level, from `racking.level_heights` plus load height |
+| `y_south`, `y_north` | the ends of each pass | `codes.aisle_marker.positions` |
+| `spawn_x`, `spawn_y` | where the vehicle starts; the NED origin | `spawn.pose` |
+| `shelf_standoff` | camera to shelf face | chosen for the camera, see below |
+| `ground_offset` | how far base_link rests above the floor | measured, see below |
+| `aruco_dictionary` | which ArUco dictionary the world was generated with | `codes.aisle_marker.dictionary` |
+| `marker_map`, `output` | paths, relative to the layout file | |
+
+Faces are listed rather than derived. An earlier version worked them out from
+island geometry, which assumed every shelf run has an aisle on both sides. This
+warehouse has two outer rows along the walls that do not, and deriving faces
+would have invented a pass down the wall for each.
+
+### Standoff
+
+The vehicle does not fly the aisle centre line. It stands `shelf_standoff` out
+from the face it is scanning, which puts it 0.40 m off centre in a 2.40 m
+aisle, with 1.60 m to the opposite face.
+
+The reason is resolution. A QR code needs about 3 pixels per module to decode.
+The label modules here are 2.8 mm, and the scanning camera renders 1280 px
+across a 60 degree field:
+
+```
+px per module = 3.10 / distance
+```
+
+At the 1.216 m aisle centre that is 2.55, below the threshold. At 0.80 m it is
+3.79, which decodes reliably.
+
+### ground_offset
+
+This one cost 63% of a scan, so it is worth stating plainly.
+
+Commanded altitudes are measured from the NED origin, which is captured at
+startup while the vehicle is on the ground. base_link, and therefore the
+camera, already sits 0.227 m above the floor at that moment. The shelf
+altitudes in `flight_z` are world heights. Without correcting for the
+difference, every commanded altitude is 0.227 m too high in world terms.
+
+The effect was not subtle, but it looked like something else. Labels sat 0.16
+to 0.26 m below the optical axis instead of on it. The camera's vertical
+half-frame is 0.234 m at this distance, so of the three box heights at each
+shelf level only the topmost fell inside it:
+
+| Label height | Below the axis | Angle | Decoded |
+|---|---|---|---|
+| `flight_z` + 0.05 | 0.163 m | 12.8 deg | 98% |
+| `flight_z` | 0.213 m | 16.5 deg | 22% |
+| `flight_z` - 0.05 | 0.263 m | 20.1 deg | 0% |
+
+Every other explanation was measured and ruled out first: readability (3.79 px
+per module, ample), label distance (identical for all 432), lighting (decode
+rate flat across the three levels), vehicle attitude (roll p95 2.9 deg, pitch
+p95 0.3 deg - level), altitude tracking (commanded 0.75, actual 0.74). The
+offset was then recovered by back-computing the camera height from decoded
+labels of known position: +0.221, +0.232 and +0.227 m at the three levels.
+
+The estimate for a box's height was wrong by about 0.25 m for the same reason,
+but the snap-to-grid step rounded it to the nearest shelf level and hid it.
+
+This never showed up in the original warehouse, where the racking was 2 m tall
+with 0.65 m between levels: a 0.23 m shift stayed inside the frame. It took a
+5 m pallet rack with three box heights per level to expose it.
+
+## Drift correction
+
+Eight ArUco markers sit on the floor at the aisle ends, at known positions. A
+sighting gives an absolute fix, and the difference from the estimator is the
+accumulated error. PX4 offers no way to reset the estimator through MAVSDK, so
+the correction is applied as an offset subtracted from every commanded
+setpoint: the estimator keeps its own mistaken idea of where the vehicle is,
+and the vehicle still arrives where it was asked to go.
+
+Corrections are only taken while hovering. In motion the airframe pitches and
+the downward camera tilts with it, and the geometry reads that tilt as position
+error.
+
+The correction converges on the measured error rather than accumulating it.
+Summing instead was a real defect: the offset was right after exactly two
+sightings and then overshot without bound. It is unfalsifiable in simulation,
+because Gazebo's OdometryPublisher reports the true pose and the quantity being
+accumulated is always about zero. `scanner/test_drift_correction.py` drives the
+geometry with synthetic frames and a known injected error, with no simulator,
+and is what found it.
+
+```sh
+python3 test_drift_correction.py
+```
+
+## Naming
+
+The scanner is `x500_c27`, its airframe `4023_gz_x500_c27`. Both halves of the
+project previously wrote `x500_scanner` and `4022_gz_x500_scanner` into the
+same PX4 paths, so whichever ran second overwrote the other's setup. The names
+are deliberately distinct now, and `setup_px4.sh` touches nothing else.
+
+## Setup
+
+Requires Ubuntu 22.04, PX4 Autopilot (SITL), Gazebo Harmonic, and Python 3.10
+with `mavsdk`, `opencv-python`, `numpy`, `qrcode`, `python-barcode` and `PyYAML`.
+
+```sh
+./setup_px4.sh
+```
+
+That generates the world and its 873 label textures, installs them into the PX4
+tree, builds the vehicle model, and registers the airframe. Safe to re-run.
+
+## Running
+
+```sh
+# Terminal 1
+cd ~/PX4-Autopilot
+export HEADLESS=1
+export PX4_GZ_MODEL_POSE="-8.5,-9,0.30,0,0,0"
+make px4_sitl gz_x500_c27_warehouse
+```
+
+```sh
+# Terminal 2
+cd scanner
+python3 verify_setup.py     # checks the GPS-free claim against the running system
+python3 scanner.py
+```
+
+Output goes to `out/inventory_scanned.json`.
+
+## Known issues
+
+**Gazebo memory growth.** `gz sim` grows with every rendered frame. A 48
+waypoint scan runs over 40 minutes of simulated time, and the stall that cost
+the six missed codes is the same failure in milder form. Camera update rates
+are already reduced for this (10 Hz on the scanning and downward cameras, 1 Hz
+on the front and rear tracking cameras, which nothing consumes). Restart the
+simulator between runs.
+
+**Readability margin is thin.** 3.79 px per module at 0.80 m, against a
+threshold of 3. Enlarging the label QR from 70 mm to 100 mm would let the
+vehicle stand back at 0.95 m and give 3.73 px per module with far more room on
+both sides. That is a change on the warehouse side.
