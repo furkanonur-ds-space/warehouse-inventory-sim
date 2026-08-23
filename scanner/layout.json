@@ -1,0 +1,59 @@
+{
+  "_comment": [
+    "Everything the scanner needs to know about a warehouse. Derived from",
+    "warehouse/warehouse.yaml; the field-by-field mapping is in the README.",
+    "Nothing here is baked into scanner.py, so a new warehouse is a new file.",
+    "",
+    "Coordinates are Gazebo world coordinates, metres. Yaw follows MAVSDK:",
+    "0 is north (+Y), positive is clockwise, so +90 faces +X and -90 faces -X.",
+    "",
+    "A face is given by the x of the shelf surface itself, not by the aisle",
+    "centre line. Where the vehicle flies follows from face_x and standoff,",
+    "which lets it stand closer to the shelf than the middle of the aisle.",
+    "That matters here: the real C27 hires stream is 1024x768, and at the",
+    "1.216 m aisle centre a 2.8 mm module resolves to 2.04 px, below the 3 px",
+    "a QR needs. At 0.80 m it is 3.10 px."
+  ],
+
+  "world": "warehouse",
+  "model": "x500_c27",
+
+  "aisle_faces": [
+    {"name": "A", "face_x":  -9.7, "yaw_deg": -90},
+    {"name": "B", "face_x":  -7.3, "yaw_deg":  90},
+    {"name": "C", "face_x":  -5.1, "yaw_deg": -90},
+    {"name": "D", "face_x":  -2.7, "yaw_deg":  90},
+    {"name": "E", "face_x":  -0.5, "yaw_deg": -90},
+    {"name": "F", "face_x":   1.9, "yaw_deg":  90},
+    {"name": "G", "face_x":   4.1, "yaw_deg": -90},
+    {"name": "H", "face_x":   6.5, "yaw_deg":  90}
+  ],
+
+  "flight_z": [0.75, 2.45, 4.15],
+
+  "y_south": -9.0,
+  "y_north": 9.0,
+
+  "spawn_x": -8.5,
+  "spawn_y": -9.0,
+
+  "shelf_standoff": 0.80,
+
+  "_ground_offset_note": [
+    "How far base_link, and therefore the camera, rests above the floor when",
+    "the vehicle is landed. Commanded altitudes are relative to the spawn",
+    "point, which is captured on the ground, so without this every commanded",
+    "height is this much too high in world terms. Measured by back-computing",
+    "the camera height from decoded labels of known position: +0.221, +0.232",
+    "and +0.227 m at the three shelf levels.",
+    "",
+    "It cost 63 percent of a scan. Labels sat 0.16 to 0.26 m below the optical",
+    "axis instead of on it, so only the topmost of the three box heights fell",
+    "inside the 0.234 m half-frame; the other two read 22 and 0 percent."
+  ],
+  "ground_offset": 0.227,
+
+  "aruco_dictionary": "DICT_5X5_100",
+  "marker_map": "../warehouse/generated/out/marker_map.json",
+  "output": "../out/inventory_scanned.json"
+}

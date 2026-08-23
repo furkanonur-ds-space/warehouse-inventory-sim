@@ -1,0 +1,28 @@
+#!/bin/sh
+#
+# @name Gazebo x500 C27 (warehouse inventory scanner)
+#
+# @type Quadrotor
+#
+# GPS is disabled on purpose. This vehicle operates indoors and localizes
+# using Visual Odometry (VIO) fused by EKF2.
+#
+PX4_SIM_MODEL=${PX4_SIM_MODEL:=x500_c27}
+. ${R}etc/init.d-posix/airframes/4001_gz_x500
+
+echo "Disabling simulated GPS - indoor VIO operation"
+param set-default SYS_HAS_GPS 0
+param set-default SIM_GPS_USED 0
+param set-default EKF2_GPS_CTRL 0
+
+# External Vision (VIO) Configuration
+#
+# EKF2_EV_CTRL: 15 (fusion of horizontal position, vertical position, velocity, and yaw)
+# EKF2_HGT_REF: 3 (use Vision as the primary height source)
+# EKF2_OF_CTRL: 0 (disable optical flow to prevent conflicts)
+param set-default EKF2_EV_CTRL 15
+param set-default EKF2_HGT_REF 3
+param set-default EKF2_OF_CTRL 0
+
+# Enable Gazebo odometry bridge to carry /model/.../odometry to vehicle_visual_odometry
+param set-default SIM_GZ_EN_ODOM 1
