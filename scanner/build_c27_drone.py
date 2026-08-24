@@ -266,7 +266,20 @@ vio_odometry = '''
       <dimensions>3</dimensions>
     </plugin>'''
 
-tof_front = ""
+# --- PMD TOF, front facing, obstacle distance --------------------------
+#
+# The link is called tof_link and not lidar_sensor_link. That name is not
+# cosmetic: PX4's gz bridge subscribes to exactly two hardcoded lidar topics,
+# .../link/link/sensor/lidar_2d_v2/scan and
+# .../link/lidar_sensor_link/sensor/lidar/scan, and publishes whatever arrives
+# as distance_sensor. A forward-facing beam on that link would reach EKF2 as a
+# height above ground, which is what the earlier "collides with the range
+# sensor" note was about. Under any other name PX4 ignores it and the reading
+# is ours alone, read straight from Gazebo.
+tof_front = range_block(
+    "tof_link", "tof_joint",
+    0.12, 0.0, 0.0, 0, 0, 0,
+    max_range=10.0)
 
 sdf = f'''<?xml version="1.0" encoding="UTF-8"?>
 <sdf version='1.9'>
@@ -292,7 +305,7 @@ print("  camera_track_front_link   640x480  front, 90 deg   odometry")
 print("  camera_track_rear_link    640x480  rear,  90 deg   odometry")
 print("  camera_track_down_link    640x480  down,  90 deg   odometry and ArUco")
 print("  OdometryPublisher         plugin   VIO simulation")
-print("  tof_link                  DISABLED, collides with the range sensor")
+print("  tof_link                  1-beam gpu_lidar, forward, obstacle distance")
 print()
 print("  Note: scanning now requires the vehicle to face the shelf, so each")
 print("  shelf face needs its own pass. Mission time roughly doubles.")
