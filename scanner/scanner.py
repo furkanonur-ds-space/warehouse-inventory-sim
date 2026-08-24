@@ -118,6 +118,7 @@ DOWN_CAM_HFOV_DEG = 90.0
 ARUCO_DICT = getattr(cv2.aruco, LAYOUT["aruco_dictionary"])
 
 OUTPUT_JSON = _layout_path("output")
+NAV_REPORT_JSON = _layout_path("navigation_report")
 os.makedirs(os.path.dirname(OUTPUT_JSON), exist_ok=True)
 
 # --- STATE -------------------------------------------------------------
@@ -490,6 +491,12 @@ def record_detection(qr_id, cx_px, cy_px, frame_w, frame_h, pose):
         "estimated_x": round(box_x, 2),
         "estimated_y": round(box_y, 2),
         "estimated_z": round(box_z, 2),
+        # Which face and which level, named rather than left as coordinates.
+        # Scoring a scan asks "right shelf?" more often than "how many metres
+        # out?", and the snap above has already decided both.
+        "shelf": shelf_name(box_x),
+        "level": FLIGHT_Z.index(box_z) + 1,
+        "camera": "camera_hires_link",
         "uav_position": {"x": round(gx, 2), "y": round(gy, 2), "z": round(gz, 2)},
         "uav_heading_deg": round(pose_yaw, 1),
         "bearing_deg": round(math.degrees(bearing), 1),
@@ -509,6 +516,14 @@ async def poll_camera():
     while pending:
         qr, cx, cy, fw, fh, pose = pending.popleft()
         record_detection(qr, cx, cy, fw, fh, pose)
+
+
+def shelf_name(face_x):
+    """The name of the shelf face at this x, or None if the layout has none."""
+    for face in AISLE_FACES:
+        if abs(face["face_x"] - face_x) < 0.01:
+            return face.get("name")
+    return None
 
 
 def face_lane_x(face):
@@ -764,6 +779,54 @@ async def goto_waypoint(drone, index, total, x, y, z, yaw_deg):
     return False
 
 
+def write_navigation_report(reached, planned, duration_s):
+    """
+    Write the navigation side of the run: how well it flew, not what it read.
+
+    Localization error is the disagreement between a marker fix and the
+    estimator at the moment of the sighting. It is the only direct measurement
+    of position error available in flight, since nothing else here knows where
+    the vehicle truly is.
+
+    Two fields are null until the vehicle carries a range sensor. The model has
+    none at the moment, so there is nothing to measure a clearance or a
+    collision against, and reporting a zero would claim a clean run that was
+    never checked.
+    """
+    errors = sorted(e["error_m"] for e in marker_events)
+    report = {
+        "report_date": datetime.now().isoformat(timespec="seconds"),
+        "world": WORLD,
+        "mission_duration_s": round(duration_s, 1),
+        "waypoints": {
+            "planned": planned,
+            "reached": reached,
+            "success_rate": round(reached / planned, 4) if planned else None,
+        },
+        "localization_error_m": {
+            "median": round(errors[len(errors) // 2], 3) if errors else None,
+            "p95": round(errors[int(len(errors) * 0.95)], 3) if errors else None,
+            "max": round(errors[-1], 3) if errors else None,
+            "samples": len(errors),
+            "source": "ArUco marker fix versus estimator at the sighting",
+        },
+        "maximum_drift_m": round(errors[-1], 3) if errors else None,
+        "final_drift_offset_m": round(
+            math.hypot(drift_offset["n"], drift_offset["e"]), 3),
+        "marker_correction_count": len(marker_events),
+        "markers_seen": sorted({e["marker_id"] for e in marker_events}),
+        "minimum_obstacle_distance_m": None,
+        "collision_count": None,
+        "not_measured": [
+            "minimum_obstacle_distance_m and collision_count need a range "
+            "sensor on the vehicle; the C27 model does not carry one yet"
+        ],
+    }
+    with open(NAV_REPORT_JSON, "w", encoding="utf-8") as handle:
+        json.dump(report, handle, indent=2, ensure_ascii=False)
+    print(f"[INFO] Navigation report written to {NAV_REPORT_JSON}")
+
+
 async def run():
     route = build_route()
     print("=" * 68)
@@ -831,6 +894,7 @@ async def run():
     await hold_heading(drone, YAW_NORTH)
 
     print("\n[INFO] Starting scan")
+    mission_start = time.time()
     reached = 0
     last_yaw = YAW_NORTH
     for index, (x, y, z, yaw) in enumerate(route, 1):
@@ -868,6 +932,8 @@ async def run():
             "items": list(inventory.values()),
         }, handle, indent=2, ensure_ascii=False)
     print(f"\n[INFO] Inventory written to {OUTPUT_JSON}")
+
+    write_navigation_report(reached, len(route), time.time() - mission_start)
 
     print("[INFO] Landing")
     await drone.offboard.stop()

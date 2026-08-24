@@ -55,5 +55,6 @@
 
   "aruco_dictionary": "DICT_5X5_100",
   "marker_map": "../warehouse/generated/out/marker_map.json",
-  "output": "../out/inventory_scanned.json"
+  "output": "../out/inventory_scanned.json",
+  "navigation_report": "../out/navigation_report.json"
 }
