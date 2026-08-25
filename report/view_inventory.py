@@ -15,9 +15,13 @@ Drawn:
   * every rack cell as a wireframe box (face x bay x level)
   * the eight floor markers that the drift correction uses
   * each decoded product as a dot, coloured by its distance from ground truth
-  * each box that was never decoded as a hollow square, at its true position
-  * an error vector for anything more than 15 cm out
-  * identity, location, coordinate and error under the cursor
+  * each box that was never decoded as a wireframe box at its true position,
+    drawn at its real dimensions - a miss that is a small box on a high shelf
+    looks different from one that is not
+  * an error vector for anything more than 15 cm out, and a key to show them all
+  * the drift measured at each floor marker, as an arrow at ten times scale
+  * identity, location, size, error and how far off the optical axis the label
+    sat, under the cursor
 
 NO EXTERNAL DEPENDENCY. A small perspective projection and canvas drawing are
 embedded. A three.js from a CDN would not open offline, and this file is meant
@@ -31,10 +35,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import statistics as st
+from collections import defaultdict
 from pathlib import Path
 
 from warehouse_model import (CONFIG, GROUND_TRUTH, INVENTORY, REPO_ROOT,
-                             bounds, error_to_truth, load_config,
+                             bounds, error_to_truth, flight_altitudes,
+                             label_profile, load_box_geometry, load_config,
                              load_ground_truth, load_markers, load_run,
                              percentile, rack_cells, records)
 
@@ -61,7 +68,8 @@ HTML = r"""<!doctype html>
 <canvas id="c"></canvas>
 <div id="hud"></div><div id="tip"></div>
 <div id="help">drag: rotate &nbsp;·&nbsp; wheel: zoom &nbsp;·&nbsp;
-  right-drag: pan &nbsp;·&nbsp; hover a product for detail</div>
+  right-drag: pan &nbsp;·&nbsp; v: error vector threshold &nbsp;·&nbsp;
+  hover a product for detail</div>
 <script>
 const D = __DATA__;
 
@@ -112,6 +120,13 @@ function boxEdges(c,h){
    Without ground truth every dot is neutral blue: the view still shows where
    the pipeline put things, it just cannot say how wrong that is. */
 const GOOD=0.10, BAD=0.25;
+// Drift arrows are centimetres long in a twenty metre warehouse; without a
+// scale factor they are a single pixel.
+const DRIFT_SCALE=10;
+// Error vectors below this are hidden by default, else every dot grows a
+// whisker and the picture turns to fur. 'v' cycles the threshold.
+const VEC_STEPS=[0.15,0.05,0.0,Infinity];
+let vecStep=0, VEC_MIN=VEC_STEPS[0];
 function errColor(e){
   if(e===undefined||e===null) return 'rgb(90,150,220)';
   const t=Math.max(0,Math.min(1,(e-GOOD)/(BAD-GOOD)));
@@ -145,6 +160,16 @@ function draw(){
     line([m.x+s,m.y-s,0.01],[m.x+s,m.y+s,0.01],'#4fd6d6',1.6);
     line([m.x+s,m.y+s,0.01],[m.x-s,m.y+s,0.01],'#4fd6d6',1.6);
     line([m.x-s,m.y+s,0.01],[m.x-s,m.y-s,0.01],'#4fd6d6',1.6);
+    // Mean drift measured here, at DRIFT_SCALE so a 3 cm error is visible at
+    // warehouse scale. Drawn standing up from the marker so it does not
+    // disappear into the floor grid.
+    if(m.drift_e!==undefined){
+      const a=[m.x,m.y,0.02], b=[m.x+m.drift_e*DRIFT_SCALE, m.y+m.drift_n*DRIFT_SCALE, 0.02];
+      line(a,b,'#ff9f43',2);
+      const q=project(b);
+      if(q){ ctx.fillStyle='#ff9f43'; ctx.font='11px system-ui';
+             ctx.fillText(`${(m.median*100).toFixed(1)} cm`, q[0]+5, q[1]-3); }
+    }
   }
 
   // products, far to near (painter's algorithm)
@@ -157,14 +182,21 @@ function draw(){
   pts.sort((a,b)=>b[0][2]-a[0][2]);
   for(const [p,it] of pts){
     const r=Math.max(2.0, 62/p[2]);
-    if(it.tx!==undefined && it.err>0.15){
+    if(it.tx!==undefined && it.err>VEC_MIN){
       const q=project([it.tx,it.ty,it.tz]);      // error vector
       if(q){ ctx.strokeStyle='#ffb020'; ctx.lineWidth=1.2;
              ctx.beginPath(); ctx.moveTo(p[0],p[1]); ctx.lineTo(q[0],q[1]); ctx.stroke(); }
     }
-    if(it.missed){                                // never decoded: hollow square
-      ctx.strokeStyle='#ff4d6d'; ctx.lineWidth=1.8;
-      ctx.strokeRect(p[0]-r, p[1]-r, 2*r, 2*r);
+    if(it.missed){
+      // Drawn at the box's real dimensions rather than as a fixed marker, so
+      // its size is part of what the view says about the miss.
+      ctx.strokeStyle='#ff4d6d'; ctx.lineWidth=1.6;
+      if(it.size){
+        const c=[it.cx,it.cy,it.cz], h=[it.size[0]/2,it.size[1]/2,it.size[2]/2];
+        for(const e of boxEdges(c,h)) line(e[0],e[1],'#ff4d6d',1.6);
+      } else {
+        ctx.strokeRect(p[0]-r, p[1]-r, 2*r, 2*r);
+      }
     } else {
       ctx.fillStyle=errColor(it.err);
       ctx.beginPath(); ctx.arc(p[0],p[1],r,0,7); ctx.fill();
@@ -180,15 +212,39 @@ function hud(){
   if(m) s+=` · <span style="color:#ff4d6d">${m} missed</span>`;
   s+=`<br><span style="font-size:12px;color:#8b98a9">${D.source}</span><hr
       style="border:0;border-top:1px solid #2a3648;margin:7px 0">`;
+  if(D.bands){
+    // How the position error is spread, not just its median. A median hides
+    // whether the tail is two records or fifty.
+    s+=`<div style="font-size:12px;margin-bottom:6px">position error<br>`;
+    for(const b of D.bands){
+      const w=Math.round(100*b.n/Math.max(1,n));
+      s+=`<div style="display:flex;align-items:center;gap:6px;margin:2px 0">
+            <span style="width:52px;color:#8b98a9">${b.label}</span>
+            <span style="flex:1;height:7px;background:#1e2836;border-radius:3px">
+              <span style="display:block;height:7px;width:${w}%;
+                    background:${b.color};border-radius:3px"></span></span>
+            <span style="width:34px;text-align:right">${b.n}</span></div>`;
+    }
+    s+=`</div>`;
+  }
+  if(D.drift){
+    s+=`<div style="font-size:12px;color:#8b98a9;margin-bottom:6px">
+        drift at marker fix: median ${(D.drift.median*100).toFixed(1)} cm ·
+        p95 ${(D.drift.p95*100).toFixed(1)} cm · max ${(D.drift.max*100).toFixed(1)} cm<br>
+        ${D.drift.fixes} fixes · final offset ${(D.drift.final*100).toFixed(1)} cm</div>`;
+  }
   if(D.truth){
     s+=`<span class="k" style="background:${errColor(0.05)}"></span>within 10 cm<br>`;
     s+=`<span class="k" style="background:${errColor(0.30)}"></span>over 25 cm out<br>`;
-    if(m) s+=`<span class="k sq"></span>never decoded (ground truth)<br>`;
-    s+=`<span class="k" style="background:#ffb020"></span>error vector (&gt;15 cm)<br>`;
+    if(m) s+=`<span class="k sq"></span>never decoded, drawn at its real size<br>`;
+    s+=`<span class="k" style="background:#ffb020"></span>error vector
+        (${VEC_MIN===Infinity?'off':'&gt;'+(VEC_MIN*100).toFixed(0)+' cm'}, key v)<br>`;
   } else {
     s+=`<span class="k" style="background:${errColor(null)}"></span>estimated position<br>`;
   }
   s+=`<span class="k" style="background:#4fd6d6"></span>floor marker<br>`;
+  if(D.drift) s+=`<span class="k" style="background:#ff9f43"></span>drift at
+      that marker (x${DRIFT_SCALE})<br>`;
   s+=`<span style="color:#e05252">■</span> X &nbsp;<span style="color:#52c65c">■</span> Y
       &nbsp;<span style="color:#5b8dfc">■</span> Z`;
   if(D.stats) s+=`<br><span style="font-size:12px;color:#8b98a9">${D.stats}</span>`;
@@ -223,11 +279,24 @@ window.addEventListener('mousemove',e=>{
   let h=`<b>${best.id}</b><br>${best.qr}<br>`
       + `${best.shelf}-${String(best.bay).padStart(2,'0')}-L${best.level}<br>`
       + `x ${best.x.toFixed(2)}  y ${best.y.toFixed(2)}  z ${best.z.toFixed(2)}`;
+  if(best.size)
+    h+=`<br>box ${best.size[0].toFixed(2)} x ${best.size[1].toFixed(2)} x `
+      +`${best.size[2].toFixed(2)} m  (${best.vol.toFixed(3)} m³)`;
+  if(best.zoff!==undefined && best.zoff!==null)
+    h+=`<br>label ${best.zoff>=0?'+':''}${(best.zoff*100).toFixed(0)} cm off the `
+      +`optical axis${Math.abs(best.zoff)>0.23?' <span style="color:#ff4d6d">'
+      +'(outside the frame)</span>':''}`;
+  if(best.ppm!==undefined) h+=`<br>${best.ppm.toFixed(2)} px per QR module`;
   if(best.missed) h+=`<br><span style="color:#ff4d6d">NEVER DECODED</span>`;
   else if(best.err!==undefined) h+=`<br>position error ${(best.err*100).toFixed(1)} cm`;
   if(best.truth_at) h+=`<br><span style="color:#8b98a9">truth ${best.truth_at}</span>`;
   t.innerHTML=h; t.style.display='block';
   t.style.left=(e.clientX+14)+'px'; t.style.top=(e.clientY+12)+'px';
+});
+window.addEventListener('keydown',e=>{
+  if(e.key==='v'||e.key==='V'){
+    vecStep=(vecStep+1)%VEC_STEPS.length; VEC_MIN=VEC_STEPS[vecStep]; draw();
+  }
 });
 cv.addEventListener('wheel',e=>{
   e.preventDefault();
@@ -254,6 +323,8 @@ def main() -> int:
     cfg = load_config(args.config)
     run = load_run(args.inventory)
     truth = load_ground_truth(args.ground_truth) if args.truth else {}
+    geometry = load_box_geometry(cfg)
+    flight_z = flight_altitudes()
 
     items, errs = [], []
     for rec in records(run, cfg):
@@ -263,6 +334,9 @@ def main() -> int:
                 "missed": False}
         t = truth.get(rec["qr"])
         if t:
+            pr = label_profile(t, geometry, flight_z)
+            item.update(size=pr["size"], vol=pr["volume_m3"],
+                        zoff=pr["z_offset_m"], ppm=pr["px_per_module"])
             tx, ty, tz = t["label_pose_xyzrpy"][:3]
             err = error_to_truth(rec, truth)
             item.update(tx=tx, ty=ty, tz=tz, err=round(err, 3),
@@ -277,12 +351,48 @@ def main() -> int:
         if payload in seen:
             continue
         x, y, z = c["label_pose_xyzrpy"][:3]
+        pr = label_profile(c, geometry, flight_z)
+        g = geometry.get(c["entity"].split("::")[-1], {})
+        centre = g.get("centre", [x, y, z])
         items.append({"id": c["caption"] or payload, "qr": payload,
                       "x": x, "y": y, "z": z, "shelf": c["row"],
-                      "level": c["level"], "bay": c["bay"], "missed": True})
+                      "level": c["level"], "bay": c["bay"], "missed": True,
+                      # The label is on the box's face; the wireframe is drawn
+                      # around the box itself, so it needs the body centre.
+                      "cx": centre[0], "cy": centre[1], "cz": centre[2],
+                      "size": pr["size"], "vol": pr["volume_m3"],
+                      "zoff": pr["z_offset_m"], "ppm": pr["px_per_module"]})
 
-    markers = [{"x": m["label_pose_xyzrpy"][0], "y": m["label_pose_xyzrpy"][1],
-                "size": m["label_size_m"][0]} for m in load_markers(args.ground_truth)]
+    # Floor markers, and the drift actually measured at each one during the
+    # run. The marker positions come from ground truth; the drift comes from
+    # what the scanner recorded when it saw them.
+    events = run.get("marker_corrections", [])
+    by_marker = defaultdict(list)
+    for e in events:
+        by_marker[e["marker_id"]].append(e)
+    markers = []
+    for m in load_markers(args.ground_truth):
+        entry = {"x": m["label_pose_xyzrpy"][0], "y": m["label_pose_xyzrpy"][1],
+                 "size": m["label_size_m"][0], "id": m["marker_id"]}
+        group = by_marker.get(m["marker_id"], [])
+        if group:
+            entry.update(
+                drift_n=round(st.mean(e["fix"]["n"] - e["estimate_before"]["n"]
+                                      for e in group), 4),
+                drift_e=round(st.mean(e["fix"]["e"] - e["estimate_before"]["e"]
+                                      for e in group), 4),
+                median=round(st.median([e["error_m"] for e in group]), 4),
+                fixes=len(group))
+        markers.append(entry)
+
+    drift = None
+    if events:
+        d = sorted(e["error_m"] for e in events)
+        drift = {"median": round(st.median(d), 4),
+                 "p95": round(percentile(d, 0.95), 4),
+                 "max": round(d[-1], 4),
+                 "fixes": len(d),
+                 "final": run.get("final_drift_offset_m", 0.0)}
 
     b = bounds(cfg)
     stats = ""
@@ -291,8 +401,22 @@ def main() -> int:
         stats = (f"position error: median {e[len(e)//2]*100:.1f} cm · "
                  f"p95 {percentile(e, 0.95)*100:.1f} cm")
 
+    # Bands rather than a single median: a tail of two records and a tail of
+    # fifty read the same otherwise.
+    bands = None
+    if errs:
+        edges = [(0.05, "<= 5 cm", "#3cc86a"), (0.10, "<= 10 cm", "#9acd32"),
+                 (0.25, "<= 25 cm", "#e6b422"), (float("inf"), "> 25 cm", "#e6484d")]
+        bands, low = [], 0.0
+        for high, label, color in edges:
+            bands.append({"label": label, "color": color,
+                          "n": sum(low < e <= high for e in errs)})
+            low = high
+
     data = {
         "items": items,
+        "bands": bands,
+        "drift": drift,
         "racks": rack_cells(cfg),
         "markers": markers,
         "bounds": b,

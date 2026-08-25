@@ -242,13 +242,33 @@ python3 report/drift_report.py --html out/drift.html
 |---|---|---|
 | `validate_inventory.py` | is the right product recorded in the right location, and how far out are the positions | `out/validation_report.json` |
 | `coverage_report.py` | which parts of the warehouse the run actually covered, down to the bay | `out/coverage_report.json`, `out/coverage.html` |
-| `view_inventory.py` | does every product sit in its rack, seen in 3D | `out/inventory_3d.html` |
+| `view_inventory.py` | does every product sit in its rack, how far each estimate drifted, and what the boxes that were never decoded look like | `out/inventory_3d.html` |
 | `drift_report.py` | how far the estimate wandered and whether the correction pulled it back | `out/drift_report.json`, `out/drift.html` |
 
 Both HTML reports and the 3D view are single self-contained files with no
 external asset, so they open offline and survive being mailed to someone. The
 3D view embeds a small perspective renderer for the same reason: a three.js
 from a CDN would show a blank page without a network.
+
+The 3D view carries the drift and the misses, not only the positions. Every
+decoded product is coloured by its distance from ground truth, with the spread
+broken into bands beside the median - a tail of two records and a tail of fifty
+read the same otherwise. Each floor marker carries an arrow showing the drift
+measured there during the run, at ten times scale, because centimetres in a
+twenty metre warehouse are otherwise a single pixel. Press `v` to cycle the
+threshold above which error vectors are drawn.
+
+A box that was never decoded is drawn as a wireframe box at its real
+dimensions, so a miss that is a small carton on a top shelf looks different
+from one that is not. Hovering any box gives its size, how far its label sat
+from the optical axis, and how many pixels per QR module the camera had at
+that standoff - the three properties that have actually explained a missed
+read here. Those dimensions come from the generated world rather than being
+recomputed from the yaml: which size landed in which slot was a seeded random
+draw at generation time, and re-rolling it here would be a second
+implementation of the same decision. `validate_inventory.py --list-missed`
+prints the same properties as a table, and says whether the misses share
+anything against the warehouse as a whole.
 
 The headline number is inventory accuracy, not position error. A record counts
 as correct when its payload exists in ground truth and the shelf face, level

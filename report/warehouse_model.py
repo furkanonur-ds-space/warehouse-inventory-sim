@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from pathlib import Path
 
 import yaml
@@ -30,6 +31,11 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 CONFIG = REPO_ROOT / "warehouse" / "warehouse.yaml"
+# The generated world, which carries each box's actual dimensions. Written by
+# setup_px4.sh and gitignored, so it may not be there; everything that uses it
+# degrades to "unknown" rather than failing.
+WORLD_SDF = REPO_ROOT / "warehouse" / "generated" / "gz" / "worlds" / "warehouse.sdf"
+LAYOUT = REPO_ROOT / "scanner" / "layout.json"
 GROUND_TRUTH = REPO_ROOT / "warehouse" / "ground_truth.json"
 INVENTORY = REPO_ROOT / "out" / "inventory_scanned.json"
 NAV_REPORT = REPO_ROOT / "out" / "navigation_report.json"
@@ -202,3 +208,93 @@ def percentile(sorted_values: list[float], q: float) -> float:
         raise ValueError("empty")
     return sorted_values[min(len(sorted_values) - 1,
                              int(q * (len(sorted_values) - 1)))]
+
+
+# ------------------------------------------------------- box geometry
+
+# One box link in the generated world: its name, then the body visual's pose
+# and size. Anchored on `name="body"` so the label and placard visuals in the
+# same link cannot match instead.
+_BOX_LINK = re.compile(
+    r'<link name="(box_[^"]+)">\s*<visual name="body">\s*'
+    r'<pose>([-\d.eE ]+)</pose>\s*'
+    r'<geometry><box><size>([-\d.eE ]+)</size></box></geometry>',
+    re.S)
+
+
+def load_box_geometry(cfg: dict, path: Path = WORLD_SDF) -> dict[str, dict]:
+    """
+    Every box's real dimensions, keyed by the link name ground truth records.
+
+    Read from the generated world rather than recomputed from the yaml. The
+    yaml says which sizes exist and how they may be stacked; which size landed
+    in which slot was a seeded random draw at generation time. Re-rolling that
+    draw here would be a second implementation of the same decision, and the
+    two would drift apart silently.
+
+    The world file is written in the generator's frame, so a -90 degree
+    world_yaw swaps width and depth. Sizes are returned in world orientation
+    to match every other number these tools handle.
+
+    Returns {} if the world has not been generated. Callers show "unknown"
+    rather than guessing.
+    """
+    p = Path(path)
+    if not p.exists():
+        alt = Path.home() / "PX4-Autopilot" / "Tools" / "simulation" / "gz" / "worlds" / "warehouse.sdf"
+        if not alt.exists():
+            return {}
+        p = alt
+
+    yaw = world_yaw_rad(cfg)
+    c, s = abs(math.cos(yaw)), abs(math.sin(yaw))
+    out = {}
+    for name, pose, size in _BOX_LINK.findall(p.read_text()):
+        px, py, pz = (float(v) for v in pose.split()[:3])
+        w, d, h = (float(v) for v in size.split()[:3])
+        wx, wy = rotate_xy(px, py, yaw)
+        out[name] = {
+            "centre": [round(wx, 3), round(wy, 3), round(pz, 3)],
+            # Width across the shelf face, depth into it, height.
+            "size": [round(c * w + s * d, 3), round(s * w + c * d, 3), round(h, 3)],
+            "volume_m3": round(w * d * h, 4),
+        }
+    return out
+
+
+def flight_altitudes(path: Path = LAYOUT) -> list[float]:
+    """The altitude flown at each shelf level, from the scanner's layout."""
+    return json.loads(Path(path).read_text())["flight_z"]
+
+
+def label_profile(code: dict, geometry: dict, flight_z: list[float],
+                  standoff: float = 0.80, frame_px: int = 1280,
+                  hfov_deg: float = 60.0) -> dict:
+    """
+    What a box looked like to the camera: size, and how far off the axis it sat.
+
+    The vertical offset is the one that matters. Commanded altitudes put the
+    optical axis at `flight_z` for the level, and a label sitting below that is
+    the failure this warehouse has already produced once: the camera's vertical
+    half-frame is about 0.23 m at this standoff, and labels further down than
+    that leave the frame entirely.
+
+    Readability is the other half. A QR needs roughly 3 pixels per module to
+    decode, and the module size travels with the label in ground truth.
+    """
+    x, y, z = code["label_pose_xyzrpy"][:3]
+    level_z = flight_z[code["level"] - 1] if code["level"] - 1 < len(flight_z) else None
+    px_per_module = (frame_px / 2) / math.tan(math.radians(hfov_deg) / 2) \
+        * code["module_size_m"] / standoff
+    g = geometry.get(code["entity"].split("::")[-1], {})
+    return {
+        "size": g.get("size"),
+        "volume_m3": g.get("volume_m3"),
+        "label_z": round(z, 3),
+        "axis_z": level_z,
+        # Negative means the label sat below the optical axis.
+        "z_offset_m": round(z - level_z, 3) if level_z is not None else None,
+        "px_per_module": round(px_per_module, 2),
+        "label_size_m": code.get("label_size_m"),
+        "position": [round(x, 3), round(y, 3), round(z, 3)],
+    }

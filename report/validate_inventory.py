@@ -42,7 +42,8 @@ from collections import Counter
 from pathlib import Path
 
 from warehouse_model import (CONFIG, GROUND_TRUTH, INVENTORY, REPO_ROOT,
-                             error_to_truth, load_config, load_ground_truth,
+                             error_to_truth, flight_altitudes, label_profile,
+                             load_box_geometry, load_config, load_ground_truth,
                              load_run, percentile, records)
 
 # Two records nearer than this are treated as one physical box seen twice.
@@ -178,9 +179,47 @@ def main() -> int:
     print(f"\nreport: {args.out}")
 
     if args.list_missed and missed:
+        geometry = load_box_geometry(cfg)
+        flight_z = flight_altitudes()
         print(f"\nmissed boxes ({len(missed)}):")
+        if not geometry:
+            print("  (box dimensions unavailable - the world has not been")
+            print("   generated; run ./setup_px4.sh to produce it)")
+        print("  location     size w x d x h      label z   off axis   px/module")
+        profiles = []
         for c in sorted(missed, key=lambda c: (c["row"], c["level"], c["bay"])):
-            print(f"  {c['row']}-{c['bay']:02d}-L{c['level']}  {c['payload']}")
+            pr = label_profile(c, geometry, flight_z)
+            profiles.append(pr)
+            size = ("%.2f x %.2f x %.2f" % tuple(pr["size"])) if pr["size"] else "unknown"
+            off = f"{pr['z_offset_m']:+.2f} m" if pr["z_offset_m"] is not None else "   ?  "
+            print(f"  {c['row']}-{c['bay']:02d}-L{c['level']}   {size:>18}   "
+                  f"{pr['label_z']:6.2f}   {off:>8}   {pr['px_per_module']:6.2f}")
+            print(f"               {c['payload']}")
+
+        # Say whether the misses share anything, rather than leaving a table to
+        # be eyeballed. Two of the three failures this warehouse has produced
+        # were a shared property that a per-box listing does not show.
+        if geometry:
+            all_profiles = [label_profile(c, geometry, flight_z)
+                            for c in truth.values()]
+            vols = [p["volume_m3"] for p in all_profiles if p["volume_m3"]]
+            miss_vols = [p["volume_m3"] for p in profiles if p["volume_m3"]]
+            offs = [abs(p["z_offset_m"]) for p in profiles
+                    if p["z_offset_m"] is not None]
+            print("\n  against the whole warehouse:")
+            if vols and miss_vols:
+                smallest = sorted(vols)[max(0, int(0.25 * (len(vols) - 1)))]
+                small = sum(v <= smallest for v in miss_vols)
+                print(f"    volume    : missed {min(miss_vols):.3f}-{max(miss_vols):.3f} m3, "
+                      f"all {min(vols):.3f}-{max(vols):.3f} m3"
+                      f"   ({small}/{len(miss_vols)} in the smallest quarter)")
+            if offs:
+                worst = max(offs)
+                print(f"    off axis  : worst {worst:+.2f} m against a "
+                      f"0.23 m half-frame"
+                      + ("   - inside the frame, so geometry does not explain "
+                         "these" if worst < 0.23 else
+                         "   - outside the frame, the known failure"))
     if args.list_worst and per_record:
         worst = sorted(per_record, key=lambda p: -p[0])[:args.list_worst]
         print(f"\nlargest position errors ({len(worst)}):")
