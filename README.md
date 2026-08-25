@@ -274,6 +274,34 @@ these tools pure consumers - scoring a run needs no change to `scanner.py`.
 Ground truth is read here for MEASUREMENT ONLY, and by these tools only. It
 never enters an estimate; `scanner.py` does not open the file.
 
+### Logging a run
+
+A scan prints to the console and then the console is gone. `scripts/scan_logged.sh`
+runs one with everything kept:
+
+```sh
+bash scripts/scan_logged.sh
+```
+
+| File | What it holds |
+|---|---|
+| `out/logs/scan_<timestamp>.log` | the scanner console: waypoints, every DETECTED and MARKER line, the closing summary |
+| `out/logs/latest.log` | a link to the most recent of those |
+| `out/flight_log.csv` | where the vehicle really was, 10 Hz: `t_s, wall_ms, x, y, z, yaw_deg` |
+
+The track comes from `report/flight_log.py`, which can also be run on its own
+in a second terminal. It is passive by design: one Gazebo topic in, one file
+out, no MAVLink and nothing sent anywhere, so recording a flight cannot change
+it. That is also why it does not log the estimate - reading that means opening
+a MAVLink connection, which PX4 counts as a ground station, and one appearing
+and disappearing mid-flight is a real disturbance. PX4 logs its own estimate at
+full rate to `build/px4_sitl_default/rootfs/log/<date>/<time>.ulg`; that file
+and this one are the two halves and can be compared afterwards.
+
+The wrapper sets `GZ_IP=127.0.0.1`. Without it gz-transport discovery is
+unreliable here: topics that are publishing normally can read as empty, which
+has already sent one diagnosis down the wrong path.
+
 `out/synthetic_demo/` holds a set of reports built from a fabricated scan, so
 the output can be seen without waiting on a 45 minute flight. Nothing in it is
 a measurement of anything.
