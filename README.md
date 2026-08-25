@@ -408,6 +408,11 @@ The wrapper sets `GZ_IP=127.0.0.1`. Without it gz-transport discovery is
 unreliable here: topics that are publishing normally can read as empty, which
 has already sent one diagnosis down the wrong path.
 
+`docs/runs/2026-08-25/` holds one complete run - the three HTML reports, the
+JSON they came from, the scanner console and the position track - so the output
+can be read without flying for it. `out/` itself is gitignored, since every run
+rewrites it.
+
 `out/synthetic_demo/` holds a set of reports built from a fabricated scan, so
 the output can be seen without waiting on a 45 minute flight. Nothing in it is
 a measurement of anything.
