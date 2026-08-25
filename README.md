@@ -183,9 +183,37 @@ tree, builds the vehicle model, and registers the airframe. Safe to re-run.
 # Terminal 1
 cd ~/PX4-Autopilot
 export HEADLESS=1
+export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA   # see below, worth 6x
 export PX4_GZ_MODEL_POSE="-8.5,-9,0.30,0,0,0"
 make px4_sitl gz_x500_c27_warehouse
 ```
+
+### Pick the right GPU
+
+On a laptop with both an integrated and a discrete GPU, Mesa under WSL picks
+the integrated one, and Gazebo renders four cameras on it. Naming the discrete
+adapter is the single largest speed-up available here.
+
+Measured on this machine, same world, same model, 60 seconds of wall clock:
+
+| Adapter | Simulated seconds elapsed | Real-time factor |
+|---|---|---|
+| Intel Iris Xe (default) | 9.6 | 0.16 |
+| NVIDIA RTX 3050 | 56.2 | 0.94 |
+
+A full 48-waypoint scan is about 40 minutes of simulated time. That is close
+to four hours of waiting on the integrated GPU and about forty-five minutes on
+the discrete one.
+
+It is worth saying what this is not, because the advice is common and out of
+date: WSL is not falling back to the CPU. GPU paravirtualization exposes the
+adapter at `/dev/dxg`, `nvidia-smi` runs inside the guest, and `glxinfo`
+reports `D3D12 (...)` rather than `llvmpipe`. Software rendering would show
+llvmpipe, and choosing a different adapter would then change nothing at all.
+Both GPUs are real; one is simply much faster than the other.
+
+More CPU does not help. Gazebo sat between 130 and 180 percent across this
+measurement, so it was not short of the eight processors WSL is given.
 
 ```sh
 # Terminal 2
