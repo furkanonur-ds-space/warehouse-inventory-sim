@@ -32,6 +32,7 @@ from mavsdk import System
 from mavsdk.offboard import PositionNedYaw, OffboardError
 import gz.transport13 as trans
 from gz.msgs10.image_pb2 import Image
+from gz.msgs10.laserscan_pb2 import LaserScan
 
 # --- WAREHOUSE FLOOR PLAN ----------------------------------------------
 #
@@ -103,6 +104,9 @@ WORLD = LAYOUT["world"]
 DRONE = LAYOUT["model"] + "_0"
 CAM_HIRES = f"/world/{WORLD}/model/{DRONE}/link/camera_hires_link/sensor/camera/image"
 CAM_DOWN = f"/world/{WORLD}/model/{DRONE}/link/camera_track_down_link/sensor/camera/image"
+# The PMD TOF. Deliberately not on a link PX4 bridges, so this reading is ours
+# and never reaches EKF2 as a height above ground.
+TOF_SCAN = f"/world/{WORLD}/model/{DRONE}/link/tof_link/sensor/tof/scan"
 
 MARKER_MAP_PATH = _layout_path("marker_map")
 
@@ -140,6 +144,19 @@ drift_offset = {"n": 0.0, "e": 0.0}
 marker_map = {}
 marker_events = []
 last_correction_time = [0.0]
+
+# Forward clearance, from the TOF. The vehicle is half a metre across, so
+# anything inside this band is closer than the airframe should ever be to a
+# shelf it is scanning at SHELF_STANDOFF.
+CLEARANCE_ALARM_M = 0.40
+# Only rays this far from level count as looking ahead. The cone is 86 degrees
+# tall and its lower half always finds the floor; see nearest_ahead.
+TOF_BAND_DEG = 10.0
+# Anything nearer than this is the vehicle's own structure, measured at 0.101 m
+# on rotor arms with the sensor's minimum range at 0.1 m.
+TOF_SELF_M = 0.25
+clearance = {"min_m": float("inf"), "samples": 0, "alarms": 0,
+             "in_alarm": False, "alarm_positions": []}
 
 qr_detector = cv2.QRCodeDetector()
 aruco_detector = cv2.aruco.ArucoDetector(
@@ -518,6 +535,80 @@ async def poll_camera():
         record_detection(qr, cx, cy, fw, fh, pose)
 
 
+def nearest_ahead(msg):
+    """
+    The nearest thing genuinely in front, out of the whole TOF cone.
+
+    Two things in that cone are not obstacles, and both were measured on the
+    ground before deciding this:
+
+    The floor. The cone is 86 degrees tall, so its lower rays point down and
+    always find something. On the ground the bottom row read 0.33 m across all
+    32 rays, uniform, which is the floor and not an object. Restricting to rays
+    within TOF_BAND_DEG of horizontal removes it: at 6 degrees below level the
+    floor is 7 m away at the lowest flight altitude, past the sensor's range.
+
+    The airframe. Rays angled up found something at 0.101 m, the sensor's
+    minimum, which is a rotor arm rather than the world. Anything closer than
+    TOF_SELF_M is the vehicle looking at itself.
+
+    A real depth camera has both problems and real pipelines segment the ground
+    plane out the same way.
+    """
+    h, v = msg.count, msg.vertical_count
+    if h <= 0 or v <= 0 or len(msg.ranges) < h * v:
+        return None
+    v_min, v_max = msg.vertical_angle_min, msg.vertical_angle_max
+    step = (v_max - v_min) / (v - 1) if v > 1 else 0.0
+    band = math.radians(TOF_BAND_DEG)
+
+    nearest = None
+    for row in range(v):
+        if abs(v_min + row * step) > band:
+            continue
+        for r in msg.ranges[row * h:(row + 1) * h]:
+            if math.isfinite(r) and r > TOF_SELF_M:
+                if nearest is None or r < nearest:
+                    nearest = r
+    return nearest
+
+
+def on_tof_scan(msg):
+    """
+    Track how close the nearest thing in front of the vehicle gets.
+
+    The beam grid returns inf for rays that hit nothing inside the sensor's
+    range, so those are dropped rather than treated as a reading. During a
+    scanning pass the nearest thing is the shelf itself, at the standoff, which
+    is the point: a clearance that stays near SHELF_STANDOFF is evidence the
+    vehicle held its lane, and one that collapses is evidence it did not.
+    """
+    try:
+        nearest = nearest_ahead(msg)
+        if nearest is None:
+            return
+        clearance["samples"] += 1
+        if nearest < clearance["min_m"]:
+            clearance["min_m"] = nearest
+        if nearest < CLEARANCE_ALARM_M:
+            # Count entries into the alarm band, not every frame inside it,
+            # so one close pass is one event rather than a few hundred.
+            if not clearance["in_alarm"]:
+                clearance["in_alarm"] = True
+                clearance["alarms"] += 1
+                clearance["alarm_positions"].append({
+                    "x": round(ned_to_gazebo(current_pos["n"], current_pos["e"],
+                                             current_pos["d"])[0], 2),
+                    "y": round(ned_to_gazebo(current_pos["n"], current_pos["e"],
+                                             current_pos["d"])[1], 2),
+                    "clearance_m": round(nearest, 3),
+                })
+        else:
+            clearance["in_alarm"] = False
+    except Exception:
+        pass
+
+
 def shelf_name(face_x):
     """The name of the shelf face at this x, or None if the layout has none."""
     for face in AISLE_FACES:
@@ -815,12 +906,17 @@ def write_navigation_report(reached, planned, duration_s):
             math.hypot(drift_offset["n"], drift_offset["e"]), 3),
         "marker_correction_count": len(marker_events),
         "markers_seen": sorted({e["marker_id"] for e in marker_events}),
-        "minimum_obstacle_distance_m": None,
-        "collision_count": None,
-        "not_measured": [
-            "minimum_obstacle_distance_m and collision_count need a range "
-            "sensor on the vehicle; the C27 model does not carry one yet"
-        ],
+        "minimum_obstacle_distance_m": (
+            round(clearance["min_m"], 3)
+            if math.isfinite(clearance["min_m"]) else None),
+        "clearance_samples": clearance["samples"],
+        "clearance_alarm_threshold_m": CLEARANCE_ALARM_M,
+        # Not a contact count. Nothing here can detect a collision, so this is
+        # the number of times forward clearance entered the alarm band, which
+        # is the nearest honest proxy the TOF can give. A run with zero of
+        # these did not touch anything in front of it.
+        "clearance_alarms": clearance["alarms"],
+        "clearance_alarm_positions": clearance["alarm_positions"],
     }
     with open(NAV_REPORT_JSON, "w", encoding="utf-8") as handle:
         json.dump(report, handle, indent=2, ensure_ascii=False)
@@ -845,6 +941,8 @@ async def run():
     cam_node.subscribe(Image, CAM_HIRES, on_hires_image)
     down_node = trans.Node()
     down_node.subscribe(Image, CAM_DOWN, on_down_image)
+    tof_node = trans.Node()
+    tof_node.subscribe(LaserScan, TOF_SCAN, on_tof_scan)
 
     drone = System()
     await drone.connect(system_address="udp://:14540")

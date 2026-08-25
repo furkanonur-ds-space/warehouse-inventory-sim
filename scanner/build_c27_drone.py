@@ -80,13 +80,25 @@ def camera_block(link_name, joint_name, x_off, y_off, z_off,
 
 
 def range_block(link_name, joint_name, x_off, y_off, z_off,
-                roll, pitch, yaw, max_range=10.0):
+                roll, pitch, yaw, max_range=5.0,
+                h_fov=1.8500, v_fov=1.5010, h_samples=32, v_samples=8):
     """
-    A single-beam range sensor standing in for the PMD TOF module.
+    The PMD TOF module, as a ray grid rather than a depth camera.
 
-    A full depth camera is not simulated here. For obstacle detection the
-    relevant quantity is the distance to whatever is directly ahead, which a
-    one-beam ray gives at a fraction of the cost.
+    Datasheet for the MSU-M0178-1-01 (PMD IRS2975C): 240x180 px, 106 x 86
+    degrees, 4 to 6 m range. Rendering a full depth image would cost as much as
+    another camera, and nothing here needs per-pixel depth: the question being
+    asked is how far away the nearest thing in front is. A 32 x 8 ray grid over
+    the same cone answers that and costs almost nothing.
+
+    The width matters more than it looks. Flying an aisle sideways puts the
+    direction of travel 90 degrees off the nose, and a 106 degree cone reaches
+    within 53 degrees of it. Checking the way ahead is therefore a 50 degree
+    turn rather than a 90 degree one, which is most of what makes a periodic
+    look affordable.
+
+    A one-beam version modelled this as far blinder than the hardware is, and
+    at 10 m it also claimed more than twice the real range.
     """
     return f'''
     <joint name="{joint_name}" type="fixed">
@@ -111,12 +123,14 @@ def range_block(link_name, joint_name, x_off, y_off, z_off,
         <ray>
           <scan>
             <horizontal>
-              <samples>1</samples><resolution>1</resolution>
-              <min_angle>0</min_angle><max_angle>0</max_angle>
+              <samples>{h_samples}</samples><resolution>1</resolution>
+              <min_angle>{-h_fov / 2:.4f}</min_angle>
+              <max_angle>{h_fov / 2:.4f}</max_angle>
             </horizontal>
             <vertical>
-              <samples>1</samples><resolution>1</resolution>
-              <min_angle>0</min_angle><max_angle>0</max_angle>
+              <samples>{v_samples}</samples><resolution>1</resolution>
+              <min_angle>{-v_fov / 2:.4f}</min_angle>
+              <max_angle>{v_fov / 2:.4f}</max_angle>
             </vertical>
           </scan>
           <range>
@@ -279,7 +293,7 @@ vio_odometry = '''
 tof_front = range_block(
     "tof_link", "tof_joint",
     0.12, 0.0, 0.0, 0, 0, 0,
-    max_range=10.0)
+    max_range=5.0)
 
 sdf = f'''<?xml version="1.0" encoding="UTF-8"?>
 <sdf version='1.9'>
@@ -305,7 +319,7 @@ print("  camera_track_front_link   640x480  front, 90 deg   odometry")
 print("  camera_track_rear_link    640x480  rear,  90 deg   odometry")
 print("  camera_track_down_link    640x480  down,  90 deg   odometry and ArUco")
 print("  OdometryPublisher         plugin   VIO simulation")
-print("  tof_link                  1-beam gpu_lidar, forward, obstacle distance")
+print("  tof_link                  PMD TOF, 106x86 deg, 5 m, 32x8 rays")
 print()
 print("  Note: scanning now requires the vehicle to face the shelf, so each")
 print("  shelf face needs its own pass. Mission time roughly doubles.")
