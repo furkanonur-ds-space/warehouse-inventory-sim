@@ -13,6 +13,12 @@
 # The simulator must already be running in another terminal. Arguments are
 # passed through to scanner.py.
 #
+# scanner.py does not exit by itself once it has landed. It writes the
+# inventory and the navigation report, calls land, and the process stays up.
+# Watch for "SCAN COMPLETE" and "[INFO] Landing" in the console, then Ctrl-C:
+# the results are already on disk by then, and the recorder is stopped by the
+# trap below.
+#
 # GZ_IP is set here on purpose. Without it gz-transport discovery is
 # unreliable on this setup: topics that are publishing normally can appear
 # empty, which has already sent one diagnosis down the wrong path.
@@ -27,6 +33,14 @@ mkdir -p out/logs
 TS="$(date +%Y%m%d_%H%M%S)"
 LOG="out/logs/scan_${TS}.log"
 
+# Point latest.log at this run before it starts, not after it ends. The log is
+# most wanted while the flight is still going, and scanner.py does not return
+# on its own after it lands: it writes its results, calls land, and the process
+# stays up. Anything that waited for the exit would leave nothing to read for
+# the forty minutes that matter.
+: > "$LOG"
+ln -sf "scan_${TS}.log" out/logs/latest.log
+
 # The position recorder runs beside the flight. It only reads one Gazebo
 # topic, so it cannot affect what it is recording.
 "$PY" report/flight_log.py --quiet &
@@ -38,6 +52,5 @@ echo "== scan  log -> $LOG  +  out/flight_log.csv =="
 # a 40 minute flight shows nothing until it ends.
 (cd scanner && "$PY" -u scanner.py "$@") 2>&1 | tee "$LOG"
 
-ln -sf "scan_${TS}.log" out/logs/latest.log
 echo
 echo "== done. console: out/logs/latest.log   track: out/flight_log.csv =="

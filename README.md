@@ -318,6 +318,14 @@ and disappearing mid-flight is a real disturbance. PX4 logs its own estimate at
 full rate to `build/px4_sitl_default/rootfs/log/<date>/<time>.ulg`; that file
 and this one are the two halves and can be compared afterwards.
 
+`scanner.py` does not exit once it has landed. It writes the inventory and
+the navigation report, calls land, and the process stays up - two runs left a
+scanner sitting idle for hours before this was noticed. The results are on
+disk by then, so watch for `SCAN COMPLETE` and `[INFO] Landing` in the console
+and Ctrl-C the wrapper, which stops the recorder through its trap. `latest.log`
+is linked before the flight starts rather than after it ends, so the console is
+readable during the forty minutes that matter.
+
 The wrapper sets `GZ_IP=127.0.0.1`. Without it gz-transport discovery is
 unreliable here: topics that are publishing normally can read as empty, which
 has already sent one diagnosis down the wrong path.
