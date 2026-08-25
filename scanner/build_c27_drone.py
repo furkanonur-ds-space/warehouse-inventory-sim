@@ -143,15 +143,14 @@ def range_block(link_name, joint_name, x_off, y_off, z_off,
 
 # --- IMX412, front facing, scanning ------------------------------------
 #
-# Resolution follows a readability budget rather than an arbitrary choice.
-# A QR code needs roughly 3 pixels per module to decode. For a 14 cm code at
-# the 1.37 m aisle standoff:
+# Read off the hardware rather than assumed. voxl-camera-server.conf on the
+# vehicle configures the IMX412 with three streams: a 640x480 preview, a
+# 1024x768 small_video, and a 4056x3040 large_video. voxl-inspect-cam confirms
+# all three running at 30 fps, the largest of them at 4.4 Gbps.
 #
-#     640x480,  60 deg -> 1.95 px/module, below threshold
-#     1280x720, 60 deg -> 3.91 px/module, 30 percent margin
-#
-# The real IMX412 is 4056x3040, but its processing streams are downscaled to
-# 1024x768, so 1280x720 is representative of what the pipeline actually sees.
+# 1024x768 is the one a real-time pipeline can consume, so that is what this
+# simulates. An earlier 1280x720 matched none of the three, which meant any
+# result measured here could not be expected to hold on the aircraft.
 # Camera update rates are deliberately low.
 #
 # Gazebo's memory grows with every rendered frame here, and a full scan takes
@@ -165,17 +164,16 @@ def range_block(link_name, joint_name, x_off, y_off, z_off,
 hires_front = camera_block(
     "camera_hires_link", "camera_hires_joint",
     0.10, 0.0, 0.0, 0, 0, 0,
-    fov=1.0472, width=1280, height=720, update_rate=10)
+    fov=1.0472, width=1024, height=768, update_rate=10)
 
 # --- AR0144 tracking cameras -------------------------------------------
 #
-# 1280x800 mono on the real vehicle. Used for visual odometry, not for reading
-# labels: at 1.37 m a 14 cm code resolves to about 2.6 px/module through these,
-# which is below the decode threshold.
+# 1280x800 on the vehicle, all three of them, confirmed from
+# voxl-camera-server.conf. Simulated at the same size now: they were 640x480
+# here, which understated them by half in each direction and would have made
+# any judgement about what they can read too pessimistic.
 #
-# Simulated at 640x480 because they feed motion estimation rather than
-# perception, and the resolution saves render time that the hires camera needs.
-# The front and rear tracking cameras exist to represent the C27 sensor set.
+# They exist to represent the C27 sensor set.
 # Nothing consumes their images: the VIO they would feed is simulated by
 # OdometryPublisher instead, which reads the model pose directly. They are kept
 # for fidelity but rendered as rarely as possible, since every frame costs
@@ -183,20 +181,29 @@ hires_front = camera_block(
 tracking_front = camera_block(
     "camera_track_front_link", "camera_track_front_joint",
     0.08, 0.0, -0.03, 0, 0, 0,
-    fov=1.5708, width=640, height=480, update_rate=1)
+    fov=1.5708, width=1280, height=800, update_rate=1)
 
 tracking_rear = camera_block(
     "camera_track_rear_link", "camera_track_rear_joint",
     -0.08, 0.0, -0.03, 0, 0, 3.14159,
-    fov=1.5708, width=640, height=480, update_rate=1)
+    fov=1.5708, width=1280, height=800, update_rate=1)
 
 # The downward tracking camera doubles as the ArUco marker reader for drift
-# correction. A 40 cm marker at 1.8 m altitude resolves to about 10 px/module
-# through a 90 degree lens, well clear of the threshold.
+# correction.
+#
+# 3 Hz, not 10. Gazebo's memory grows with every pixel it renders, and raising
+# this camera from 640x480 to its real 1280x800 tripled its share: the render
+# budget went from 12.9 to 20.2 Mpx/s and gz reached 27 GB before the mission
+# finished, at which point the kernel killed it. The scan lost its output file
+# and the decode rate collapsed, both of which looked like unrelated faults.
+#
+# Corrections are only taken during the 1.5 second settle at the end of a leg,
+# so 3 Hz still offers four or five frames of a marker, and the earlier 10 Hz
+# was spending most of its frames on stretches where sightings are ignored.
 tracking_down = camera_block(
     "camera_track_down_link", "camera_track_down_joint",
     0.0, 0.0, -0.05, 0, 1.5708, 0,
-    fov=1.5708, width=640, height=480, update_rate=10)
+    fov=1.5708, width=1280, height=800, update_rate=3)
 
 # --- Sensors required for GPS-free position estimation -----------------
 #
@@ -314,10 +321,10 @@ with open(os.path.join(model_dir, 'model.sdf'), 'w') as f:
     f.write(sdf)
 
 print(f"{model_name} model generated, C27 sensor configuration")
-print("  camera_hires_link        1280x720  front, 60 deg   scanning")
-print("  camera_track_front_link   640x480  front, 90 deg   odometry")
-print("  camera_track_rear_link    640x480  rear,  90 deg   odometry")
-print("  camera_track_down_link    640x480  down,  90 deg   odometry and ArUco")
+print("  camera_hires_link        1024x768  front, 60 deg   scanning")
+print("  camera_track_front_link  1280x800  front, 90 deg   odometry")
+print("  camera_track_rear_link   1280x800  rear,  90 deg   odometry")
+print("  camera_track_down_link   1280x800  down,  90 deg   odometry and ArUco")
 print("  OdometryPublisher         plugin   VIO simulation")
 print("  tof_link                  PMD TOF, 106x86 deg, 5 m, 32x8 rays")
 print()

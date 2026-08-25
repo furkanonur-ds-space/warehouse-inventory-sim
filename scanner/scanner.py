@@ -870,6 +870,35 @@ async def goto_waypoint(drone, index, total, x, y, z, yaw_deg):
     return False
 
 
+def save_inventory(reached, planned):
+    """
+    Write the inventory, without destroying what is already there.
+
+    Opening the target with "w" truncates it before anything is written, so a
+    failure at that moment leaves nothing at all. One run ended exactly that
+    way: the summary printed, the file was emptied, and the process was killed
+    by the kernel before the write completed. 258 decoded codes went with it.
+
+    Writing beside the target and renaming means the previous file survives
+    until a complete one replaces it, and rename is atomic.
+    """
+    payload = {
+        "scan_date": datetime.now().isoformat(timespec="seconds"),
+        "sensor_configuration": "C27, single front-facing scanning camera",
+        "localization": "visual odometry, no GPS",
+        "total_detected": len(inventory),
+        "waypoints_completed": f"{reached}/{planned}",
+        "marker_corrections": marker_events,
+        "final_drift_offset_m": round(
+            math.hypot(drift_offset["n"], drift_offset["e"]), 3),
+        "items": list(inventory.values()),
+    }
+    tmp = OUTPUT_JSON + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, ensure_ascii=False)
+    os.replace(tmp, OUTPUT_JSON)
+
+
 def write_navigation_report(reached, planned, duration_s):
     """
     Write the navigation side of the run: how well it flew, not what it read.
@@ -1001,6 +1030,10 @@ async def run():
             last_yaw = yaw
         if await goto_waypoint(drone, index, len(route), x, y, z, yaw):
             reached += 1
+        # Save as we go. Runs here have been cut short often enough by the
+        # simulator running out of memory that keeping everything until the
+        # end has already cost one complete scan.
+        save_inventory(reached, len(route))
 
     print("\n" + "=" * 68)
     print("  SCAN COMPLETE")
@@ -1017,18 +1050,7 @@ async def run():
               f"{math.hypot(drift_offset['n'], drift_offset['e']):.3f} m")
     print("=" * 68)
 
-    with open(OUTPUT_JSON, "w", encoding="utf-8") as handle:
-        json.dump({
-            "scan_date": datetime.now().isoformat(timespec="seconds"),
-            "sensor_configuration": "C27, single front-facing scanning camera",
-            "localization": "visual odometry, no GPS",
-            "total_detected": len(inventory),
-            "waypoints_completed": f"{reached}/{len(route)}",
-            "marker_corrections": marker_events,
-            "final_drift_offset_m": round(
-                math.hypot(drift_offset["n"], drift_offset["e"]), 3),
-            "items": list(inventory.values()),
-        }, handle, indent=2, ensure_ascii=False)
+    save_inventory(reached, len(route))
     print(f"\n[INFO] Inventory written to {OUTPUT_JSON}")
 
     write_navigation_report(reached, len(route), time.time() - mission_start)

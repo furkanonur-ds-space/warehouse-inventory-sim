@@ -37,7 +37,18 @@
   "spawn_x": -8.5,
   "spawn_y": -9.0,
 
-  "shelf_standoff": 0.80,
+  "_standoff_note": [
+    "TEMPORARY, for the centre-of-aisle experiment. 0.80 is the working value",
+    "and should be restored afterwards.",
+    "",
+    "1.20 puts the vehicle on the aisle centre line, equidistant from both",
+    "faces, which is what reading both shelves in one pass would require. With",
+    "the real 1024x768 hires stream that is 2.07 px per module against a rule",
+    "of thumb of 3, so the arithmetic says no. The pipeline crops to the code,",
+    "thresholds locally and retries at 3x, and it has beaten that rule before,",
+    "so it is worth measuring rather than asserting."
+  ],
+  "shelf_standoff": 1.20,
 
   "_ground_offset_note": [
     "How far base_link, and therefore the camera, rests above the floor when",
