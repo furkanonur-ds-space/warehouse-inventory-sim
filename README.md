@@ -155,7 +155,7 @@ geometry with synthetic frames and a known injected error, with no simulator,
 and is what found it.
 
 ```sh
-python3 test_drift_correction.py
+../.venv/bin/python test_drift_correction.py
 ```
 
 ## Naming
@@ -167,28 +167,114 @@ are deliberately distinct now, and `setup_px4.sh` touches nothing else.
 
 ## Setup
 
-Requires Ubuntu 22.04, PX4 Autopilot (SITL), Gazebo Harmonic, and Python 3.10
-with `mavsdk`, `opencv-python`, `numpy`, `qrcode`, `python-barcode` and `PyYAML`.
+Requires Ubuntu, PX4 Autopilot (SITL) built at `~/PX4-Autopilot`, and Gazebo
+Harmonic with its Python bindings (`python3-gz-transport13`,
+`python3-gz-msgs10`, from the Gazebo apt repository).
+
+### 1. A virtualenv for the project
 
 ```sh
-./setup_px4.sh
+python3 -m venv --system-site-packages .venv
+.venv/bin/pip install mavsdk opencv-python qrcode python-barcode PyYAML numpy
+```
+
+`--system-site-packages` is not optional. The Gazebo Python bindings are
+installed by apt and are not on PyPI, so a sealed virtualenv cannot see them
+and every tool that reads a camera or a pose fails at import.
+
+`opencv-python` is also not optional, even where apt has already put OpenCV on
+the machine. Ubuntu ships 4.6, which has neither `cv2.aruco.generateImageMarker`
+nor `cv2.aruco.ArucoDetector`: the world generator cannot draw the floor
+markers and the scanner cannot detect them. The pip build shadows the system
+one inside the virtualenv and leaves the rest of the machine alone.
+
+### 2. Install into PX4
+
+```sh
+PYTHON="$PWD/.venv/bin/python" ./setup_px4.sh
 ```
 
 That generates the world and its 873 label textures, installs them into the PX4
 tree, builds the vehicle model, and registers the airframe. Safe to re-run.
+`PYTHON` overrides the interpreter it uses; without it the script looks for one
+at a path that only exists on the machine it was written on.
+
+### 3. Reconfigure PX4 once
+
+```sh
+cd ~/PX4-Autopilot/build/px4_sitl_default && cmake .
+```
+
+Do this after the first `setup_px4.sh`, and again any time an airframe file is
+added or removed. PX4 builds its `gz_<model>_<world>` make targets from a
+`file(GLOB ...)` over the airframes directory, and a glob is evaluated when
+CMake configures, not when make runs. A newly registered airframe is invisible
+until something makes CMake configure again, and the symptom is
+`No rule to make target 'gz_x500_c27_warehouse'` after a build that otherwise
+succeeded.
 
 ## Running
 
 ```sh
 # Terminal 1
 cd ~/PX4-Autopilot
-export HEADLESS=1
-export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA   # see below, worth 6x
+export HEADLESS=1                               # drop this to watch the scene
+export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA   # WSL only, see below, worth 6x
 export PX4_GZ_MODEL_POSE="-8.5,-9,0.30,0,0,0"
 make px4_sitl gz_x500_c27_warehouse
 ```
 
+Wait for `INFO [commander] Ready for takeoff!` before starting the scan.
+
+`HEADLESS=1` starts the server with no window. Everything still renders -
+the cameras are sensors, not a display - and a scan runs faster without the
+viewport competing for the GPU. Note that `export` outlives the command: a
+shell that has set it once keeps it set, and `unset HEADLESS` is what turns the
+window back on.
+
+```sh
+# Terminal 2
+bash scripts/scan_logged.sh
+```
+
+That is the flight, with the console and a position track written to disk as
+it goes. See "Logging a run" below for what it leaves behind. The scan itself
+is `scanner/scanner.py`, which can be run directly if a recording is not
+wanted:
+
+```sh
+cd scanner
+GZ_IP=127.0.0.1 ../.venv/bin/python verify_setup.py   # checks the GPS-free claim live
+GZ_IP=127.0.0.1 ../.venv/bin/python -u scanner.py
+```
+
+`GZ_IP=127.0.0.1` matters. PX4 launches the simulator with it set, and a
+process that subscribes without it can find some topics and silently miss
+others - a camera that is publishing at 10 Hz reads as dead. `-u` keeps the
+console unbuffered; without it a forty minute flight prints nothing until it
+ends. `scan_logged.sh` sets both.
+
+Output goes to `out/inventory_scanned.json` and `out/navigation_report.json`.
+
+`scanner.py` does not exit after it lands. It writes both files, calls land,
+and the process stays up; Ctrl-C once `SCAN COMPLETE` and `[INFO] Landing` have
+printed. Leave the simulator running only if another scan is coming - a PX4
+still alive from a previous run refuses the next one with `PX4 server already
+running for instance 0`.
+
+Do not run a second MAVLink client while a scan is in the air. PX4 counts each
+connection as a ground station, and one that appears and disappears produces
+`Connection to ground station lost` and a preflight failure in the middle of a
+flight. Run `verify_setup.py` before the scan, not beside it.
+
 ### Pick the right GPU
+
+This section is about WSL. On a native Linux install with PRIME set to the
+discrete card, `MESA_D3D12_DEFAULT_ADAPTER_NAME` does nothing: there is no
+D3D12 layer to steer, `glxinfo -B` already names the discrete GPU, and the
+`libEGL warning: failed to create dri2 screen` lines Gazebo prints there are
+noise from Mesa not recognising the card, after which the vendor EGL takes
+over and the cameras render normally.
 
 On a laptop with both an integrated and a discrete GPU, Mesa under WSL picks
 the integrated one, and Gazebo renders four cameras on it. Naming the discrete
@@ -215,14 +301,6 @@ Both GPUs are real; one is simply much faster than the other.
 More CPU does not help. Gazebo sat between 130 and 180 percent across this
 measurement, so it was not short of the eight processors WSL is given.
 
-```sh
-# Terminal 2
-cd scanner
-python3 verify_setup.py     # checks the GPS-free claim against the running system
-python3 scanner.py
-```
-
-Output goes to `out/inventory_scanned.json`.
 
 ## Reports
 
@@ -232,10 +310,10 @@ import from `scanner/`. They can be run on a different machine from the one
 that flew, and a broken report cannot break a scan.
 
 ```sh
-python3 report/validate_inventory.py --list-worst 5
-python3 report/coverage_report.py --html out/coverage.html
-python3 report/view_inventory.py
-python3 report/drift_report.py --html out/drift.html
+.venv/bin/python report/validate_inventory.py --list-worst 5 --list-missed
+.venv/bin/python report/coverage_report.py --html out/coverage.html
+.venv/bin/python report/view_inventory.py
+.venv/bin/python report/drift_report.py --html out/drift.html
 ```
 
 | Tool | Answers | Writes |
@@ -333,6 +411,50 @@ has already sent one diagnosis down the wrong path.
 `out/synthetic_demo/` holds a set of reports built from a fabricated scan, so
 the output can be seen without waiting on a 45 minute flight. Nothing in it is
 a measurement of anything.
+
+## When it does not start
+
+Each of these cost real time, and none of them says what it means.
+
+**`No rule to make target 'gz_x500_c27_warehouse'`** after a build that
+otherwise finished. The make targets come from a glob over the airframes
+directory, evaluated when CMake configures. Reconfigure:
+`cd ~/PX4-Autopilot/build/px4_sitl_default && cmake .`
+
+**CMake configure fails with `add_custom_target cannot create target
+"gz_x500_scanner" because another target with the same name already exists`.**
+Two airframe files in the PX4 tree reduce to the same model name - the target
+name is everything after `_gz_`, so `4022_gz_x500_scanner` and
+`4023_gz_x500_scanner` collide and the whole configure aborts, taking every
+other target with it. Remove the one nothing installs any more, and delete its
+line from `airframes/CMakeLists.txt`. This is what the naming rule above exists
+to prevent.
+
+**`PX4 server already running for instance 0`.** A PX4 from an earlier run is
+still alive, usually because `scanner.py` never exited and neither did the
+simulator around it. `pgrep -af "px4|gz sim"`, then `pkill -9 -f "gz sim"` and
+kill the px4 process.
+
+**`commander check` prints FAILED, and MAVSDK reports `is_armable: False`.**
+Indoors with GPS disabled there is no global position, so no home position is
+ever set, and both of those report a failure on that basis. Neither blocks the
+flight: the scan arms through offboard mode and flies. Look at
+`Ready for takeoff!` and at whether the vehicle actually leaves the ground,
+not at these two.
+
+**`ERROR [param] Parameter SIM_GZ_EN_ODOM not found`** at startup. Harmless on
+PX4 v1.16.2, which has no such parameter: `gz_bridge` subscribes to the model's
+odometry unconditionally. Visual odometry working is confirmed by
+`is_local_position_ok`, not by this line.
+
+**A Gazebo topic reads as empty although it is publishing.** Set
+`GZ_IP=127.0.0.1`. Without it discovery is unreliable and a subscriber can miss
+topics entirely - a camera at 10 Hz and a barometer at 44 Hz both read as dead
+here, which looked exactly like a broken sensor for about an hour.
+
+**`vehicle_imu timestamp error` and `Preflight Fail: No valid data from Baro 0`**
+in the first seconds. These clear as the simulator comes up. They matter only
+if they keep repeating after `Ready for takeoff!`.
 
 ## Known issues
 
