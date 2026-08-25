@@ -149,14 +149,35 @@ last_correction_time = [0.0]
 # anything inside this band is closer than the airframe should ever be to a
 # shelf it is scanning at SHELF_STANDOFF.
 CLEARANCE_ALARM_M = 0.40
+# How far the vehicle travels between clearance checks, and how far it turns to
+# make one. Facing a shelf puts the direction of travel 90 degrees off the
+# nose; the TOF cone reaches 53 degrees, so 50 degrees of turn brings the aisle
+# ahead inside it with room to spare. The interval comes from the sensor's 5 m
+# range less a margin, so nothing between checks goes unseen.
+TOF_LOOK_EVERY_M = 4.0
+TOF_LOOK_TURN_DEG = 50.0
+# A clearance below this during a look is an obstacle in the aisle rather than
+# the shelf being scanned, which sits at SHELF_STANDOFF.
+OBSTACLE_M = 2.0
 # Only rays this far from level count as looking ahead. The cone is 86 degrees
 # tall and its lower half always finds the floor; see nearest_ahead.
 TOF_BAND_DEG = 10.0
 # Anything nearer than this is the vehicle's own structure, measured at 0.101 m
 # on rotor arms with the sensor's minimum range at 0.1 m.
 TOF_SELF_M = 0.25
-clearance = {"min_m": float("inf"), "samples": 0, "alarms": 0,
-             "in_alarm": False, "alarm_positions": []}
+clearance = {"min_m": float("inf"), "last_m": float("inf"), "samples": 0,
+             "alarms": 0, "in_alarm": False, "alarm_positions": []}
+
+# Set while the vehicle is turned away from the shelf to check the aisle. The
+# scanning camera is pointing somewhere its depth assumption does not hold, so
+# frames are ignored rather than turned into positions.
+scanning_paused = False
+
+# Stretches of a leg that could not be scanned, with the reason.
+coverage_gaps = []
+
+# Obstacles the clearance checks found, with where along which leg.
+obstacle_hits = []
 
 qr_detector = cv2.QRCodeDetector()
 aruco_detector = cv2.aruco.ArucoDetector(
@@ -405,6 +426,11 @@ def on_hires_image(msg):
     try:
         img = np.frombuffer(msg.data, dtype=np.uint8).reshape(
             (msg.height, msg.width, 3))
+        if scanning_paused:
+            # Turned away to check the aisle. The depth assumption behind every
+            # position estimate is that the camera faces the shelf it is
+            # scanning, and right now it does not.
+            return
         # Capture pose BEFORE decoding, because decoding takes time and drone moves!
         # Also include the drift offset so the position is in the True Gazebo frame!
         pose = (current_pos["n"] + drift_offset["n"], 
@@ -586,7 +612,9 @@ def on_tof_scan(msg):
     try:
         nearest = nearest_ahead(msg)
         if nearest is None:
+            clearance["last_m"] = float("inf")
             return
+        clearance["last_m"] = nearest
         clearance["samples"] += 1
         if nearest < clearance["min_m"]:
             clearance["min_m"] = nearest
@@ -769,6 +797,59 @@ async def hold_heading(drone, yaw_deg):
         elapsed += 0.1
 
 
+async def look_ahead(drone, hold_n, hold_e, hold_d, scan_yaw, travel_yaw):
+    """
+    Turn far enough to see down the aisle, read the TOF, and turn back.
+
+    The vehicle scans a shelf face with its nose on the shelf, which leaves the
+    way it is travelling 90 degrees off the sensor. That is the whole reason
+    this exists: a fixed forward TOF is blind along the path unless the vehicle
+    looks. It is the C27 arrangement rather than a simulation artefact, so the
+    real aircraft has to do the same thing.
+
+    The turn is 50 degrees, not 90. The cone is 106 degrees wide, so half of it
+    reaches 53 degrees from the nose, and 50 degrees of turn brings the aisle
+    ahead inside it. Turning the full 90 would cost nearly twice as long for no
+    extra coverage.
+
+    Returns the nearest range seen, or None if nothing answered.
+    """
+    global scanning_paused
+    delta = (travel_yaw - scan_yaw + 180) % 360 - 180
+    look_yaw = scan_yaw + math.copysign(TOF_LOOK_TURN_DEG, delta)
+
+    # Decoding is suspended for the turn. Facing partly down the aisle, the
+    # camera can catch a box on a far bay, and record_detection would place it
+    # using SHELF_STANDOFF as its depth, which is only true of the shelf being
+    # scanned. A wrong position is worse than a missed one; the box gets read
+    # properly on its own pass.
+    scanning_paused = True
+    seen = []
+
+    def sample():
+        if math.isfinite(clearance["last_m"]):
+            seen.append(clearance["last_m"])
+
+    for yaw in (look_yaw, scan_yaw):
+        steps = max(1, int(abs(TOF_LOOK_TURN_DEG) / 30.0 / 0.1))
+        for i in range(steps):
+            f = (i + 1) / steps
+            here = (scan_yaw + (yaw - scan_yaw) * f if yaw == look_yaw
+                    else look_yaw + (yaw - look_yaw) * f)
+            await send_setpoint(drone, hold_n, hold_e, hold_d, here)
+            sample()
+            await asyncio.sleep(0.1)
+        # Hold briefly at each end so the sensor reports from a settled pose
+        for _ in range(3):
+            await send_setpoint(drone, hold_n, hold_e, hold_d, yaw)
+            sample()
+            await asyncio.sleep(0.1)
+
+    scanning_paused = False
+    pending.clear()          # drop anything the callback queued while turned
+    return min(seen) if seen else None
+
+
 async def goto_waypoint(drone, index, total, x, y, z, yaw_deg):
     """
     Fly to a waypoint using a moving setpoint that advances at a constant rate.
@@ -805,6 +886,7 @@ async def goto_waypoint(drone, index, total, x, y, z, yaw_deg):
           f"heading {yaw_deg:+.0f}  {leg_length:.1f} m  {kind} at {speed} m/s")
 
     dt = 0.1
+    last_look_m = 0.0
     travelled = 0.0
     elapsed = 0.0
     max_time = leg_length / speed + TIMEOUT_MARGIN
@@ -819,8 +901,27 @@ async def goto_waypoint(drone, index, total, x, y, z, yaw_deg):
         fraction = 1.0 if leg_length == 0 else travelled / leg_length
         cn, ce = corrected(start_n + (target_n - start_n) * fraction,
                            start_e + (target_e - start_e) * fraction)
-        await send_setpoint(drone, cn, ce,
-                            start_d + (target_d - start_d) * fraction, yaw_deg)
+        cd = start_d + (target_d - start_d) * fraction
+
+        # Check the way ahead every TOF_LOOK_EVERY_M. Only on a pass along a
+        # shelf: a climb between levels covers no ground and the nose is
+        # already pointing where it will be.
+        if (not is_climb and travelled < leg_length
+                and travelled - last_look_m >= TOF_LOOK_EVERY_M):
+            last_look_m = travelled
+            travel_yaw = math.degrees(math.atan2(target_e - start_e,
+                                                 target_n - start_n))
+            nearest = await look_ahead(drone, cn, ce, cd, yaw_deg, travel_yaw)
+            if nearest is not None and nearest < OBSTACLE_M:
+                print(f"           OBSTACLE ahead at {nearest:.2f} m, "
+                      f"{travelled:.1f} m into the leg")
+                obstacle_hits.append({
+                    "waypoint": index,
+                    "into_leg_m": round(travelled, 1),
+                    "clearance_m": round(nearest, 2),
+                })
+
+        await send_setpoint(drone, cn, ce, cd, yaw_deg)
         await poll_camera()
 
         alt_samples.append(-current_pos["d"] - z)
