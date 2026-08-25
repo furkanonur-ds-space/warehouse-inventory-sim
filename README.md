@@ -224,6 +224,60 @@ python3 scanner.py
 
 Output goes to `out/inventory_scanned.json`.
 
+## Reports
+
+Four tools in `report/` score a finished scan and draw it. They read the JSON
+a run leaves behind and nothing else: no simulator, no ROS, no MAVSDK, and no
+import from `scanner/`. They can be run on a different machine from the one
+that flew, and a broken report cannot break a scan.
+
+```sh
+python3 report/validate_inventory.py --list-worst 5
+python3 report/coverage_report.py --html out/coverage.html
+python3 report/view_inventory.py
+python3 report/drift_report.py --html out/drift.html
+```
+
+| Tool | Answers | Writes |
+|---|---|---|
+| `validate_inventory.py` | is the right product recorded in the right location, and how far out are the positions | `out/validation_report.json` |
+| `coverage_report.py` | which parts of the warehouse the run actually covered, down to the bay | `out/coverage_report.json`, `out/coverage.html` |
+| `view_inventory.py` | does every product sit in its rack, seen in 3D | `out/inventory_3d.html` |
+| `drift_report.py` | how far the estimate wandered and whether the correction pulled it back | `out/drift_report.json`, `out/drift.html` |
+
+Both HTML reports and the 3D view are single self-contained files with no
+external asset, so they open offline and survive being mailed to someone. The
+3D view embeds a small perspective renderer for the same reason: a three.js
+from a CDN would show a blank page without a network.
+
+The headline number is inventory accuracy, not position error. A record counts
+as correct when its payload exists in ground truth and the shelf face, level
+and bay it was filed under are the right ones. Position error is reported in
+metres beside it but stays out of that definition: a few centimetres that
+leave the box in its own bay have not misfiled anything. The two are kept
+apart because the scanner snaps each estimate to the nearest shelf face and
+flight altitude, so much of the residual error is the gap between a flight
+altitude and where the label sits inside that level - real, measurable, and
+not a filing mistake.
+
+`report/warehouse_model.py` holds what the tools share. It is the only place
+that reads `warehouse.yaml`, and it applies the same `world_yaw` rotation
+`gen_world.py` applies on the way out: the yaml is written in the generator's
+own frame, so a rack position read straight out of it is not where that rack
+is in the world. Ground truth and the scanner's estimates are both already in
+world coordinates and are compared directly.
+
+The scanner names a shelf face and a level but not a bay, so the bay each
+record was filed under is read back out of the position it wrote. That keeps
+these tools pure consumers - scoring a run needs no change to `scanner.py`.
+
+Ground truth is read here for MEASUREMENT ONLY, and by these tools only. It
+never enters an estimate; `scanner.py` does not open the file.
+
+`out/synthetic_demo/` holds a set of reports built from a fabricated scan, so
+the output can be seen without waiting on a 45 minute flight. Nothing in it is
+a measurement of anything.
+
 ## Known issues
 
 **Gazebo memory growth.** `gz sim` grows with every rendered frame. A 48
