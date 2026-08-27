@@ -1,0 +1,29 @@
+{
+  "inventory": "/home/coban/Desktop/warehouse-inventory-sim/out/inventory_scanned.json",
+  "scan_date": "2026-08-27T10:32:37",
+  "records": {
+    "total_in_file": 428,
+    "scored": 428
+  },
+  "detected": 428,
+  "total_ground_truth": 432,
+  "detection_rate_pct": 99.1,
+  "missed": 4,
+  "duplicate_id": 0,
+  "duplicate_spatial": 0,
+  "unknown_payload": 0,
+  "wrong_shelf": 0,
+  "wrong_level": 0,
+  "wrong_bay": 0,
+  "correct_records": 428,
+  "inventory_accuracy_pct": 100.0,
+  "accuracy_target_pct": 95.0,
+  "position_error": {
+    "median_m": 0.056,
+    "mean_m": 0.055,
+    "p95_m": 0.072,
+    "max_m": 0.096,
+    "within_10cm_pct": 100.0,
+    "within_25cm_pct": 100.0
+  }
+}

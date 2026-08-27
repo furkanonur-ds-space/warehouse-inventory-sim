@@ -1,0 +1,96 @@
+{
+  "source": "/home/coban/Desktop/warehouse-inventory-sim/out/inventory_scanned.json",
+  "scan_date": "2026-08-27T10:32:37",
+  "drift_at_fix": {
+    "samples": 618,
+    "median_m": 0.035,
+    "mean_m": 0.058,
+    "p95_m": 0.195,
+    "max_m": 0.367
+  },
+  "final_offset_m": 0.033,
+  "direction_bias_m": {
+    "n": 0.0,
+    "e": 0.002,
+    "magnitude_m": 0.002
+  },
+  "convergence": {
+    "offset_tail_mean_m": 0.023,
+    "drift_median_m": 0.035,
+    "converged": true
+  },
+  "per_marker": [
+    {
+      "id": 1,
+      "x": -8.5,
+      "y": -9.0,
+      "fixes": 81,
+      "median_m": 0.028,
+      "max_m": 0.29
+    },
+    {
+      "id": 2,
+      "x": -8.5,
+      "y": 9.0,
+      "fixes": 81,
+      "median_m": 0.038,
+      "max_m": 0.306
+    },
+    {
+      "id": 3,
+      "x": -3.9,
+      "y": -9.0,
+      "fixes": 76,
+      "median_m": 0.034,
+      "max_m": 0.198
+    },
+    {
+      "id": 4,
+      "x": -3.9,
+      "y": 9.0,
+      "fixes": 82,
+      "median_m": 0.037,
+      "max_m": 0.199
+    },
+    {
+      "id": 5,
+      "x": 0.7,
+      "y": -9.0,
+      "fixes": 65,
+      "median_m": 0.032,
+      "max_m": 0.356
+    },
+    {
+      "id": 6,
+      "x": 0.7,
+      "y": 9.0,
+      "fixes": 83,
+      "median_m": 0.041,
+      "max_m": 0.367
+    },
+    {
+      "id": 7,
+      "x": 5.3,
+      "y": -9.0,
+      "fixes": 67,
+      "median_m": 0.032,
+      "max_m": 0.294
+    },
+    {
+      "id": 8,
+      "x": 5.3,
+      "y": 9.0,
+      "fixes": 83,
+      "median_m": 0.038,
+      "max_m": 0.274
+    }
+  ],
+  "markers_total": 8,
+  "markers_unseen": [],
+  "mission_duration_s": 1469.8,
+  "waypoints": {
+    "planned": 48,
+    "reached": 48,
+    "success_rate": 1.0
+  }
+}

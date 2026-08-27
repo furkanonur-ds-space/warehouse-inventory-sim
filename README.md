@@ -175,7 +175,7 @@ Harmonic with its Python bindings (`python3-gz-transport13`,
 
 ```sh
 python3 -m venv --system-site-packages .venv
-.venv/bin/pip install mavsdk opencv-python qrcode python-barcode PyYAML numpy
+.venv/bin/pip install mavsdk opencv-python qrcode python-barcode PyYAML numpy pyzbar
 ```
 
 `--system-site-packages` is not optional. The Gazebo Python bindings are
@@ -304,7 +304,7 @@ measurement, so it was not short of the eight processors WSL is given.
 
 ## Reports
 
-Four tools in `report/` score a finished scan and draw it. They read the JSON
+Five tools in `report/` score a finished scan and draw it. They read the JSON
 a run leaves behind and nothing else: no simulator, no ROS, no MAVSDK, and no
 import from `scanner/`. They can be run on a different machine from the one
 that flew, and a broken report cannot break a scan.
@@ -314,14 +314,29 @@ that flew, and a broken report cannot break a scan.
 .venv/bin/python report/coverage_report.py --html out/coverage.html
 .venv/bin/python report/view_inventory.py
 .venv/bin/python report/drift_report.py --html out/drift.html
+.venv/bin/python report/missed_log.py
+```
+
+Or all five at once, after a scan has landed:
+
+```sh
+bash scripts/make_reports.sh
 ```
 
 | Tool | Answers | Writes |
 |---|---|---|
-| `validate_inventory.py` | is the right product recorded in the right location, and how far out are the positions | `out/validation_report.json` |
+| `validate_inventory.py` | is the right product recorded in the right location, and how far out are the positions | `out/validation_report.json`, `out/position_offsets.csv` |
 | `coverage_report.py` | which parts of the warehouse the run actually covered, down to the bay | `out/coverage_report.json`, `out/coverage.html` |
-| `view_inventory.py` | does every product sit in its rack, how far each estimate drifted, and what the boxes that were never decoded look like | `out/inventory_3d.html` |
+| `view_inventory.py` | does every product sit in its rack, how far each estimate shifted from where the box really is, and what the boxes that were never decoded look like | `out/inventory_3d.html` |
 | `drift_report.py` | how far the estimate wandered and whether the correction pulled it back | `out/drift_report.json`, `out/drift.html` |
+| `missed_log.py` | which boxes go undecoded, and whether it is the same ones every run | `out/missed_boxes.jsonl` |
+
+`missed_log.py` is the one report that accumulates. Every other tool
+overwrites its output with the current run; this one appends to a single file
+that holds nothing but misses, one line per box per run, so a box that fails
+every flight can be told apart from one that failed once. Running it twice on
+the same scan changes nothing unless `--force` is given, and past runs can be
+folded in with `--inventory docs/runs/<date>/inventory_scanned.json`.
 
 Both HTML reports and the 3D view are single self-contained files with no
 external asset, so they open offline and survive being mailed to someone. The
@@ -347,6 +362,15 @@ draw at generation time, and re-rolling it here would be a second
 implementation of the same decision. `validate_inventory.py --list-missed`
 prints the same properties as a table, and says whether the misses share
 anything against the warehouse as a whole.
+
+Every scored box appears twice in the 3D view: a plain hollow marker at the
+position ground truth gives for its label, and the coloured dot the scan
+produced, with a line between them. That line is the shift, and it is drawn for
+all of them by default - `v` raises the threshold when the picture gets busy.
+The same thing as data is `out/position_offsets.csv`, one row per box, worst
+first: both positions and the signed difference on each axis. The summary says
+how large the error is; the per-axis columns are the only place a systematic
+lean can be told apart from scatter.
 
 The headline number is inventory accuracy, not position error. A record counts
 as correct when its payload exists in ground truth and the shelf face, level
@@ -416,6 +440,36 @@ rewrites it.
 `out/synthetic_demo/` holds a set of reports built from a fabricated scan, so
 the output can be seen without waiting on a 45 minute flight. Nothing in it is
 a measurement of anything.
+
+## Barcode, live
+
+Every box carries a CODE128 bay placard under its QR label. `perception/` reads
+those placards in its own process, beside a flight or afterwards on saved
+frames:
+
+```sh
+.venv/bin/pip install pyzbar
+.venv/bin/python perception/barcode_scanner.py               # live, with a window
+.venv/bin/python perception/barcode_scanner.py --headless    # no window
+.venv/bin/python perception/barcode_scanner.py --replay out/frames
+```
+
+The window shows the camera stream with every decoded code outlined: green for
+a box QR, blue for a placard, and the placard's label says which box it was
+tied to. `q` closes it, `s` saves the frame as drawn.
+
+Nothing in `scanner/` is touched, imported or written to. This is a second
+subscriber on a camera topic Gazebo is already publishing, so it can be started
+and stopped at any point in a flight and a crash in it cannot reach the scan.
+It does cost CPU beside the simulator; `--headless` is the cheap way to run it
+during a long scan.
+
+A placard payload names a SLOT, not a box: `A0303` is carried by all three
+boxes in that bay. Each reading is therefore linked to the QR directly above it
+in the same frame, using the label geometry from `warehouse/gen_labels.py`, and
+what the tool reports is whether the placard agrees with the slot the QR was
+filed under. Results go to `out/barcode_readings.jsonl` (every reading) and
+`out/barcode_inventory.json` (one record per box).
 
 ## When it does not start
 

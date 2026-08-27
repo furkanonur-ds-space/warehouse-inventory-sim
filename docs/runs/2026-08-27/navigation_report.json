@@ -1,0 +1,35 @@
+{
+  "report_date": "2026-08-27T10:32:37",
+  "world": "warehouse",
+  "mission_duration_s": 1469.8,
+  "waypoints": {
+    "planned": 48,
+    "reached": 48,
+    "success_rate": 1.0
+  },
+  "localization_error_m": {
+    "median": 0.035,
+    "p95": 0.197,
+    "max": 0.367,
+    "samples": 618,
+    "source": "ArUco marker fix versus estimator at the sighting"
+  },
+  "maximum_drift_m": 0.367,
+  "final_drift_offset_m": 0.033,
+  "marker_correction_count": 618,
+  "markers_seen": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+  ],
+  "minimum_obstacle_distance_m": 0.621,
+  "clearance_samples": 20693,
+  "clearance_alarm_threshold_m": 0.4,
+  "clearance_alarms": 0,
+  "clearance_alarm_positions": []
+}
