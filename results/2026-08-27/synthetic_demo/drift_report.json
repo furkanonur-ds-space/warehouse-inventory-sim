@@ -1,0 +1,96 @@
+{
+  "source": "out/synthetic_demo/inventory_scanned.json",
+  "scan_date": "2026-08-25T11:53:40",
+  "drift_at_fix": {
+    "samples": 614,
+    "median_m": 0.042,
+    "mean_m": 0.042,
+    "p95_m": 0.075,
+    "max_m": 0.097
+  },
+  "final_offset_m": 0.056,
+  "direction_bias_m": {
+    "n": 0.03,
+    "e": 0.02,
+    "magnitude_m": 0.036
+  },
+  "convergence": {
+    "offset_tail_mean_m": 0.041,
+    "drift_median_m": 0.042,
+    "converged": true
+  },
+  "per_marker": [
+    {
+      "id": 1,
+      "x": -8.5,
+      "y": -9.0,
+      "fixes": 77,
+      "median_m": 0.045,
+      "max_m": 0.097
+    },
+    {
+      "id": 2,
+      "x": -8.5,
+      "y": 9.0,
+      "fixes": 77,
+      "median_m": 0.043,
+      "max_m": 0.079
+    },
+    {
+      "id": 3,
+      "x": -3.9,
+      "y": -9.0,
+      "fixes": 77,
+      "median_m": 0.043,
+      "max_m": 0.094
+    },
+    {
+      "id": 4,
+      "x": -3.9,
+      "y": 9.0,
+      "fixes": 77,
+      "median_m": 0.042,
+      "max_m": 0.09
+    },
+    {
+      "id": 5,
+      "x": 0.7,
+      "y": -9.0,
+      "fixes": 77,
+      "median_m": 0.045,
+      "max_m": 0.089
+    },
+    {
+      "id": 6,
+      "x": 0.7,
+      "y": 9.0,
+      "fixes": 77,
+      "median_m": 0.037,
+      "max_m": 0.079
+    },
+    {
+      "id": 7,
+      "x": 5.3,
+      "y": -9.0,
+      "fixes": 76,
+      "median_m": 0.04,
+      "max_m": 0.096
+    },
+    {
+      "id": 8,
+      "x": 5.3,
+      "y": 9.0,
+      "fixes": 76,
+      "median_m": 0.04,
+      "max_m": 0.086
+    }
+  ],
+  "markers_total": 8,
+  "markers_unseen": [],
+  "mission_duration_s": 2431.7,
+  "waypoints": {
+    "planned": 48,
+    "reached": 48,
+    "success_rate": 1.0
+  }
+}
