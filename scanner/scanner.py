@@ -159,6 +159,8 @@ clearance = {"min_m": float("inf"), "samples": 0, "alarms": 0,
              "in_alarm": False, "alarm_positions": []}
 
 qr_detector = cv2.QRCodeDetector()
+# WeChat locates codes the classic detector never finds; see decode_qr.
+wechat_detector = cv2.wechat_qrcode_WeChatQRCode()
 aruco_detector = cv2.aruco.ArucoDetector(
     cv2.aruco.getPredefinedDictionary(ARUCO_DICT),
     cv2.aruco.DetectorParameters())
@@ -337,12 +339,24 @@ def decode_qr(frame):
     """
     Decode QR codes and report where each one sits in the frame.
 
-    Gazebo renders the white quiet zone of a QR code as mid grey, leaving too
-    little contrast for the decoder to work on the raw frame. Thresholding the
-    whole frame does not help either, because brightness varies across it.
+    WeChat's detector does the finding. The live view told us where the
+    pipeline was losing codes: it draws orange for a code that was located but
+    would not decode, and green for one that read, and there was never any
+    orange. Missed codes were not being located at all.
 
-    The reliable approach is to locate the code first, crop that region, then
-    threshold locally. A 3x upscale is a fallback for codes seen at range.
+    That is not a shortage of pixels. Given the same synthetic label at the
+    size the real 1024x768 stream sees it, cv2.QRCodeDetector failed to find it
+    at every distance from 0.6 m to 1.5 m, including 4.14 px per module, half
+    again over the usual threshold. WeChat read it at all of them, down to
+    1.66 px per module, and QRCodeDetectorAruco managed all but the furthest.
+
+    Reading at the aisle centre depends on this. At 1.20 m from both faces
+    there are 2.07 px per module, which the old detector never found and this
+    one reads.
+
+    The crop, threshold and upscale that follow are kept as a second pass for
+    anything WeChat locates but cannot read: Gazebo renders the white quiet
+    zone as mid grey, and a local threshold recovers the contrast.
 
     Returns a list of (value, centre_x_px, centre_y_px, frame_width,
     frame_height). The pixel position is needed to work out the bearing to the
@@ -352,12 +366,19 @@ def decode_qr(frame):
     results = []
     frame_h, frame_w = frame.shape[:2]
     try:
-        ok, points = qr_detector.detectMulti(frame)
-        if not ok or points is None:
-            ok_single, points_single = qr_detector.detect(frame)
-            if not ok_single or points_single is None:
-                return results
-            points = points_single
+        values, points = wechat_detector.detectAndDecode(frame)
+        for value, quad in zip(values, points):
+            if value:
+                p = np.asarray(quad)
+                results.append((value, float(p[:, 0].mean()),
+                                float(p[:, 1].mean()), frame_w, frame_h))
+        if len(results) == len(points) and results:
+            return results
+
+        # Anything WeChat located but could not read gets the local threshold.
+        points = [np.asarray(q) for v, q in zip(values, points) if not v]
+        if not points:
+            return results
 
         for quad in points:
             p = quad.astype(int)
