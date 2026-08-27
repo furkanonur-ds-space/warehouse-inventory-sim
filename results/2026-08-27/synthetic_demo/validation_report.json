@@ -1,0 +1,29 @@
+{
+  "inventory": "out/synthetic_demo/inventory_scanned.json",
+  "scan_date": "2026-08-25T11:53:40",
+  "records": {
+    "total_in_file": 426,
+    "scored": 426
+  },
+  "detected": 426,
+  "total_ground_truth": 432,
+  "detection_rate_pct": 98.6,
+  "missed": 6,
+  "duplicate_id": 0,
+  "duplicate_spatial": 1,
+  "unknown_payload": 0,
+  "wrong_shelf": 0,
+  "wrong_level": 0,
+  "wrong_bay": 1,
+  "correct_records": 425,
+  "inventory_accuracy_pct": 99.8,
+  "accuracy_target_pct": 95.0,
+  "position_error": {
+    "median_m": 0.06,
+    "mean_m": 0.072,
+    "p95_m": 0.104,
+    "max_m": 1.44,
+    "within_10cm_pct": 90.8,
+    "within_25cm_pct": 99.3
+  }
+}

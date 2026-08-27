@@ -323,6 +323,11 @@ Or all five at once, after a scan has landed:
 bash scripts/make_reports.sh
 ```
 
+`out/` is gitignored: every run rewrites it. A run worth keeping is copied
+whole into `results/<date>/`, which is what `results/2026-08-27/` holds -
+the reports, the raw inventory, the flight track, the consoles and the
+barcode readings, exactly as that flight left them.
+
 | Tool | Answers | Writes |
 |---|---|---|
 | `validate_inventory.py` | is the right product recorded in the right location, and how far out are the positions | `out/validation_report.json`, `out/position_offsets.csv` |
