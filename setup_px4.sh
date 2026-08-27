@@ -21,24 +21,27 @@ AIRFRAMES="$PX4/ROMFS/px4fmu_common/init.d-posix/airframes"
 
 [ -d "$PX4" ] || { echo "PX4 tree not found at $PX4"; exit 1; }
 
-echo "== 1/4  generating the warehouse world =="
+echo "== 1/5  generating the warehouse world =="
 "$PY" "$HERE/warehouse/gen_world.py" \
       --config "$HERE/warehouse/warehouse.yaml" \
       --out "$GEN" >/dev/null
 echo "   world and $(ls "$GEN/gz/models/warehouse_assets/materials/textures" | wc -l) textures generated"
 
-echo "== 2/4  installing world and assets into PX4 =="
+echo "== 2/5  installing world and assets into PX4 =="
 mkdir -p "$PX4_WORLDS" "$PX4_MODELS"
 cp "$GEN/gz/worlds/warehouse.sdf" "$PX4_WORLDS/"
 rm -rf "$PX4_MODELS/warehouse_assets"
 cp -a "$GEN/gz/models/warehouse_assets" "$PX4_MODELS/"
 echo "   $PX4_WORLDS/warehouse.sdf"
 
-echo "== 3/4  building the C27 vehicle model =="
+echo "== 3/5  building the Starling 2 model, not yet flown =="
+"$PY" "$HERE/scanner/build_starling2.py" >/dev/null
+
+echo "== 4/5  building the C27 vehicle model =="
 "$PY" "$HERE/scanner/build_c27_drone.py" >/dev/null
 echo "   $PX4_MODELS/x500_c27"
 
-echo "== 4/4  installing the airframe =="
+echo "== 5/5  installing the airframe =="
 cp "$HERE/scanner/px4_config/4023_gz_x500_c27" "$AIRFRAMES/"
 chmod +x "$AIRFRAMES/4023_gz_x500_c27"
 if grep -q "4023_gz_x500_c27" "$AIRFRAMES/CMakeLists.txt"; then
