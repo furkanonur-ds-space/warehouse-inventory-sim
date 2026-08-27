@@ -14,9 +14,10 @@
 #     world_yaw: -90  ->  (x_c, y_c) -> (x_w, y_w) = (y_c, -x_c)
 #
 # Yani config'teki `aisles[].y_center` doğrudan dünyadaki koridor X merkezi
-# olur (-8.5, -3.9, 0.7, 5.3 -- Furkan'ın marker_map.json'ı ile birebir),
-# config'teki göz ekseni (X) ise dünyada Y boyunca uzar (koridorlar Y'de
-# ilerler, drone bu yönde uçar).
+# olur (-8.500, -4.215, -0.565, 2.450 -- koridorlar daraldığı için artık
+# Furkan'ın eski marker_map.json'ından FARKLI; haritayı gen_world.py
+# yeniden üretiyor), config'teki göz ekseni (X) ise dünyada Y boyunca uzar
+# (koridorlar Y'de ilerler, drone bu yönde uçar).
 #
 # İSTİSNA: `codes.aisle_marker.positions` ve `spawn.pose` zaten DÜNYA
 # koordinatındadır, dönüşümden geçmez. Sebep: ikisi de Furkan'ın dosyalarından
@@ -29,9 +30,14 @@
 #   gerekir; 4+ px rahat bölgedir.
 #   px_per_m(d) = genislik_px / (2 * d * tan(hfov/2))
 #
-#   Koridor merkezinden raf yüzüne mesafe artık 1.5 değil **1.2 m**
-#   (2.4 m net koridor / 2). Yan kameralar 1920x1080, hfov 1.0472:
-#       px_per_m(1.2) = 1920 / (2 * 1.2 * 0.57735) = 1385.6 px/m
+#   Koridor genişliği artık SABİT DEĞİL (bkz. racking.aisles): 2.40 m'den
+#   0.50 m'ye daralıyor, yani okuma mesafesi de koridordan koridora değişiyor.
+#   Bütçeyi belirleyen EN GENİŞ koridordur -- orada kamera raf yüzüne en
+#   uzakta durur. Yan kameralar 1920x1080, hfov 1.0472:
+#       px_per_m(1.2) = 1920 / (2 * 1.2 * 0.57735) = 1385.6 px/m   (koridor 1)
+#   Dar koridorlarda mesafe kısaldığı için modül başına px ARTAR; orada sorun
+#   çözünürlük değil, kadraja sığma (0.25 m'de dikey kadraj 0.16 m, etiket
+#   yığını 0.25 m -- yani koridor 4'te etiket kadraja sığmaz).
 #
 #   DİKKAT: `code` ölçüleri sadece kodun kendisidir, quiet zone (sessiz alan)
 #   hariçtir. Etiketin toplam boyutu `label`dır. Kodu etiket boyutuna
@@ -54,7 +60,8 @@ world_yaw: -90
 building:
   # Raflar binanın ortasında bir ada gibi duruyor, kenarlarda geniş boş alan
   # var: dünyada Y'de raf koşusu ±8.1, duvar ±24.0 -> her uçta 15.9 m;
-  # X'te raf bloğu -10.8..7.6, duvar ±28.0 -> 17.2 ve 20.4 m.
+  # X'te raf bloğu -10.8..3.8 (koridorlar daraldı, blok kısaldı),
+  # duvar ±28.0 -> 17.2 ve 24.2 m.
   # Büyük bir dağıtım merkezinin sevkiyat/mal kabul alanları bu ölçüde olur.
   #
   # DİKKAT: tavan lambası menzili 14 m (lighting.attenuation_range) ve
@@ -89,45 +96,96 @@ racking:
   x_origin: -8.10       # göz ekseninin başlangıcı (dünyada Y = +8.1 ucu)
 
   # ---------------------------------------------------------------------
-  # YERLEŞİM (dünya X'te, Furkan'ın 4.6 m koridor adımına oturtulmuş):
+  # YERLEŞİM -- DARALAN KORİDORLAR (dünya X'te)
   #
-  #   koridor merkezleri : -8.5   -3.9    0.7    5.3      (marker_map.json)
-  #   net koridor        : 2.40 m  (dar koridor / reach-truck sınıfı)
-  #   sırt sırta ada     : 2.20 m  = 2 x 1.10 raf derinliği
-  #   2.40 + 2.20        = 4.60 m  koridor adımı  [OK]
+  # Koridor açıklığı artık sabit değil: ilk koridor 2.40 m, son koridor
+  # 0.50 m, aradakiler doğrusal olarak daralıyor.
   #
-  #   -10.8|A|-9.7   [k1 -8.5]   -7.3|B|-6.2|C|-5.1   [k2 -3.9]
-  #   -2.7|D|-1.6|E|-0.5   [k3 0.7]   1.9|F|3.0|G|4.1   [k4 5.3]   6.5|H|7.6
+  #   w_i = 2.40 - i * (2.40 - 0.50) / 3   ->   2.40  1.77  1.13  0.50
+  #
+  # Ada kalınlığı (2 x 1.10 = 2.20 m) sabit kaldığı için koridor adımı da
+  # daralıyor: 4.60 / 3.97 / 3.33 / 2.70. Yani Furkan'ın eski sabit 4.6 m
+  # adımı ARTIK GEÇERLİ DEĞİL -- koridor merkezleri aşağıdaki `aisles`
+  # listesinden okunmalı.
+  #
+  # Blok, koridor 1'in merkezi -8.50'de KALACAK şekilde çapalandı. Böylece
+  # kalkış noktası (spawn -8.5, -9.0) ve 1/2 numaralı ArUco markörler
+  # yerinde kalıyor; daralma bloğun diğer ucuna doğru birikiyor. Raf bloğu
+  # -10.80 .. 3.80 (eskiden -10.80 .. 7.60), yani 14.60 m; duvar +-28.0.
+  #
+  #   -10.8|A|-9.7   [k1 -8.500, 2.40]   -7.3|B|-6.2|C|-5.1
+  #   [k2 -4.215, 1.77]   -3.33|D|-2.23|E|-1.13
+  #   [k3 -0.565, 1.13]   0.0|F|1.1|G|2.2
+  #   [k4 2.450, 0.50]   2.7|H|3.8
   #
   # 8 taranabilir raf yüzü: 2 dış sıra (A, H) + 3 çift yüzlü ada (BC, DE, FG).
+  #
+  # ARAÇ AÇIKLIĞI (x500 gövde yarı-açıklığı 0.324 m: rotor göbeği 0.174 +
+  # pervane yarıçapı ~0.150). Koridor merkezinde her yana kalan pay:
+  #
+  #   k1 2.40 -> 0.876 m    rahat
+  #   k2 1.77 -> 0.561 m    rahat
+  #   k3 1.13 -> 0.241 m    çok dar; waypoint toleransı 0.40 m'den KÜÇÜK
+  #   k4 0.50 -> -0.074 m   ARAÇ SIĞMIYOR
+  #
+  # Bu bilinçli: drone boyutu değiştirilmedi, koridor onun altına indi.
+  # Koridor 4 uçulamaz bir raf yüzü çifti (G, H) olarak duruyor.
   # ---------------------------------------------------------------------
   rows:
-    - {id: "A", y0: -10.80, facing: +1}   # dış sıra, koridor 1'e bakar
-    - {id: "B", y0:  -7.30, facing: -1}   # ada 1, koridor 1'e bakar
-    - {id: "C", y0:  -6.20, facing: +1}   # ada 1, koridor 2'ye bakar (B ile sırt sırta)
-    - {id: "D", y0:  -2.70, facing: -1}   # ada 2, koridor 2'ye bakar
-    - {id: "E", y0:  -1.60, facing: +1}   # ada 2, koridor 3'e bakar
-    - {id: "F", y0:   1.90, facing: -1}   # ada 3, koridor 3'e bakar
-    - {id: "G", y0:   3.00, facing: +1}   # ada 3, koridor 4'e bakar
-    - {id: "H", y0:   6.50, facing: -1}   # dış sıra, koridor 4'e bakar
+    - {id: "A", y0: -10.80, facing: +1, aisle: 1}   # dış sıra, koridor 1'e bakar
+    - {id: "B", y0:  -7.30, facing: -1, aisle: 1}   # ada 1, koridor 1'e bakar
+    - {id: "C", y0:  -6.20, facing: +1, aisle: 2}   # ada 1, koridor 2'ye bakar (B ile sırt sırta)
+    - {id: "D", y0:  -3.33, facing: -1, aisle: 2}   # ada 2, koridor 2'ye bakar
+    - {id: "E", y0:  -2.23, facing: +1, aisle: 3}   # ada 2, koridor 3'e bakar
+    - {id: "F", y0:   0.00, facing: -1, aisle: 3}   # ada 3, koridor 3'e bakar
+    - {id: "G", y0:   1.10, facing: +1, aisle: 4}   # ada 3, koridor 4'e bakar
+    - {id: "H", y0:   2.70, facing: -1, aisle: 4}   # dış sıra, koridor 4'e bakar
 
+  # `width` net açıklık (iki raf yüzü arası), `y_center` orta çizgi.
+  # Her ikisi de yukarıdaki `rows` ile birebir tutarlı olmak ZORUNDA;
+  # gen_world.py üretim sırasında bunu doğruluyor ve tutmazsa durduruyor.
   aisles:
-    - {id: 1, y_center: -8.50}
-    - {id: 2, y_center: -3.90}
-    - {id: 3, y_center:  0.70}
-    - {id: 4, y_center:  5.30}
+    - {id: 1, y_center: -8.500, width: 2.40}
+    - {id: 2, y_center: -4.215, width: 1.77}
+    - {id: 3, y_center: -0.565, width: 1.13}
+    - {id: 4, y_center:  2.450, width: 0.50}
 
 # --------------------------------------------------------------- kutular
 # Avrupa modüler karton serisi (600x400 mm temel modülünden türetilir --
 # EUR palet üstünde artık alan bırakmadan istiflenen gerçek ölçüler).
 # dims: [X genişlik (göz ekseni), Y derinlik (raf derinliği), Z yükseklik]
 #
-# En dar kutu (S) ön yüzü 400x300 mm; etiket yığını (150 + 90 = 240 mm)
+# KORİDOR DARALMASININ KUTULARA YANSIMASI
+# ---------------------------------------
+# Bir kutu, rafa konabilmek için önce KORİDORDAN geçmek zorunda. Kısıt
+# kutunun en büyük yatay ölçüsü:
+#
+#     max(dx, dy) + aisle_clearance <= koridorun net açıklığı
+#
+# gen_world.py bunu her sıra için o sıranın baktığı koridora göre uyguluyor
+# (rows[].aisle -> aisles[].width), yani dar koridorlardaki raflar kendi
+# kendine küçük kutularla doluyor. 0.15 m payla:
+#
+#   k1 2.40 -> 2.25 m sınır : XS S M L
+#   k2 1.77 -> 1.62 m sınır : XS S M L
+#   k3 1.13 -> 0.98 m sınır : XS S M L
+#   k4 0.50 -> 0.35 m sınır : yalnız XS
+#
+# XS bu yüzden eklendi ve ölçüleri iki alt sınırın arasına sıkışıyor:
+#   dx >= 0.32  konum barkodu 300 mm geniş, ön yüze sığması lazım
+#   dx <= 0.35  koridor 4'ten geçebilmesi lazım
+#   dz >= 0.28  etiket yığını 150 + 10 + 90 = 250 mm
+# Yani koridor 4, üstüne mevcut etiket setini basabileceğimiz EN DAR
+# koridor; daha da daraltmak etiketleri de küçültmeyi gerektirir.
+#
+# En dar kutu (XS) ön yüzü 320x280 mm; etiket yığını (150 + 10 + 90 = 250 mm)
 # oraya 30 mm payla sığıyor -- etiket boyutlarını büyütürken bu kısıta bak.
 boxes:
   fill_probability: 1.00
   per_slot: [3,3]             # 3 x 0.80 = 2.40 m <= 2.70 m göz genişliği
+  aisle_clearance: 0.15       # kutuyu koridordan geçirirken bırakılan pay
   sizes:
+    - {name: "XS", dims: [0.32, 0.26, 0.28]}
     - {name: "S", dims: [0.40, 0.30, 0.30]}
     - {name: "M", dims: [0.60, 0.40, 0.40]}
     - {name: "L", dims: [0.80, 0.60, 0.50]}
@@ -201,15 +259,18 @@ codes:
     #     gen_world.py tam onun biçiminde üretiyor, kopyalaması yeter.
     #   - Y_SOUTH, Y_NORTH = -8.0, 8.0  ->  -9.0, 9.0, yoksa rota
     #     markörlerin üstünden hiç geçmez.
+    #
+    # x'ler koridor merkezleridir ve koridorlar daraldığı için 3..8 numaralı
+    # markörler taşındı (1 ve 2 yerinde: koridor 1 çapalı).
     positions:                # [id, x_dünya, y_dünya]
-      - [1, -8.5, -9.0]
-      - [2, -8.5,  9.0]
-      - [3, -3.9, -9.0]
-      - [4, -3.9,  9.0]
-      - [5,  0.7, -9.0]
-      - [6,  0.7,  9.0]
-      - [7,  5.3, -9.0]
-      - [8,  5.3,  9.0]
+      - [1, -8.500, -9.0]
+      - [2, -8.500,  9.0]
+      - [3, -4.215, -9.0]
+      - [4, -4.215,  9.0]
+      - [5, -0.565, -9.0]
+      - [6, -0.565,  9.0]
+      - [7,  2.450, -9.0]
+      - [8,  2.450,  9.0]
 
 # ------------------------------------------------------------ aydınlatma
 # Tavana asılı lamba ızgarası; her koridorun üstünde bir hat. Barkodun
@@ -226,8 +287,9 @@ lighting:
     height: 6.00
     # config-X (göz ekseni, dünyada Y): 16.2 m koşu boyunca 4 armatür
     x_positions: [-6.75, -2.25, 2.25, 6.75]
-    # config-Y = koridor merkezleri (dünyada X)
-    y_positions: [-8.50, -3.90, 0.70, 5.30]
+    # config-Y = koridor merkezleri (dünyada X); daralan koridorlarla birlikte
+    # armatür hattı da kaydı -- racking.aisles[].y_center ile aynı olmalı.
+    y_positions: [-8.500, -4.215, -0.565, 2.450]
     diffuse: [0.85, 0.85, 0.80, 1.0]
     specular: [0.10, 0.10, 0.10, 1.0]
     attenuation_range: 14.0
@@ -287,7 +349,8 @@ spawn:
 # ===========================================================================
 # Bu yerleşim onun mevcut sabit kodlu rotasını GEÇERSİZ kılar:
 #
-#   CORRIDOR_X = [-8.5, -3.9, 0.7, 5.3]     ->  DEĞİŞMEDİ [OK]
+#   CORRIDOR_X = [-8.5, -3.9, 0.7, 5.3]     ->  DEĞİŞTİ, koridorlar daraldı:
+#                                               [-8.500, -4.215, -0.565, 2.450]
 #   Y_SOUTH, Y_NORTH = -8.0, 8.0            ->  DEĞİŞMEDİ [OK]
 #   SPAWN_X, SPAWN_Y = -8.5, -9.0           ->  DEĞİŞMEDİ [OK]
 #   FLIGHT_Z = [0.5, 1.15, 1.8]             ->  DEĞİŞTİ, yenisi aşağıda
@@ -299,5 +362,13 @@ spawn:
 #
 #   FLIGHT_Z = [0.75, 2.45, 4.15]
 #
-# Ayrıca koridor 3.0 m'den 2.40 m'ye daraldı: waypoint toleransı 0.4 m
-# hâlâ güvenli (yanda 1.2 m boşluk var) ama yanal sapma payı azaldı.
+# Ayrıca koridorlar artık eşit değil: 2.40 / 1.77 / 1.13 / 0.50 m.
+# Bu, raf yüzüne durma mesafesini (standoff) TEK BİR SAYI olmaktan
+# çıkarıyor -- scanner/layout.json'da her yüzün kendi `standoff`u var:
+#
+#   A, B (k1 2.40) -> 0.80    C, D (k2 1.77) -> 0.80
+#   E, F (k3 1.13) -> 0.565   G, H (k4 0.50) -> 0.25   (ikisi de orta çizgi)
+#
+# Waypoint toleransı 0.40 m koridor 3'te ARTIK GÜVENLİ DEĞİL (yanda
+# 0.241 m pay kaldı), koridor 4'te ise araç zaten sığmıyor (-0.074 m).
+# Rota tarafında bu iki koridorun ayrıca ele alınması gerekiyor.

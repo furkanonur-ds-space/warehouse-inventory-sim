@@ -67,11 +67,13 @@ Everything the scanner knows about a warehouse. Nothing here is baked into
 |---|---|---|
 | `world` | Gazebo world name | the world `gen_world.py` writes |
 | `model` | vehicle model name | `scanner/build_c27_drone.py` |
-| `aisle_faces` | one entry per scannable shelf face: the x of the shelf surface, and the heading held to look at it | `racking.rows` (`y0`, `facing`) mapped through `world_yaw` |
+| `aisle_faces` | one entry per scannable shelf face: the x of the shelf surface, the heading held to look at it, the aisle it belongs to, and its own `standoff` | `racking.rows` (`y0`, `facing`, `aisle`) mapped through `world_yaw` |
+| `aisles` | clear width and centre of each aisle, and whether the vehicle fits down it | `racking.aisles` (`y_center`, `width`) |
+| `vehicle_half_span` | half the vehicle's width across the propellers | `scanner/build_c27_drone.py`, x500 base geometry |
 | `flight_z` | one altitude per shelf level | median z of the QR labels at each level, from `racking.level_heights` plus load height |
 | `y_south`, `y_north` | the ends of each pass | `codes.aisle_marker.positions` |
 | `spawn_x`, `spawn_y` | where the vehicle starts; the NED origin | `spawn.pose` |
-| `shelf_standoff` | camera to shelf face | chosen for the camera, see below |
+| `shelf_standoff` | camera to shelf face, fallback for a face that names no `standoff` of its own | chosen for the camera, see below |
 | `ground_offset` | how far base_link rests above the floor | measured, see below |
 | `aruco_dictionary` | which ArUco dictionary the world was generated with | `codes.aisle_marker.dictionary` |
 | `marker_map`, `output` | paths, relative to the layout file | |
@@ -81,22 +83,88 @@ island geometry, which assumed every shelf run has an aisle on both sides. This
 warehouse has two outer rows along the walls that do not, and deriving faces
 would have invented a pass down the wall for each.
 
+### Tapering aisles
+
+The aisles are not the same width. The first is 2.40 m clear, the last is
+0.50 m, and the two in between fall linearly through it:
+
+```
+w_i = 2.40 - i * (2.40 - 0.50) / 3     ->   2.40   1.77   1.13   0.50
+```
+
+The island thickness stays 2.20 m (two 1.10 m racks back to back), so the aisle
+pitch narrows with the aisles: 4.60, 3.97, 3.33, 2.70. The block is anchored so
+aisle 1 keeps its centre at x = -8.500; the spawn point and markers 1 and 2 stay
+where they were, and the taper accumulates towards the far end. Aisle centres
+are now -8.500, -4.215, -0.565 and 2.450, and the racking block runs
+-10.80 to 3.80 rather than -10.80 to 7.60.
+
+Two things follow from it, and both are the point of the exercise.
+
+**The vehicle stops fitting.** The x500 is 0.648 m across the propellers
+(0.174 m rotor hub plus a 0.150 m propeller radius, so 0.324 m either side of
+centre). Against half of each aisle that leaves:
+
+| Aisle | Clear width | Margin each side | |
+|---|---|---|---|
+| 1 | 2.40 m | +0.876 m | fine |
+| 2 | 1.77 m | +0.561 m | fine |
+| 3 | 1.13 m | +0.241 m | inside `WAYPOINT_TOLERANCE`, which is 0.40 m |
+| 4 | 0.50 m | -0.074 m | the vehicle does not fit |
+
+The vehicle was not shrunk to suit; the aisle was narrowed under it. Faces G and
+H stay in the route rather than being quietly dropped, because a scan that
+silently skips a quarter of the warehouse reads as a scan that found nothing
+there. `scanner.py` prints this table before arming.
+
+**Boxes have to fit through the aisle too.** A carton is carried in before it is
+stored, so its largest horizontal dimension has to clear the aisle it is stored
+from. `gen_world.py` applies that per row, from `rows[].aisle` and
+`aisles[].width`, with a 0.15 m allowance:
+
+| Aisle | Limit | Sizes stocked |
+|---|---|---|
+| 1 | 2.25 m | XS S M L |
+| 2 | 1.62 m | XS S M L |
+| 3 | 0.98 m | XS S M L |
+| 4 | 0.35 m | XS only |
+
+XS (0.32 x 0.26 x 0.28 m) was added for aisle 4 and is wedged between two hard
+limits: its front has to be at least 0.30 m wide to carry the location placard,
+and no wider than 0.35 m to come down the aisle. Aisle 4 is therefore the
+narrowest aisle this label set can be printed for; narrowing further means
+shrinking the labels as well.
+
 ### Standoff
 
-The vehicle does not fly the aisle centre line. It stands `shelf_standoff` out
-from the face it is scanning, which puts it 0.40 m off centre in a 2.40 m
-aisle, with 1.60 m to the opposite face.
+The vehicle does not fly the aisle centre line where it has room not to. It
+stands the face's own `standoff` out from the shelf it is scanning:
 
-The reason is resolution. A QR code needs about 3 pixels per module to decode.
-The label modules here are 2.8 mm, and the scanning camera renders 1280 px
-across a 60 degree field:
+| Faces | Aisle | Standoff | |
+|---|---|---|---|
+| A, B | 1 (2.40 m) | 0.80 m | 0.40 m off centre, 1.60 m to the opposite face |
+| C, D | 2 (1.77 m) | 0.80 m | 0.085 m off centre |
+| E, F | 3 (1.13 m) | 0.565 m | the centre line; the aisle is not wide enough for more |
+| G, H | 4 (0.50 m) | 0.250 m | the centre line |
+
+The reason for wanting 0.80 m is resolution. A QR code needs about 3 pixels per
+module to decode. The label modules here are 2.8 mm, and the scanning camera
+renders 1280 px across a 60 degree field:
 
 ```
 px per module = 3.10 / distance
 ```
 
-At the 1.216 m aisle centre that is 2.55, below the threshold. At 0.80 m it is
-3.79, which decodes reliably.
+At the 1.216 m centre of the widest aisle that is 2.55, below the threshold. At
+0.80 m it is 3.79, which decodes reliably.
+
+In the narrow aisles resolution stops being the constraint and framing takes
+over. The camera's vertical half-frame is 0.23 m at 0.80 m and scales with
+distance: 0.162 m in aisle 3, 0.072 m in aisle 4. The label stack is 0.25 m
+tall, so in aisle 4 less than a third of it can be in shot at once. Reports
+carry the per-face `standoff_m` and `half_frame_m` for exactly this reason;
+scoring the narrow end against a single building-wide 0.80 m would flatter it on
+resolution and slander it on framing.
 
 ### ground_offset
 
@@ -529,7 +597,15 @@ are already reduced for this (10 Hz on the scanning and downward cameras, 1 Hz
 on the front and rear tracking cameras, which nothing consumes). Restart the
 simulator between runs.
 
-**Readability margin is thin.** 3.79 px per module at 0.80 m, against a
-threshold of 3. Enlarging the label QR from 70 mm to 100 mm would let the
-vehicle stand back at 0.95 m and give 3.73 px per module with far more room on
-both sides. That is a change on the warehouse side.
+**Readability margin is thin, in aisles 1 and 2.** 3.79 px per module at
+0.80 m, against a threshold of 3. Enlarging the label QR from 70 mm to 100 mm
+would let the vehicle stand back at 0.95 m and give 3.73 px per module with far
+more room on both sides. That is a change on the warehouse side.
+
+**Aisles 3 and 4 fail the other way, and are not fixed by any of that.** The
+taper puts the camera closer, so pixels per module go up (5.49 and 12.42), but
+the vertical half-frame comes down with it and the 0.25 m label stack no longer
+fits in shot. Aisle 3 is also inside waypoint tolerance and aisle 4 is narrower
+than the vehicle, so neither is a resolution problem: aisle 3 needs a tighter
+lane hold, and aisle 4 needs either a smaller vehicle or a different way of
+reading a shelf that nothing can fly down.

@@ -80,9 +80,22 @@ YAW_NORTH = 0.0
 # Must match the values in build_scanner_drone.py. Used to convert a pixel
 # position into a bearing, which is how box positions are estimated.
 CAMERA_HFOV_DEG = 60.0
-# Aisle centre line to shelf face. A property of the warehouse, not the
-# vehicle, so it comes from the layout.
+# How far from the shelf face the vehicle flies. A property of the warehouse,
+# not the vehicle, so it comes from the layout -- and in this warehouse it is
+# not one number: the aisles taper from 2.40 m down to 0.50 m, and a face on a
+# 1.13 m aisle cannot be stood off by the 0.80 m the camera would like. Each
+# face carries its own, falling back to the building-wide value.
 SHELF_STANDOFF = LAYOUT["shelf_standoff"]
+
+# Aisle geometry, and how wide the vehicle is. Only used to say out loud which
+# aisles it does not fit down; nothing here narrows the route by itself.
+AISLES = {a["id"]: a for a in LAYOUT.get("aisles", [])}
+VEHICLE_HALF_SPAN = LAYOUT.get("vehicle_half_span", 0.0)
+
+
+def face_standoff(face):
+    """How far out from this shelf face the vehicle flies."""
+    return face.get("standoff", SHELF_STANDOFF)
 
 # --- SCAN PARAMETERS ---------------------------------------------------
 WAYPOINT_TOLERANCE = 0.4      # metres
@@ -481,10 +494,13 @@ def record_detection(qr_id, cx_px, cy_px, frame_w, frame_h, pose):
     bearing = math.atan(dx_norm * math.tan(h_fov / 2))
     elevation = math.atan(dy_norm * math.tan(v_fov / 2))
 
-    # The shelf face is a known perpendicular distance from the aisle centre,
-    # so the depth along the optical axis is fixed and the lateral offset is
-    # what varies.
-    depth = SHELF_STANDOFF
+    # The shelf face is a known perpendicular distance from the lane the
+    # vehicle flies, so the depth along the optical axis is fixed and the
+    # lateral offset is what varies. Which distance depends on the aisle: they
+    # taper here, and the narrow ones are flown closer to the shelf. A reading
+    # taken off any known lane falls back to the building-wide standoff.
+    scanned_face = face_at_lane(gx, pose_yaw)
+    depth = face_standoff(scanned_face) if scanned_face else SHELF_STANDOFF
     lateral = depth * math.tan(bearing)
     vertical = -depth * math.tan(elevation)   # image y grows downward
 
@@ -617,19 +633,43 @@ def shelf_name(face_x):
     return None
 
 
+def face_at_lane(gx, yaw_deg):
+    """
+    The shelf face being scanned from this position and heading, or None.
+
+    Needed because the standoff is no longer one number: converting a pixel
+    into a position needs the range to the shelf, and that range now depends
+    on which aisle the vehicle is in. Matching on the lane rather than
+    carrying the face through the callbacks keeps the detection path
+    unchanged; a reading taken away from any lane simply has no face.
+    """
+    best, best_gap = None, None
+    for face in AISLE_FACES:
+        if (face["yaw_deg"] > 0) != (yaw_deg > 0):
+            continue
+        gap = abs(face_lane_x(face) - gx)
+        if best_gap is None or gap < best_gap:
+            best, best_gap = face, gap
+    # Half a metre is looser than the lane spacing is tight in the narrow
+    # aisles, but the yaw filter has already halved the candidates and the
+    # remaining lanes are the widely spaced ones.
+    return best if best_gap is not None and best_gap < 0.5 else None
+
+
 def face_lane_x(face):
     """
-    Where the vehicle flies to scan a face: SHELF_STANDOFF out from the shelf
-    surface, on the side the camera looks from.
+    Where the vehicle flies to scan a face: the face's own standoff out from
+    the shelf surface, on the side the camera looks from.
 
     yaw +90 looks towards +x, so the vehicle sits at smaller x than the face;
     yaw -90 looks towards -x, so it sits at larger x. Deriving the lane this
-    way rather than naming it directly keeps standoff a single number that can
-    be tuned for the camera without touching any coordinates.
+    way rather than naming it directly keeps standoff a number that can be
+    tuned for the camera without touching any coordinates.
     """
+    standoff = face_standoff(face)
     if face["yaw_deg"] > 0:
-        return face["face_x"] - SHELF_STANDOFF
-    return face["face_x"] + SHELF_STANDOFF
+        return face["face_x"] - standoff
+    return face["face_x"] + standoff
 
 
 def build_route():
@@ -923,6 +963,34 @@ def write_navigation_report(reached, planned, duration_s):
     print(f"[INFO] Navigation report written to {NAV_REPORT_JSON}")
 
 
+def report_aisle_clearance():
+    """
+    Say, before taking off, which aisles the vehicle does not fit down.
+
+    The aisles here taper to 0.50 m while the vehicle stays 0.648 m across, so
+    part of the route is not flyable and part of it is inside the waypoint
+    tolerance. Printing it is the whole point of the exercise: the run should
+    fail visibly in the narrow end rather than produce a scan that looks merely
+    incomplete.
+    """
+    if not AISLES or not VEHICLE_HALF_SPAN:
+        return
+    print("  Aisle clearance (half width minus vehicle half span):")
+    for aid, aisle in sorted(AISLES.items()):
+        margin = aisle["width"] / 2 - VEHICLE_HALF_SPAN
+        faces = "+".join(f["name"] for f in AISLE_FACES
+                         if f.get("aisle") == aid and "name" in f)
+        if margin < 0:
+            note = "VEHICLE DOES NOT FIT"
+        elif margin < WAYPOINT_TOLERANCE:
+            note = f"inside waypoint tolerance {WAYPOINT_TOLERANCE:.2f} m"
+        else:
+            note = "ok"
+        print(f"    aisle {aid} ({faces:>3}): {aisle['width']:.2f} m clear, "
+              f"{margin:+.3f} m each side  {note}")
+    print("=" * 68)
+
+
 async def run():
     route = build_route()
     print("=" * 68)
@@ -934,6 +1002,7 @@ async def run():
     print("  Localization   : visual odometry with EKF2, GPS disabled")
     print("  Drift correction: ArUco floor markers, offset applied to setpoints")
     print("=" * 68)
+    report_aisle_clearance()
 
     load_marker_map()
 
