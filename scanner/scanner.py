@@ -7,9 +7,10 @@ point: localization relies on visual odometry from the tracking cameras, fed to
 the PX4 EKF2 estimator as an external vision source.
 
 Because the scanning camera faces forward rather than sideways, the vehicle
-must turn to face each shelf and fly sideways along it. Each shelf face
-therefore needs its own pass, and the route is roughly twice as long as the
-earlier two-camera design.
+must turn to face the shelves and fly sideways along them. Flying the centre
+of an aisle puts both of its faces at the same distance, so the forward hires
+camera reads the face ahead while the rear tracking camera reads the one
+behind, and one pass covers both.
 
 The warehouse floor plan is known in advance, so the route is planned rather
 than discovered.
@@ -80,16 +81,34 @@ YAW_NORTH = 0.0
 # Must match the values in build_scanner_drone.py. Used to convert a pixel
 # position into a bearing, which is how box positions are estimated.
 CAMERA_HFOV_DEG = 60.0
-# Aisle centre line to shelf face. A property of the warehouse, not the
-# vehicle, so it comes from the layout.
+# The AR0144 tracking cameras. Wider than the hires, so a code at the same
+# pixel offset sits at a different bearing.
+TRACKING_HFOV_DEG = 90.0
+# Lane to shelf face, measured to base_link, which is what the setpoint
+# commands. A property of the warehouse, not the vehicle, so it comes from the
+# layout.
 SHELF_STANDOFF = LAYOUT["shelf_standoff"]
+
+# Where each camera sits along the body, from build_c27_drone.py. The bearing
+# to a code is turned into a position using the distance from the camera to
+# the shelf, and the camera is not at base_link: the hires looks forward from
+# the front face and the rear camera looks back from the rear one, so each is
+# nearer its own shelf than base_link is. Leaving these out scaled every
+# lateral offset by eight per cent.
+HIRES_MOUNT_X = 0.10
+REAR_MOUNT_X = -0.08
 
 # --- SCAN PARAMETERS ---------------------------------------------------
 WAYPOINT_TOLERANCE = 0.4      # metres
 CRUISE_SPEED = 0.6             # m/s along an aisle
 CLIMB_SPEED = 0.15             # m/s when changing shelf level
 TURN_SETTLE_S = 3.0            # seconds held after a heading change
-SETTLE_TOLERANCE = 0.05        # metres, how close before a leg counts as settled
+SETTLE_TOLERANCE = 0.05        # metres of altitude error before a leg counts as settled
+# Metres of lateral error allowed before a leg starts. Tighter than
+# WAYPOINT_TOLERANCE by a long way, because this one decides how far the
+# cameras are from their shelves for the whole of the leg that follows, and
+# the rear camera has only 0.05 m of margin at the distance it flies.
+SETTLE_LATERAL_M = 0.08
 SETTLE_TIMEOUT_S = 8.0         # seconds allowed for settling
 TIMEOUT_MARGIN = 20.0          # seconds of slack added to expected leg time
 
@@ -104,6 +123,7 @@ WORLD = LAYOUT["world"]
 DRONE = LAYOUT["model"] + "_0"
 CAM_HIRES = f"/world/{WORLD}/model/{DRONE}/link/camera_hires_link/sensor/camera/image"
 CAM_DOWN = f"/world/{WORLD}/model/{DRONE}/link/camera_track_down_link/sensor/camera/image"
+CAM_REAR = f"/world/{WORLD}/model/{DRONE}/link/camera_track_rear_link/sensor/camera/image"
 # The PMD TOF. Deliberately not on a link PX4 bridges, so this reading is ours
 # and never reaches EKF2 as a height above ground.
 TOF_SCAN = f"/world/{WORLD}/model/{DRONE}/link/tof_link/sensor/tof/scan"
@@ -145,9 +165,12 @@ marker_map = {}
 marker_events = []
 last_correction_time = [0.0]
 
-# Forward clearance, from the TOF. The vehicle is half a metre across, so
-# anything inside this band is closer than the airframe should ever be to a
-# shelf it is scanning at SHELF_STANDOFF.
+# Forward clearance, from the TOF. The simulated airframe is PX4's x500, half
+# a metre across, so anything inside this band is closer than it should ever be
+# to a shelf it is scanning.
+#
+# The real vehicle is a ModalAI Starling 2, 283 mm across at the propeller
+# tips, and on that airframe this would be 0.20. See build_starling2.py.
 CLEARANCE_ALARM_M = 0.40
 # Only rays this far from level count as looking ahead. The cone is 86 degrees
 # tall and its lower half always finds the floor; see nearest_ahead.
@@ -158,9 +181,74 @@ TOF_SELF_M = 0.25
 clearance = {"min_m": float("inf"), "samples": 0, "alarms": 0,
              "in_alarm": False, "alarm_positions": []}
 
-qr_detector = cv2.QRCodeDetector()
-# WeChat locates codes the classic detector never finds; see decode_qr.
-wechat_detector = cv2.wechat_qrcode_WeChatQRCode()
+# The simulation clock, taken from the TOF because it is stamped on the same
+# clock as the camera frames, arrives twenty times a second and is a handful
+# of numbers, so it never queues. Zero means nothing has arrived yet, and a
+# frame is then accepted because there is nothing to judge it against.
+sim_now = {"s": 0.0}
+
+# How old a frame may be before it is thrown away. The pose is read when the
+# frame is handled, so a frame this old places its codes up to this many
+# seconds of travel from where they are: 0.2 s at 0.6 m/s is 0.12 m. Before
+# this bound existed the worst was 3.20 m.
+MAX_FRAME_AGE_S = 0.20
+frames_stale = {"n": 0}
+
+
+def stamp_seconds(msg):
+    """The simulation time a message was produced, in seconds."""
+    return msg.header.stamp.sec + msg.header.stamp.nsec * 1e-9
+
+class CameraDecoder:
+    """
+    One camera, with its own detector and its own idea of where it points.
+
+    The detector is not shared. cv2.wechat_qrcode_WeChatQRCode holds model
+    state and is not safe to call from two threads, and sharing one between
+    the hires and rear callbacks also serialises them: each waits for the
+    other, both fall behind the simulator, and a callback then runs long after
+    the frame it is holding was taken. Since the pose is read when the
+    callback runs, the code is recorded wherever the vehicle has reached by
+    then.
+
+    The first two-camera run measured exactly that. Codes came out up to
+    5.8 m along the aisle from where they are, on both cameras, worst at the
+    start and draining away as the run caught up: bay 6 was out by 5.3 m, bay
+    4 by 3.3 m. Nothing landed on the wrong face or the wrong level, because
+    those are snapped to the layout; only the along-aisle estimate is not, and
+    that is the one that moved.
+
+    A frame arriving while the previous one is still being decoded is dropped
+    rather than queued, which is what keeps the pose fresh. Coverage can
+    afford it: a code stays in the hires frame for about 2 m of travel and the
+    boxes are 0.65 m apart at their closest.
+    """
+
+    def __init__(self, name, hfov_deg, yaw_offset_deg):
+        self.name = name
+        self.hfov_deg = hfov_deg
+        # The rear camera is mounted looking backwards, so its frames are
+        # interpreted with the heading turned through 180 degrees and the
+        # existing geometry puts the code on the far side of the aisle.
+        self.yaw_offset_deg = yaw_offset_deg
+        # Perpendicular distance to the face this camera reads. The hires
+        # holds the layout's standoff for the whole flight; the rear camera's
+        # changes with the aisle, so the route sets it on entry to each lane.
+        # None means this camera has no face to read on the current lane.
+        self.depth = None
+        self.detector = cv2.wechat_qrcode_WeChatQRCode()
+        # The second pass detector, for a code WeChat locates but cannot
+        # read. Per camera for the same reason as the first.
+        self.fallback = cv2.QRCodeDetector()
+        self.busy = False
+        self.frames = 0
+        self.dropped = 0
+        self.stale = 0
+
+
+HIRES = CameraDecoder("camera_hires_link", CAMERA_HFOV_DEG, 0.0)
+REAR = CameraDecoder("camera_track_rear_link", TRACKING_HFOV_DEG, 180.0)
+
 aruco_detector = cv2.aruco.ArucoDetector(
     cv2.aruco.getPredefinedDictionary(ARUCO_DICT),
     cv2.aruco.DetectorParameters())
@@ -335,7 +423,7 @@ def on_down_image(msg):
         pass
 
 
-def decode_qr(frame):
+def decode_qr(frame, cam):
     """
     Decode QR codes and report where each one sits in the frame.
 
@@ -366,7 +454,7 @@ def decode_qr(frame):
     results = []
     frame_h, frame_w = frame.shape[:2]
     try:
-        values, points = wechat_detector.detectAndDecode(frame)
+        values, points = cam.detector.detectAndDecode(frame)
         for value, quad in zip(values, points):
             if value:
                 p = np.asarray(quad)
@@ -396,14 +484,14 @@ def decode_qr(frame):
             centre_x = float(p[:, 0].mean())
             centre_y = float(p[:, 1].mean())
 
-            data, _, _ = qr_detector.detectAndDecode(binary)
+            data, _, _ = cam.fallback.detectAndDecode(binary)
             if data:
                 results.append((data, centre_x, centre_y, frame_w, frame_h))
                 continue
 
             upscaled = cv2.resize(binary, None, fx=3.0, fy=3.0,
                                   interpolation=cv2.INTER_CUBIC)
-            data_up, _, _ = qr_detector.detectAndDecode(upscaled)
+            data_up, _, _ = cam.fallback.detectAndDecode(upscaled)
             if data_up:
                 results.append((data_up, centre_x, centre_y, frame_w, frame_h))
     except Exception:
@@ -423,23 +511,70 @@ def on_hires_image(msg):
     that produced a median error of 5.1 m, with the largest errors along the
     aisle, in the direction of travel.
     """
+    handle_frame(msg, HIRES)
+
+
+def on_rear_image(msg):
+    """
+    The same, through the rear tracking camera, looking at the opposite face.
+
+    Flying the aisle centre puts both shelf faces at the same distance, so one
+    pass can read both: the hires reads what the nose is pointed at and this
+    reads what is behind. Every face still gets covered, in half the passes.
+
+    Nothing else needs to change to place these boxes. The camera looks the
+    other way, so the pose is recorded with the heading turned through 180
+    degrees, and the existing geometry then puts the code on the far side of
+    the aisle and snaps it to the face that is actually there.
+
+    Its field of view is not the same as the hires, though. These are 90 degree
+    lenses against 60, so a code at the same pixel offset is at a different
+    bearing, and using one figure for both would place the far shelf wrongly.
+    """
+    handle_frame(msg, REAR)
+
+
+def handle_frame(msg, cam):
+    """Decode one frame from one camera and queue what it found."""
+    age = sim_now["s"] - stamp_seconds(msg)
+    if sim_now["s"] and age > MAX_FRAME_AGE_S:
+        # Older than the pose would survive. Reading it would put its codes
+        # roughly age times the cruise speed along the aisle from their shelf.
+        cam.stale += 1
+        frames_stale["n"] += 1
+        return
+    depth = cam.depth
+    if depth is None:
+        # No face for this camera on this lane, so anything it sees belongs to
+        # a shelf the route is not scanning from here.
+        return
+    if cam.busy:
+        # Still working on the previous frame. Drop this one rather than let
+        # it wait: a queued frame is decoded with the pose of whenever the
+        # decoder gets to it, not the pose it was taken at.
+        cam.dropped += 1
+        return
+    cam.busy = True
     try:
         img = np.frombuffer(msg.data, dtype=np.uint8).reshape(
             (msg.height, msg.width, 3))
-        # Capture pose BEFORE decoding, because decoding takes time and drone moves!
-        # Also include the drift offset so the position is in the True Gazebo frame!
-        pose = (current_pos["n"] + drift_offset["n"], 
-                current_pos["e"] + drift_offset["e"], 
+        # Read the pose before decoding, since decoding takes time and the
+        # vehicle keeps moving. The drift offset is included so the position
+        # is in the true Gazebo frame rather than the estimator's.
+        pose = (current_pos["n"] + drift_offset["n"],
+                current_pos["e"] + drift_offset["e"],
                 current_pos["d"],
-                current_yaw["deg"])
+                current_yaw["deg"] + cam.yaw_offset_deg)
 
-        hits = decode_qr(cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
-        if not hits:
-            return
+        hits = decode_qr(cv2.cvtColor(img, cv2.COLOR_RGB2BGR), cam)
+        cam.frames += 1
         for value, cx, cy, fw, fh in hits:
-            pending.append((value, cx, cy, fw, fh, pose))
+            pending.append((value, cx, cy, fw, fh, pose, cam.hfov_deg,
+                            cam.name, depth))
     except Exception:
         pass
+    finally:
+        cam.busy = False
 
 
 async def track_position(drone):
@@ -464,7 +599,8 @@ async def track_heading(drone):
         pass
 
 
-def record_detection(qr_id, cx_px, cy_px, frame_w, frame_h, pose):
+def record_detection(qr_id, cx_px, cy_px, frame_w, frame_h, pose,
+                     hfov_deg=None, camera="camera_hires_link", depth=None):
     """
     Store a newly seen code together with an estimated shelf position.
 
@@ -493,7 +629,7 @@ def record_detection(qr_id, cx_px, cy_px, frame_w, frame_h, pose):
     gx, gy, gz = ned_to_gazebo(pose_n, pose_e, pose_d)
 
     # Bearing from the optical axis, from the pixel position.
-    h_fov = math.radians(CAMERA_HFOV_DEG)
+    h_fov = math.radians(hfov_deg if hfov_deg else CAMERA_HFOV_DEG)
     v_fov = 2 * math.atan(math.tan(h_fov / 2) * frame_h / frame_w)
 
     dx_norm = (cx_px - frame_w / 2) / (frame_w / 2)    # -1 left, +1 right
@@ -502,10 +638,14 @@ def record_detection(qr_id, cx_px, cy_px, frame_w, frame_h, pose):
     bearing = math.atan(dx_norm * math.tan(h_fov / 2))
     elevation = math.atan(dy_norm * math.tan(v_fov / 2))
 
-    # The shelf face is a known perpendicular distance from the aisle centre,
-    # so the depth along the optical axis is fixed and the lateral offset is
-    # what varies.
-    depth = SHELF_STANDOFF
+    # The shelf face is a known perpendicular distance away, so the depth
+    # along the optical axis is fixed and the lateral offset is what varies.
+    # The two cameras are not the same distance from their faces: the lane
+    # sits off centre so that each one is close enough to read. Using one
+    # figure for both would scale every bearing on the far camera by the ratio
+    # between them.
+    if depth is None:
+        depth = SHELF_STANDOFF
     lateral = depth * math.tan(bearing)
     vertical = -depth * math.tan(elevation)   # image y grows downward
 
@@ -534,7 +674,10 @@ def record_detection(qr_id, cx_px, cy_px, frame_w, frame_h, pose):
         # out?", and the snap above has already decided both.
         "shelf": shelf_name(box_x),
         "level": FLIGHT_Z.index(box_z) + 1,
-        "camera": "camera_hires_link",
+        # Which camera read it. Two cameras now scan two different faces on
+        # the same pass, so a bare count no longer says which one is
+        # earning its place.
+        "camera": camera,
         "uav_position": {"x": round(gx, 2), "y": round(gy, 2), "z": round(gz, 2)},
         "uav_heading_deg": round(pose_yaw, 1),
         "bearing_deg": round(math.degrees(bearing), 1),
@@ -552,8 +695,8 @@ def record_detection(qr_id, cx_px, cy_px, frame_w, frame_h, pose):
 async def poll_camera():
     """Drain everything the camera callback has queued since the last check."""
     while pending:
-        qr, cx, cy, fw, fh, pose = pending.popleft()
-        record_detection(qr, cx, cy, fw, fh, pose)
+        qr, cx, cy, fw, fh, pose, hfov, cam, depth = pending.popleft()
+        record_detection(qr, cx, cy, fw, fh, pose, hfov, cam, depth)
 
 
 def nearest_ahead(msg):
@@ -605,6 +748,12 @@ def on_tof_scan(msg):
     vehicle held its lane, and one that collapses is evidence it did not.
     """
     try:
+        # This is also the simulation clock. The TOF is stamped on the same
+        # clock as the camera frames, arrives twenty times a second and is
+        # small enough that it never queues behind anything, so it is the one
+        # message in the pipeline whose timestamp can be trusted to be now.
+        sim_now["s"] = stamp_seconds(msg)
+
         nearest = nearest_ahead(msg)
         if nearest is None:
             return
@@ -640,22 +789,48 @@ def shelf_name(face_x):
 
 def face_lane_x(face):
     """
-    Where the vehicle flies to scan a face: SHELF_STANDOFF out from the shelf
-    surface, on the side the camera looks from.
+    Where the vehicle flies to read a face with the hires camera:
+    SHELF_STANDOFF out from the shelf surface, on the side it looks from.
 
     yaw +90 looks towards +x, so the vehicle sits at smaller x than the face;
     yaw -90 looks towards -x, so it sits at larger x. Deriving the lane this
-    way rather than naming it directly keeps standoff a single number that can
-    be tuned for the camera without touching any coordinates.
+    way rather than naming it directly keeps the standoff a single number that
+    can be tuned for the camera without touching any coordinates.
     """
     if face["yaw_deg"] > 0:
         return face["face_x"] - SHELF_STANDOFF
     return face["face_x"] + SHELF_STANDOFF
 
 
+def opposite_face(face, lane_x):
+    """
+    The face across the aisle from this one, or None if there is not one.
+
+    A face is across the aisle when it looks back the other way and the lane
+    lies between the two of them. The nearest such face is the one the rear
+    camera sees; anything further is behind it.
+
+    This is what makes the pairing a property of the warehouse rather than
+    something written down. A row along a wall has nothing facing it and
+    returns None, and its pass then uses the hires alone, exactly as every
+    pass did before the rear camera was wired in.
+    """
+    candidates = []
+    for other in AISLE_FACES:
+        if other is face or other["yaw_deg"] * face["yaw_deg"] > 0:
+            continue
+        # The vehicle must sit between the two faces for one to be behind it.
+        if (other["face_x"] - lane_x) * (face["face_x"] - lane_x) >= 0:
+            continue
+        candidates.append(other)
+    if not candidates:
+        return None
+    return min(candidates, key=lambda f: abs(f["face_x"] - lane_x))
+
+
 def build_route():
     """
-    Build one pass per shelf face per level, in a continuous boustrophedon.
+    Build one pass per flight lane per level, in a continuous boustrophedon.
 
     The faces come from the layout, in the order they should be visited. They
     used to be derived from island geometry, on the assumption that every shelf
@@ -671,22 +846,42 @@ def build_route():
     every face, which made the vehicle descend the full height of the rack
     between faces for no reason.
     """
+    # Group the faces by the lane they are flown from. Two faces across an
+    # aisle share a lane exactly when the standoff equals half the aisle
+    # width, which is what flying the centre line means. Where they do, the
+    # hires reads the face ahead and the rear tracking camera reads the one
+    # behind, so the pair costs one pass instead of two. Where a face has no
+    # partner, an outer row along a wall, the group has one member and it is
+    # flown as before.
+    # One lane per face the hires reads, skipping any face that is already
+    # covered by the rear camera on an earlier lane. Two faces across an aisle
+    # therefore cost one pass rather than two.
+    lanes = []
+    covered = []
+    for face in AISLE_FACES:
+        if any(face is c for c in covered):
+            continue
+        lane_x = round(face_lane_x(face), 3)
+        behind = opposite_face(face, lane_x)
+        # What the rear camera is looking at from this lane, if anything.
+        rear_depth = abs(behind["face_x"] - lane_x) if behind else None
+        lanes.append({"x": lane_x, "yaw": face["yaw_deg"],
+                      "rear_depth": rear_depth})
+        covered.append(face)
+        if behind:
+            covered.append(behind)
+
     route = []
     heading_north = True
     levels_ascending = True
-    for face in AISLE_FACES:
-        # Stand SHELF_STANDOFF away from the shelf surface, on the side the
-        # camera looks from. Flying the aisle centre line instead would put the
-        # code at 2.04 px per module on this camera, which does not decode.
-        lane_x = face_lane_x(face)
+    for lane in lanes:
         levels = FLIGHT_Z if levels_ascending else list(reversed(FLIGHT_Z))
         for z in levels:
-            if heading_north:
-                route.append((lane_x, Y_SOUTH, z, face["yaw_deg"]))
-                route.append((lane_x, Y_NORTH, z, face["yaw_deg"]))
-            else:
-                route.append((lane_x, Y_NORTH, z, face["yaw_deg"]))
-                route.append((lane_x, Y_SOUTH, z, face["yaw_deg"]))
+            ends = ((Y_SOUTH, Y_NORTH) if heading_north
+                    else (Y_NORTH, Y_SOUTH))
+            for y in ends:
+                route.append((lane["x"], y, z, lane["yaw"],
+                              lane["rear_depth"]))
             heading_north = not heading_north
         levels_ascending = not levels_ascending
     return route
@@ -856,7 +1051,15 @@ async def goto_waypoint(drone, index, total, x, y, z, yaw_deg):
                 cn, ce = corrected(target_n, target_e)
                 await send_setpoint(drone, cn, ce, target_d, yaw_deg)
                 await poll_camera()
-                if abs(-current_pos["d"] - z) < SETTLE_TOLERANCE:
+                # Both axes. Checking only altitude let a change of aisle,
+                # which is a move in x, pass straight through: the vehicle was
+                # already at the right height, so it began the leg still up to
+                # WAYPOINT_TOLERANCE out of the lane.
+                lateral = math.sqrt(
+                    (current_pos["n"] + drift_offset["n"] - target_n) ** 2 +
+                    (current_pos["e"] + drift_offset["e"] - target_e) ** 2)
+                if (abs(-current_pos["d"] - z) < SETTLE_TOLERANCE
+                        and lateral < SETTLE_LATERAL_M):
                     break
                 await asyncio.sleep(dt)
                 settle += dt
@@ -944,6 +1147,15 @@ def write_navigation_report(reached, planned, duration_s):
             "reached": reached,
             "success_rate": round(reached / planned, 4) if planned else None,
         },
+        # A frame that arrives while the previous one is still decoding is
+        # dropped, so that the pose recorded with a code is the pose the frame
+        # was taken at. A high drop count is not itself a fault, but it is the
+        # first thing to look at if coverage falls.
+        "frames": {
+            cam.name: {"decoded": cam.frames, "dropped": cam.dropped,
+                       "too_old": cam.stale}
+            for cam in (HIRES, REAR)
+        },
         "localization_error_m": {
             "median": round(errors[len(errors) // 2], 3) if errors else None,
             "p95": round(errors[int(len(errors) * 0.95)], 3) if errors else None,
@@ -987,10 +1199,9 @@ async def run():
 
     load_marker_map()
 
-    cam_node = trans.Node()
-    cam_node.subscribe(Image, CAM_HIRES, on_hires_image)
-    down_node = trans.Node()
-    down_node.subscribe(Image, CAM_DOWN, on_down_image)
+    # The TOF is a handful of numbers and is wanted from the moment the
+    # vehicle leaves the ground, so it subscribes here. The cameras do not:
+    # see the note above the subscription further down.
     tof_node = trans.Node()
     tof_node.subscribe(LaserScan, TOF_SCAN, on_tof_scan)
 
@@ -1041,11 +1252,57 @@ async def run():
     print("           turning to route heading...")
     await hold_heading(drone, YAW_NORTH)
 
+    # Subscribe to the cameras here, with the vehicle already on the route
+    # heading and about to move, rather than at the top of run.
+    #
+    # Subscribing at the top left gz transport queueing frames through
+    # everything above it: connecting to the vehicle, waiting for a position
+    # estimate, arming, a seven second ascent and the turn onto the route.
+    # Those frames are delivered afterwards, one at a time, each holding an
+    # image from before the vehicle moved, and the pose is read when the
+    # callback runs rather than when the frame was taken.
+    #
+    # The first two camera run measured the cost. Nothing was recorded until
+    # sixteen seconds into a leg that starts at y = -9, then codes arrived in
+    # a burst, each naming a shelf position up to 8.8 m behind the vehicle,
+    # with the gap closing steadily as the queue drained. Every one of the
+    # remaining 384 codes landed within 0.17 m. The direction is what
+    # identifies it: a stale pose would put a code south of its shelf, since
+    # the vehicle is heading north, and these were north of it, so the pose
+    # was current and the image was old.
+    #
+    # There is no steady state problem to go with it. 3348 hires frames and
+    # 1006 rear frames over 804.5 s is 41.6 per cent of nominal for both,
+    # which is the real time factor: every frame rendered was decoded.
+    cam_node = trans.Node()
+    cam_node.subscribe(Image, CAM_HIRES, on_hires_image)
+    rear_node = trans.Node()
+    rear_node.subscribe(Image, CAM_REAR, on_rear_image)
+    down_node = trans.Node()
+    down_node.subscribe(Image, CAM_DOWN, on_down_image)
+
+    # Let the cameras deliver whatever gz transport has been holding while
+    # the vehicle is still standing still. Every run so far has put its first
+    # fifteen seconds of codes up to three metres along the aisle from their
+    # shelves, decaying smoothly to nothing, which is the shape of a queue
+    # draining. Drained here, those frames carry a pose that is not moving.
+    print("[INFO] Letting the cameras catch up")
+    for _ in range(50):
+        await send_setpoint(drone, start_n, start_e,
+                            start_d - 1.5, YAW_NORTH)
+        await asyncio.sleep(0.1)
+    pending.clear()
+    inventory.clear()
+
     print("\n[INFO] Starting scan")
     mission_start = time.time()
     reached = 0
     last_yaw = YAW_NORTH
-    for index, (x, y, z, yaw) in enumerate(route, 1):
+    for index, (x, y, z, yaw, rear_depth) in enumerate(route, 1):
+        # Each camera is told how far its face is before the leg begins, so a
+        # frame decoded during it is placed against the right distance.
+        HIRES.depth = SHELF_STANDOFF - HIRES_MOUNT_X
+        REAR.depth = (rear_depth + REAR_MOUNT_X) if rear_depth else None
         if yaw != last_yaw:
             await hold_heading(drone, yaw)
             last_yaw = yaw

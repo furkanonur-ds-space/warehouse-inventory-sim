@@ -183,10 +183,26 @@ tracking_front = camera_block(
     0.08, 0.0, -0.03, 0, 0, 0,
     fov=1.5708, width=1280, height=800, update_rate=1)
 
+# The rear camera is no longer decorative: it reads the shelf behind the
+# vehicle while the hires reads the one in front, so a single pass covers
+# both faces of an aisle. That makes its frame rate part of the result.
+#
+# At 1.20 m from the face it resolves 1.49 px per module on axis, and that
+# falls as the square of the cosine of the bearing, because the range grows
+# and the label foreshortens by the same cosine. A code is readable over
+# roughly 0.6 m of travel, which at 0.6 m/s is one second. At 1 Hz that is
+# one frame per box and frequently none, so a run would report almost
+# nothing whether or not the camera can read, measuring the frame rate
+# rather than the camera.
+#
+# 3 Hz puts three frames inside that window. The hardware runs these at
+# 30 fps, confirmed by voxl-inspect-cam, so this moves the simulation
+# towards the vehicle rather than away from it. It costs 2.0 Mpx/s, taking
+# the budget to 15.1, still under the 20.2 that ran gz out of memory.
 tracking_rear = camera_block(
     "camera_track_rear_link", "camera_track_rear_joint",
     -0.08, 0.0, -0.03, 0, 0, 3.14159,
-    fov=1.5708, width=1280, height=800, update_rate=1)
+    fov=1.5708, width=1280, height=800, update_rate=3)
 
 # The downward tracking camera doubles as the ArUco marker reader for drift
 # correction.
