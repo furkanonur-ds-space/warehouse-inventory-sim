@@ -19,6 +19,9 @@ Drawn:
     drawn at its real dimensions - a miss that is a small box on a high shelf
     looks different from one that is not
   * an error vector for anything more than 15 cm out, and a key to show them all
+  * how far each estimate landed from the true box position, split into x, y
+    and z - the total distance says how wrong, the three components say which
+    way, and a whole run leaning one way is a different fault from scatter
   * the drift measured at each floor marker, as an arrow at ten times scale
   * identity, location, size, error and how far off the optical axis the label
     sat, under the cursor
@@ -123,10 +126,18 @@ const GOOD=0.10, BAD=0.25;
 // Drift arrows are centimetres long in a twenty metre warehouse; without a
 // scale factor they are a single pixel.
 const DRIFT_SCALE=10;
-// Error vectors below this are hidden by default, else every dot grows a
-// whisker and the picture turns to fur. 'v' cycles the threshold.
-const VEC_STEPS=[0.15,0.05,0.0,Infinity];
+// Every scored box is drawn twice: a hollow marker where ground truth says
+// the label is, and a filled dot where the scan put it. The line between them
+// IS the shift, so it is shown for all of them by default rather than only for
+// the large ones - the question this view is asked is "how far off are we",
+// and hiding the small ones answers it with a blank. 'v' raises the threshold
+// when the picture gets too busy to read.
+const VEC_STEPS=[0.0,0.05,0.15,Infinity];
 let vecStep=0, VEC_MIN=VEC_STEPS[0];
+const COL_TRUTH='#6f7d92';
+// Signed centimetres, for the offset readouts. A bare "-3" reads as a number;
+// "-3.0" next to "+1.2" reads as a direction.
+function sgn(v){ return `${v>=0?'+':''}${(v*100).toFixed(1)}`; }
 function errColor(e){
   if(e===undefined||e===null) return 'rgb(90,150,220)';
   const t=Math.max(0,Math.min(1,(e-GOOD)/(BAD-GOOD)));
@@ -182,10 +193,19 @@ function draw(){
   pts.sort((a,b)=>b[0][2]-a[0][2]);
   for(const [p,it] of pts){
     const r=Math.max(2.0, 62/p[2]);
-    if(it.tx!==undefined && it.err>VEC_MIN){
-      const q=project([it.tx,it.ty,it.tz]);      // error vector
-      if(q){ ctx.strokeStyle='#ffb020'; ctx.lineWidth=1.2;
-             ctx.beginPath(); ctx.moveTo(p[0],p[1]); ctx.lineTo(q[0],q[1]); ctx.stroke(); }
+    if(it.tx!==undefined && it.err>=VEC_MIN){
+      const q=project([it.tx,it.ty,it.tz]);
+      if(q){
+        // Where the box really is: a small hollow square, deliberately plain
+        // so the coloured dot beside it reads as the measurement and this
+        // reads as the reference.
+        const s=Math.max(2.0, r*0.9);
+        ctx.strokeStyle=COL_TRUTH; ctx.lineWidth=1;
+        ctx.strokeRect(q[0]-s, q[1]-s, 2*s, 2*s);
+        // The shift itself, from truth to estimate.
+        ctx.strokeStyle='#ffb020'; ctx.lineWidth=1.2;
+        ctx.beginPath(); ctx.moveTo(q[0],q[1]); ctx.lineTo(p[0],p[1]); ctx.stroke();
+      }
     }
     if(it.missed){
       // Drawn at the box's real dimensions rather than as a fixed marker, so
@@ -227,6 +247,17 @@ function hud(){
     }
     s+=`</div>`;
   }
+  if(D.bias){
+    // Mean of the signed offsets. A number that stays near zero is scatter; one
+    // that does not is every estimate leaning the same way.
+    const cm=v=>`${v>=0?'+':''}${(v*100).toFixed(1)}`;
+    s+=`<div style="font-size:12px;color:#8b98a9;margin-bottom:6px">
+        offset from truth, mean: x ${cm(D.bias.mean[0])} · y ${cm(D.bias.mean[1])} ·
+        z ${cm(D.bias.mean[2])} cm<br>
+        typical size: x ${(D.bias.mean_abs[0]*100).toFixed(1)} ·
+        y ${(D.bias.mean_abs[1]*100).toFixed(1)} ·
+        z ${(D.bias.mean_abs[2]*100).toFixed(1)} cm</div>`;
+  }
   if(D.drift){
     s+=`<div style="font-size:12px;color:#8b98a9;margin-bottom:6px">
         drift at marker fix: median ${(D.drift.median*100).toFixed(1)} cm ·
@@ -237,8 +268,11 @@ function hud(){
     s+=`<span class="k" style="background:${errColor(0.05)}"></span>within 10 cm<br>`;
     s+=`<span class="k" style="background:${errColor(0.30)}"></span>over 25 cm out<br>`;
     if(m) s+=`<span class="k sq"></span>never decoded, drawn at its real size<br>`;
-    s+=`<span class="k" style="background:#ffb020"></span>error vector
-        (${VEC_MIN===Infinity?'off':'&gt;'+(VEC_MIN*100).toFixed(0)+' cm'}, key v)<br>`;
+    s+=`<span class="k" style="background:none;border:1px solid ${COL_TRUTH};
+        border-radius:0"></span>true position (ground truth)<br>`;
+    s+=`<span class="k" style="background:#ffb020"></span>shift, truth to estimate
+        (${VEC_MIN===Infinity?'off':VEC_MIN===0?'all':'&gt;'+(VEC_MIN*100).toFixed(0)+' cm'},
+        key v)<br>`;
   } else {
     s+=`<span class="k" style="background:${errColor(null)}"></span>estimated position<br>`;
   }
@@ -288,7 +322,17 @@ window.addEventListener('mousemove',e=>{
       +'(outside the frame)</span>':''}`;
   if(best.ppm!==undefined) h+=`<br>${best.ppm.toFixed(2)} px per QR module`;
   if(best.missed) h+=`<br><span style="color:#ff4d6d">NEVER DECODED</span>`;
-  else if(best.err!==undefined) h+=`<br>position error ${(best.err*100).toFixed(1)} cm`;
+  else if(best.err!==undefined){
+    h+=`<br>position error ${(best.err*100).toFixed(1)} cm`;
+    // Both positions, then the signed shift between them. Reading the two
+    // coordinates next to each other is what makes a systematic offset
+    // obvious; the delta alone does not say which one moved.
+    if(best.tx!==undefined)
+      h+=`<br><span style="color:${COL_TRUTH}">true  x ${best.tx.toFixed(2)}  `
+        +`y ${best.ty.toFixed(2)}  z ${best.tz.toFixed(2)}</span>`;
+    if(best.d) h+=`<br>shift dx ${sgn(best.d[0])} dy ${sgn(best.d[1])} `
+                 +`dz ${sgn(best.d[2])} cm`;
+  }
   if(best.truth_at) h+=`<br><span style="color:#8b98a9">truth ${best.truth_at}</span>`;
   t.innerHTML=h; t.style.display='block';
   t.style.left=(e.clientX+14)+'px'; t.style.top=(e.clientY+12)+'px';
@@ -340,6 +384,10 @@ def main() -> int:
             tx, ty, tz = t["label_pose_xyzrpy"][:3]
             err = error_to_truth(rec, truth)
             item.update(tx=tx, ty=ty, tz=tz, err=round(err, 3),
+                        # Signed offset, estimate minus truth. Positive x means
+                        # the estimate landed east of the box it belongs to.
+                        d=[round(rec["x"] - tx, 3), round(rec["y"] - ty, 3),
+                           round(rec["z"] - tz, 3)],
                         truth_at=f"{t['row']}-{t['bay']:02d}-L{t['level']}")
             errs.append(err)
         items.append(item)
@@ -401,6 +449,20 @@ def main() -> int:
         stats = (f"position error: median {e[len(e)//2]*100:.1f} cm · "
                  f"p95 {percentile(e, 0.95)*100:.1f} cm")
 
+    # The mean offset per axis. Scatter averages towards zero, so what survives
+    # is a systematic lean - the run putting every box the same way off its
+    # true position, which no median distance can show.
+    offsets = [it["d"] for it in items if it.get("d")]
+    bias = None
+    if offsets:
+        bias = {
+            "mean": [round(st.mean(o[i] for o in offsets), 3) for i in range(3)],
+            # The typical size of the shift regardless of direction. The signed
+            # mean of a  +/-5 cm shift is zero, which reads as no error at all.
+            "mean_abs": [round(st.mean(abs(o[i]) for o in offsets), 3)
+                         for i in range(3)],
+        }
+
     # Bands rather than a single median: a tail of two records and a tail of
     # fifty read the same otherwise.
     bands = None
@@ -423,6 +485,7 @@ def main() -> int:
         "center": [round((b[0] + b[1]) / 2, 2), round((b[2] + b[3]) / 2, 2)],
         "source": f"{args.inventory.name} · {run.get('scan_date', 'unknown date')}",
         "truth": bool(truth),
+        "bias": bias,
         "stats": stats,
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)

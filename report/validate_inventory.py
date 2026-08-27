@@ -28,6 +28,14 @@ DUPLICATES are checked two ways, because they fail differently:
   spatial  - two different payloads landing within DUP_DIST_M of each other,
              which is one physical box counted twice under two readings
 
+THE PER-RECORD SHIFT goes to `out/position_offsets.csv`: for every scored box,
+where ground truth says its label is, where the scan put it, and the signed
+difference on each axis. The summary numbers say how large the error is; that
+file says which way it points, box by box, which is the only form in which a
+systematic lean can be told apart from scatter. The 3D view draws the same
+thing: a hollow marker at the true position, the estimate beside it, and the
+shift between them.
+
 Ground truth is read here for MEASUREMENT ONLY. The estimate is made in
 `scanner/scanner.py`, which never opens this file.
 """
@@ -35,6 +43,7 @@ Ground truth is read here for MEASUREMENT ONLY. The estimate is made in
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import math
 import statistics as st
@@ -63,6 +72,9 @@ def main() -> int:
     ap.add_argument("--config", type=Path, default=CONFIG)
     ap.add_argument("--out", type=Path,
                     default=REPO_ROOT / "out" / "validation_report.json")
+    ap.add_argument("--offsets", type=Path,
+                    default=REPO_ROOT / "out" / "position_offsets.csv",
+                    help="per-record shift between truth and estimate")
     ap.add_argument("--list-missed", action="store_true",
                     help="list every box that was never decoded")
     ap.add_argument("--list-worst", type=int, default=0,
@@ -154,6 +166,25 @@ def main() -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2, ensure_ascii=False))
 
+    # Worst first: the rows anyone opens this file for are at the top, and the
+    # tail is the bulk that landed where it should have.
+    args.offsets.parent.mkdir(parents=True, exist_ok=True)
+    with args.offsets.open("w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["qr", "product_id", "filed", "truth",
+                    "est_x", "est_y", "est_z", "true_x", "true_y", "true_z",
+                    "dx_m", "dy_m", "dz_m", "offset_m"])
+        for err, rec, t in sorted(per_record, key=lambda p: -p[0]):
+            tx, ty, tz = t["label_pose_xyzrpy"][:3]
+            w.writerow([
+                rec["qr"], rec["product_id"],
+                f"{rec['shelf']}-{rec['bay']:02d}-L{rec['level']}",
+                f"{t['row']}-{t['bay']:02d}-L{t['level']}",
+                round(rec["x"], 3), round(rec["y"], 3), round(rec["z"], 3),
+                round(tx, 3), round(ty, 3), round(tz, 3),
+                round(rec["x"] - tx, 3), round(rec["y"] - ty, 3),
+                round(rec["z"] - tz, 3), round(err, 3)])
+
     print("INVENTORY VALIDATION")
     print(f"source: {args.inventory}")
     if run.get("scan_date"):
@@ -177,6 +208,7 @@ def main() -> int:
     print(f"\n  INVENTORY ACCURACY : {accuracy:.1f}%  "
           f"({correct}/{len(items)} records)   target >={ACCURACY_TARGET_PCT:.0f}% -> {verdict}")
     print(f"\nreport: {args.out}")
+    print(f"shifts: {args.offsets}")
 
     if args.list_missed and missed:
         geometry = load_box_geometry(cfg)
@@ -223,9 +255,13 @@ def main() -> int:
     if args.list_worst and per_record:
         worst = sorted(per_record, key=lambda p: -p[0])[:args.list_worst]
         print(f"\nlargest position errors ({len(worst)}):")
+        print("   total    dx      dy      dz     filed        truth")
         for err, rec, t in worst:
-            print(f"  {err:5.2f} m  filed {rec['shelf']}-{rec['bay']:02d}-L{rec['level']}"
-                  f"  truth {t['row']}-{t['bay']:02d}-L{t['level']}  {rec['product_id']}")
+            tx, ty, tz = t["label_pose_xyzrpy"][:3]
+            print(f"  {err:5.2f} m {rec['x']-tx:+6.2f} {rec['y']-ty:+6.2f} "
+                  f"{rec['z']-tz:+6.2f}   "
+                  f"{rec['shelf']}-{rec['bay']:02d}-L{rec['level']}  "
+                  f"{t['row']}-{t['bay']:02d}-L{t['level']}  {rec['product_id']}")
     if dup_id:
         print(f"\nDUPLICATE PAYLOADS: {', '.join(dup_id[:10])}")
     if unknown_payload:
