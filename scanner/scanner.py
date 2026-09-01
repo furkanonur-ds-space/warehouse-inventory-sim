@@ -473,6 +473,41 @@ def on_down_image(msg):
         pass
 
 
+# How many strips a frame is read in, and how much they overlap.
+#
+# The detector copes with one or two codes in a frame and fails above that,
+# and a shelf face always shows more. Four strips leave one or two in each at
+# the spacings this warehouse uses; the overlap is there so a code on a
+# boundary is whole in one of them.
+DECODE_STRIPS = 4
+STRIP_OVERLAP = 0.25
+
+
+def detect_in_strips(frame, detector):
+    """
+    Run the detector across the frame in overlapping vertical strips.
+
+    Yields one tuple per sighting: the decoded value or an empty string, the
+    corner points in that strip's coordinates, and the strip's left and right
+    edges in the frame, so the caller can put the sighting back where it
+    belongs and tell how close to an edge it was found.
+    """
+    height, width = frame.shape[:2]
+    step = width / DECODE_STRIPS
+    pad = step * STRIP_OVERLAP
+
+    sightings = []
+    for i in range(DECODE_STRIPS):
+        x1 = int(max(0, i * step - pad))
+        x2 = int(min(width, (i + 1) * step + pad))
+        if x2 - x1 < 32:
+            continue
+        values, quads = detector.detectAndDecode(frame[:, x1:x2])
+        for value, quad in zip(values, quads):
+            sightings.append((value, quad, x1, x2))
+    return sightings
+
+
 def decode_qr(frame, cam):
     """
     Decode QR codes and report where each one sits in the frame.
@@ -504,17 +539,32 @@ def decode_qr(frame, cam):
     results = []
     frame_h, frame_w = frame.shape[:2]
     try:
-        values, points = cam.detector.detectAndDecode(frame)
-        for value, quad in zip(values, points):
-            if value:
-                p = np.asarray(quad)
-                results.append((value, float(p[:, 0].mean()),
-                                float(p[:, 1].mean()), frame_w, frame_h))
-        if len(results) == len(points) and results:
+        sightings = detect_in_strips(frame, cam.detector)
+
+        # The same code appears in two strips wherever they overlap. Keep the
+        # sighting furthest from its own strip's edges, which is the one least
+        # likely to have been clipped.
+        best = {}
+        unread = []
+        for value, quad, x1, x2 in sightings:
+            p = np.asarray(quad)
+            cx = float(p[:, 0].mean())
+            cy = float(p[:, 1].mean())
+            if not value:
+                unread.append(p + np.array([x1, 0.0]))
+                continue
+            margin = min(cx, (x2 - x1) - cx)
+            if value not in best or margin > best[value][0]:
+                best[value] = (margin, cx + x1, cy)
+
+        for value, (_, cx, cy) in best.items():
+            results.append((value, cx, cy, frame_w, frame_h))
+        if results:
             return results
 
-        # Anything WeChat located but could not read gets the local threshold.
-        points = [np.asarray(q) for v, q in zip(values, points) if not v]
+        # Anything located but not read gets the local threshold. Rare now:
+        # what the detector fails at is locating, not reading.
+        points = unread
         if not points:
             return results
 

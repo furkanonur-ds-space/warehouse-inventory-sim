@@ -41,6 +41,12 @@ run test_pose_history.py
 # frame cannot show the second one, since the bearing is zero there.
 run test_two_camera.py
 
+# Reading a frame in strips, because the detector loses codes when several
+# share one. Checks both halves: that more are found, and that a strip
+# coordinate is mapped back to the frame, since the bearing to a box comes
+# from where its code sits in the frame.
+run test_strips.py
+
 # The marker correction geometry.
 run test_drift_correction.py
 
