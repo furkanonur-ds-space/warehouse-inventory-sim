@@ -247,6 +247,23 @@ pose_history = []
 # move.
 MAX_FRAME_AGE_S = 0.50
 
+# What the cameras are rendered at, from build_c27_drone.py. Needed to work
+# out how many frames a box gets, which decides how many are worth decoding.
+HIRES_HZ = 10.0
+REAR_HZ = 8.0
+
+# How many frames of a box are enough to read it.
+#
+# Seven, which is what the runs support rather than what sounds tidy. The
+# 1.13 m aisle gives a box 7.1 looks and has come back complete every time;
+# the 0.50 m aisle gives 3.1 and has lost one or two on every run.
+#
+# This was five for one run, and the widest aisle lost a code for the first
+# time: fifteen looks cut to five was not enough, on the aisle where nothing
+# had ever been missed. Five contradicted the note written beside it, which
+# already said seven was the figure that held.
+TARGET_FRAMES_PER_BOX = 7.0
+
 # Whether to write what the scanning cameras saw to mp4 alongside the scan.
 #
 # Off by default: it costs about a tenth of a core for both cameras, which is
@@ -256,6 +273,23 @@ MAX_FRAME_AGE_S = 0.50
 # every test of why has been synthetic.
 RECORD_VIDEO = os.environ.get("RECORD_VIDEO", "") not in ("", "0")
 frames_stale = {"n": 0}
+
+# What happened to the frames on each lane. The flight totals never said where
+# the losses were, and whether the narrowest aisle is starved or merely
+# unlucky is a question about that aisle rather than about the run.
+current_lane = {"name": "before the scan"}
+lane_tally = {}
+
+
+def lane_frames(what, age=None):
+    """Record what became of one frame, against the lane being flown."""
+    row = lane_tally.setdefault(
+        current_lane["name"],
+        {"decoded": 0, "skipped": 0, "too_old": 0, "ages": []})
+    if what in row:
+        row[what] += 1
+    if age is not None:
+        row["ages"].append(age)
 frame_ages = []
 
 
@@ -341,6 +375,11 @@ class CameraDecoder:
         self.frames = 0
         self.dropped = 0
         self.stale = 0
+        # Take one frame in this many. Set per lane, because how many frames
+        # a box gets depends on how much shelf the camera sees from it.
+        self.stride = 1
+        self.arrived = 0
+        self.skipped = 0
 
 
 HIRES = CameraDecoder("camera_hires_link", CAMERA_HFOV_DEG, 0.0)
@@ -619,6 +658,22 @@ class Recorder:
 RECORDERS = {}
 
 
+def frame_stride(standoff, hfov_deg, camera_hz):
+    """
+    Take one frame in this many, on a lane at this standoff.
+
+    A box is in frame for as long as it takes to cross the width of view, and
+    the camera offers that many frames of it. Five is enough to read one, so
+    anything beyond that is spent on a box that is already found while the
+    decoder has none to spare for the aisle that only gets three.
+    """
+    if not standoff or standoff <= 0:
+        return 1
+    span = 2 * standoff * math.tan(math.radians(hfov_deg) / 2)
+    offered = span / CRUISE_SPEED * camera_hz
+    return max(1, int(offered / TARGET_FRAMES_PER_BOX))
+
+
 def strips_for(frame_width, hfov_deg, depth):
     """
     How many strips to read a frame in, given how far away the shelf is.
@@ -791,17 +846,29 @@ def on_rear_image(msg):
 
 def handle_frame(msg, cam):
     """Decode one frame from one camera and queue what it found."""
+    cam.arrived += 1
+    if cam.stride > 1 and cam.arrived % cam.stride:
+        # Not this one. Skipped here, before the frame is touched, so the
+        # callback returns at once and gz transport has less reason to
+        # discard the next one.
+        cam.skipped += 1
+        lane_frames("skipped")
+        return
+
     taken_at = stamp_seconds(msg)
     age = sim_now["s"] - taken_at
     if sim_now["s"]:
         frame_ages.append(age)
+        lane_frames("age", age)
         if age > MAX_FRAME_AGE_S:
             # Not because it cannot be placed; the history would place it. To
             # keep the queue from growing for the whole flight and costing the
             # codes at the end of it.
             cam.stale += 1
             frames_stale["n"] += 1
+            lane_frames("too_old")
             return
+    lane_frames("decoded")
     depth = cam.depth
     if depth is None:
         # No face for this camera on this lane, so anything it sees belongs to
@@ -1511,6 +1578,18 @@ def write_navigation_report(reached, planned, duration_s):
         # absence hid a scan that put two per cent of its codes on the right
         # shelf: the report said nothing was wrong, when what it meant was
         # that two broken checks had not fired.
+        # Where the frames went, lane by lane. A flight total cannot say
+        # whether the aisle that loses codes is starved or unlucky.
+        "lanes": {
+            name: {
+                "decoded": row["decoded"],
+                "skipped": row["skipped"],
+                "too_old": row["too_old"],
+                "age_median": round(sorted(row["ages"])[len(row["ages"]) // 2], 3)
+                               if row["ages"] else None,
+            }
+            for name, row in lane_tally.items()
+        },
         "frame_age_s": {
             "median": round(sorted(frame_ages)[len(frame_ages) // 2], 3)
                       if frame_ages else None,
@@ -1679,6 +1758,14 @@ async def run():
         # aisle a different pair.
         HIRES.depth = hires_depth - HIRES_MOUNT_X
         REAR.depth = (rear_depth + REAR_MOUNT_X) if rear_depth else None
+
+        # How many frames a box gets on this lane, and therefore how many are
+        # worth decoding. A wide aisle offers fifteen and needs five.
+        HIRES.stride = frame_stride(hires_depth, CAMERA_HFOV_DEG, HIRES_HZ)
+        REAR.stride = (frame_stride(rear_depth, TRACKING_HFOV_DEG, REAR_HZ)
+                       if rear_depth else 1)
+        current_lane["name"] = "aisle %.2f m" % (
+            hires_depth + (rear_depth or 0))
         if yaw != last_yaw:
             await hold_heading(drone, yaw)
             last_yaw = yaw
