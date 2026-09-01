@@ -39,56 +39,168 @@
       "face_x": -9.7,
       "yaw_deg": -90,
       "aisle": 1,
-      "standoff": 0.8
+      "standoff": 0.8,
+      "code_z": [
+        [
+          0.701,
+          0.811
+        ],
+        [
+          2.401,
+          2.511
+        ],
+        [
+          4.101,
+          4.211
+        ]
+      ]
     },
     {
       "name": "B",
       "face_x": -7.3,
       "yaw_deg": 90,
       "aisle": 1,
-      "standoff": 0.8
+      "standoff": 0.8,
+      "code_z": [
+        [
+          0.701,
+          0.811
+        ],
+        [
+          2.401,
+          2.511
+        ],
+        [
+          4.101,
+          4.211
+        ]
+      ]
     },
     {
       "name": "C",
       "face_x": -5.1,
       "yaw_deg": -90,
       "aisle": 2,
-      "standoff": 0.8
+      "standoff": 0.8,
+      "code_z": [
+        [
+          0.701,
+          0.811
+        ],
+        [
+          2.401,
+          2.511
+        ],
+        [
+          4.111,
+          4.211
+        ]
+      ]
     },
     {
       "name": "D",
       "face_x": -3.33,
       "yaw_deg": 90,
       "aisle": 2,
-      "standoff": 0.8
+      "standoff": 0.8,
+      "code_z": [
+        [
+          0.701,
+          0.811
+        ],
+        [
+          2.401,
+          2.511
+        ],
+        [
+          4.101,
+          4.211
+        ]
+      ]
     },
     {
       "name": "E",
       "face_x": -1.13,
       "yaw_deg": -90,
       "aisle": 3,
-      "standoff": 0.565
+      "standoff": 0.565,
+      "code_z": [
+        [
+          0.701,
+          0.811
+        ],
+        [
+          2.401,
+          2.511
+        ],
+        [
+          4.101,
+          4.211
+        ]
+      ]
     },
     {
       "name": "F",
       "face_x": 0.0,
       "yaw_deg": 90,
       "aisle": 3,
-      "standoff": 0.565
+      "standoff": 0.565,
+      "code_z": [
+        [
+          0.701,
+          0.811
+        ],
+        [
+          2.401,
+          2.511
+        ],
+        [
+          4.101,
+          4.211
+        ]
+      ]
     },
     {
       "name": "G",
       "face_x": 2.2,
       "yaw_deg": -90,
       "aisle": 4,
-      "standoff": 0.25
+      "standoff": 0.25,
+      "code_z": [
+        [
+          0.701,
+          0.701
+        ],
+        [
+          2.401,
+          2.401
+        ],
+        [
+          4.101,
+          4.101
+        ]
+      ]
     },
     {
       "name": "H",
       "face_x": 2.7,
       "yaw_deg": 90,
       "aisle": 4,
-      "standoff": 0.25
+      "standoff": 0.25,
+      "code_z": [
+        [
+          0.701,
+          0.701
+        ],
+        [
+          2.401,
+          2.401
+        ],
+        [
+          4.101,
+          4.101
+        ]
+      ]
     }
   ],
   "aisles": [
@@ -178,5 +290,28 @@
     "costs a pass a face instead."
   ],
   "hires_max_standoff": 1.3,
-  "rear_max_standoff": 1.1
+  "rear_max_standoff": 1.1,
+  "code_size_m": 0.072,
+  "_code_z_note": [
+    "Per face, the band of code centre heights at each shelf level: the",
+    "lowest and the highest. A face whose boxes are all one size has a band",
+    "of zero width; mixed box heights spread it, because the label travels",
+    "with the front of the box it is on.",
+    "",
+    "The scanner aims the optical axis at the middle of the band it has to",
+    "read on a lane, which is one rule applied everywhere. flight_z stays as",
+    "the fallback for a layout that does not carry this, and as the level",
+    "the estimate is snapped to.",
+    "",
+    "It matters where the frame is small. In the 2.40 m aisle the hires sees",
+    "a metre of shelf height and a five centimetre error is nothing. In the",
+    "0.50 m aisle it sees 0.18 m, and rows G and H carry their codes 0.049 m",
+    "below the flight_z median, which put them against the bottom edge of",
+    "the frame: measured in the 2026-09-01 recording at 0.76 of frame height",
+    "with the worst survivor at 0.97, against 0.49 for row A.",
+    "",
+    "Derived from warehouse/ground_truth.json, the same source and the same",
+    "way as flight_z. code_size_m is the QR side from gen_labels, needed to",
+    "ask whether a whole code fits the frame rather than just its centre."
+  ]
 }

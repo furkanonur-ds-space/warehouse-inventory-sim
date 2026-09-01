@@ -114,6 +114,40 @@ AISLE_CLEARANCE_M = 0.05
 HIRES_MOUNT_X = 0.06
 REAR_MOUNT_X = -0.055
 
+# --- WHAT THE CAMERA CAN SEE VERTICALLY --------------------------------
+#
+# The frame is a rectangle whose height grows with the distance to the shelf.
+# The hires stands 1.24 m off in the 2.40 m aisle and sees 1.07 m of shelf; it
+# stands 0.21 m off in the 0.50 m aisle and sees 0.18 m. Everything below
+# follows from that collapse, and so does the reason the narrow aisle needs
+# the optical axis aimed at its codes while the wide ones do not care.
+#
+# What the cameras are rendered at, from build_c27_drone.py. The vertical
+# field is the horizontal one scaled by the aspect ratio, and the two cameras
+# share neither: 60 degrees over 1024x768 against 90 over 1280x800.
+HIRES_FRAME_PX = (1024, 768)
+REAR_FRAME_PX = (1280, 800)
+
+# How much of the geometric field is worth counting on. report/warehouse_model
+# measures 0.23 m of half-frame where the lens gives 0.260 at the same
+# distance; the shortfall is vignetting and the decode margin at the edge of
+# the frame. Kept as a ratio because it belongs to the camera and not to any
+# one distance.
+USABLE_FRAME = 0.885
+
+# How tall a code is, so that the question can be whether a whole one fits
+# rather than whether its centre does. A code clipped by the frame edge does
+# not decode at all; there is no partial credit for most of a QR.
+CODE_SIZE_M = LAYOUT.get("code_size_m", 0.072)
+
+
+def half_frame_m(hfov_deg, frame_px, depth):
+    """Half the camera's vertical field, in metres, at this distance."""
+    width, height = frame_px
+    tan_half_v = math.tan(math.radians(hfov_deg) / 2) * height / width
+    return depth * tan_half_v * USABLE_FRAME
+
+
 # --- SCAN PARAMETERS ---------------------------------------------------
 WAYPOINT_TOLERANCE = 0.4      # metres
 # One speed in every aisle.
@@ -1212,6 +1246,64 @@ def aisle_fits(width):
     return width / 2.0 - VEHICLE_HALF_SPAN >= AISLE_CLEARANCE_M
 
 
+def lane_levels(reads):
+    """
+    What altitude to fly at each level on this lane, and whether it is enough.
+
+    One rule, applied to every aisle: put the optical axis in the middle of
+    the band of code heights the lane has to read. A face whose boxes are all
+    one size carries its codes at a single height, and the axis lands on them
+    exactly; a face with mixed box heights spreads them, because the label
+    travels with the front of the box it is on, and the axis lands in the
+    middle of the spread. That is what flight_z was already approximating with
+    a median taken over the whole building.
+
+    It changes almost nothing in a wide aisle and everything in a narrow one.
+    The hires frame is 1.07 m tall in the 2.40 m aisle, so an axis 0.05 m out
+    is not worth naming. It is 0.18 m tall in the 0.50 m aisle, and rows G and
+    H carry their codes 0.049 m below the building median. Measured in the
+    2026-09-01 recording, their codes sat at 0.76 of frame height with the
+    worst survivor at 0.97, against 0.49 for row A; both of that run's narrow
+    aisle misses were on those two faces, opposite each other.
+
+    The second half is the check, and it is the half that travels to a
+    warehouse we have not seen. Below some aisle width a band of code heights
+    does not fit the frame at all, whatever the axis: at 0.50 m one pass
+    covers 0.09 m of band, and the mixed box heights on rows A to F span
+    0.11 m. Saying so out loud is the point. A level read half way looks in
+    the inventory exactly like a level holding half as many boxes, which is
+    the vertical twin of the warning aisle_fits already prints for a width.
+
+    `reads` is one entry per face this lane reads: the face, its camera's
+    field of view and frame, and how far that camera is from it.
+    """
+    levels = []
+    for index, fallback in enumerate(FLIGHT_Z):
+        bands = [face["code_z"][index] for face, _, _, _ in reads
+                 if face.get("code_z")]
+        if len(bands) != len(reads):
+            # A layout that does not say where its codes are keeps the old
+            # behaviour. Guessing would be worse than the median it replaces.
+            levels.append(fallback)
+            continue
+
+        axis = (min(b[0] for b in bands) + max(b[1] for b in bands)) / 2.0
+        levels.append(round(axis, 3))
+
+        for face, hfov_deg, frame_px, depth in reads:
+            low, high = face["code_z"][index]
+            reach = max(abs(low - axis), abs(high - axis)) + CODE_SIZE_M / 2
+            limit = half_frame_m(hfov_deg, frame_px, depth)
+            if reach > limit:
+                print(f"[WARN] face {face.get('name')} level {index + 1}: its "
+                      f"codes span {high - low:.3f} m, and the camera sees "
+                      f"{2 * limit:.3f} m of shelf from {depth:.3f} m away. "
+                      f"{reach - limit:.3f} m of that band falls outside the "
+                      f"frame whatever the altitude, so this level cannot be "
+                      f"read completely in one pass.")
+    return levels
+
+
 def build_route():
     """
     Build one pass per flight lane per level, in a continuous boustrophedon.
@@ -1254,7 +1346,8 @@ def build_route():
             hires = min(SHELF_STANDOFF, HIRES_MAX_STANDOFF)
             lanes.append({"x": round(face_lane_x(face, hires), 3),
                           "yaw": face["yaw_deg"],
-                          "hires_depth": hires, "rear_depth": None})
+                          "hires_depth": hires, "rear_depth": None,
+                          "hires_face": face, "rear_face": None})
             covered.append(face)
             continue
 
@@ -1272,14 +1365,16 @@ def build_route():
                 hires = min(SHELF_STANDOFF, HIRES_MAX_STANDOFF)
                 lanes.append({"x": round(face_lane_x(one, hires), 3),
                               "yaw": one["yaw_deg"],
-                              "hires_depth": hires, "rear_depth": None})
+                              "hires_depth": hires, "rear_depth": None,
+                              "hires_face": one, "rear_face": None})
             covered.extend((face, opposite))
             continue
 
         hires, rear = split
         lanes.append({"x": round(face_lane_x(face, hires), 3),
                       "yaw": face["yaw_deg"],
-                      "hires_depth": hires, "rear_depth": rear})
+                      "hires_depth": hires, "rear_depth": rear,
+                      "hires_face": face, "rear_face": opposite})
         covered.extend((face, opposite))
 
     for face, opposite, width in skipped:
@@ -1288,11 +1383,27 @@ def build_route():
               f"{2 * VEHICLE_HALF_SPAN:.2f} m across and needs "
               f"{AISLE_CLEARANCE_M:.2f} m a side. Not flown.")
 
+    # Where the optical axis goes on each lane. Done here, once the lane knows
+    # both the faces it reads and how far its cameras are from them, because
+    # the answer depends on all three.
+    for lane in lanes:
+        reads = [(lane["hires_face"], CAMERA_HFOV_DEG, HIRES_FRAME_PX,
+                  lane["hires_depth"] - HIRES_MOUNT_X)]
+        if lane["rear_face"] is not None and lane["rear_depth"] is not None:
+            reads.append((lane["rear_face"], TRACKING_HFOV_DEG, REAR_FRAME_PX,
+                          lane["rear_depth"] + REAR_MOUNT_X))
+        lane["z"] = lane_levels(reads)
+        if lane["z"] != FLIGHT_Z:
+            names = "/".join(f.get("name", "?") for f in
+                             (lane["hires_face"], lane["rear_face"]) if f)
+            print("[INFO] lane %s: flying %s rather than %s, to put the axis "
+                  "on the codes" % (names, lane["z"], FLIGHT_Z))
+
     route = []
     heading_north = True
     levels_ascending = True
     for lane in lanes:
-        levels = FLIGHT_Z if levels_ascending else list(reversed(FLIGHT_Z))
+        levels = lane["z"] if levels_ascending else list(reversed(lane["z"]))
         for z in levels:
             ends = ((Y_SOUTH, Y_NORTH) if heading_north
                     else (Y_NORTH, Y_SOUTH))

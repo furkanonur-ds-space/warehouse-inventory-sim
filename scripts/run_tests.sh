@@ -4,7 +4,7 @@
 #
 #   ./scripts/run_tests.sh
 #
-# All three take seconds and need no flight, which is the point: a scan takes
+# All suites take seconds and need no flight, which is the point: a scan takes
 # thirteen minutes and only tells you the total. These say which piece of the
 # geometry is wrong.
 set -u
@@ -49,6 +49,12 @@ run test_strips.py
 
 # The marker correction geometry.
 run test_drift_correction.py
+
+# Where the optical axis goes, and whether the codes fit the frame at all.
+# The vertical half of the geometry, which had never been checked and which
+# cost the narrowest aisle two codes a run: its frame is 0.18 m tall and its
+# codes sat 0.049 m below the axis.
+run test_framing.py
 
 if [ "$failed" -eq 0 ]; then
     echo "all suites passed"
