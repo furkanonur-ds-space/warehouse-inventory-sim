@@ -1,8 +1,9 @@
 """
 Autonomous Warehouse Inventory Scanner, C27 sensor configuration.
 
-Scans a warehouse using a UAV with a single front-facing high resolution
-camera, three tracking cameras and a forward TOF sensor. No GPS is used at any
+Scans a warehouse using a UAV with a forward high resolution camera, three
+tracking cameras of which the rear one also reads codes, and a forward TOF
+sensor. No GPS is used at any
 point: localization relies on visual odometry from the tracking cameras, fed to
 the PX4 EKF2 estimator as an external vision source.
 
@@ -84,10 +85,24 @@ CAMERA_HFOV_DEG = 60.0
 # The AR0144 tracking cameras. Wider than the hires, so a code at the same
 # pixel offset sits at a different bearing.
 TRACKING_HFOV_DEG = 90.0
-# Lane to shelf face, measured to base_link, which is what the setpoint
-# commands. A property of the warehouse, not the vehicle, so it comes from the
-# layout.
-SHELF_STANDOFF = LAYOUT["shelf_standoff"]
+# The furthest each camera can be from a shelf and still read it, measured by
+# standoff_sweep.py against real label textures. These are properties of the
+# camera and the label, not of the building, and they are what decides where
+# the lane goes in an aisle of any width.
+HIRES_MAX_STANDOFF = LAYOUT.get("hires_max_standoff", 1.30)
+REAR_MAX_STANDOFF = LAYOUT.get("rear_max_standoff", 1.10)
+
+# Where to stand off a face that has no aisle: a row along a wall, read by the
+# hires alone. Also the fallback for a layout that names no limits.
+SHELF_STANDOFF = LAYOUT.get("shelf_standoff", HIRES_MAX_STANDOFF)
+
+# How wide the vehicle is, so an aisle it does not fit down can be named
+# rather than flown into. The Starling 2 is 290 mm across at the propeller
+# tips.
+VEHICLE_HALF_SPAN = LAYOUT.get("vehicle_half_span", 0.0)
+
+# How much room to leave between a propeller tip and a shelf.
+AISLE_CLEARANCE_M = 0.05
 
 # Where each camera sits along the body, from build_c27_drone.py. The bearing
 # to a code is turned into a position using the distance from the camera to
@@ -100,7 +115,15 @@ REAR_MOUNT_X = -0.055
 
 # --- SCAN PARAMETERS ---------------------------------------------------
 WAYPOINT_TOLERANCE = 0.4      # metres
-CRUISE_SPEED = 0.6             # m/s along an aisle
+# One speed in every aisle.
+#
+# Slowing down in the narrow ones was tried, on the reading that the codes
+# lost there were lost to a shortage of frames. The measurement does not
+# support it: flying a box past the camera on paper at 1 m/s with a 10 Hz
+# camera gives four samples at the 0.271 m the narrowest aisle is flown at,
+# and all four decode. What was losing them was the strips cutting a code too
+# large to fit in one, which is fixed above.
+CRUISE_SPEED = 1.0             # m/s along an aisle
 CLIMB_SPEED = 0.15             # m/s when changing shelf level
 TURN_SETTLE_S = 3.0            # seconds held after a heading change
 SETTLE_TOLERANCE = 0.05        # metres of altitude error before a leg counts as settled
@@ -202,11 +225,25 @@ sim_now = {"s": 0.0}
 POSE_HISTORY_S = 300.0
 pose_history = []
 
-# How old a frame may be before it is dropped. This no longer protects the
-# position, which the history now does; it sheds load so that a decoder slower
-# than the camera cannot build a queue that grows for the whole flight and
-# costs the codes at the end of it. Generous, because dropping a frame that
-# could have been placed correctly is pure loss.
+# How old a frame may be before it is dropped.
+#
+# This does not protect the position; the pose history does that, and a frame
+# handled late is still filed against the shelf it was taken in front of. The
+# limit is a throughput control: it keeps the decoder from falling behind the
+# cameras and dragging the flight with it.
+#
+# It was raised to 1.50 s once, on the reading that a median age of 0.464
+# against a limit of 0.50 meant a fixed latency rather than a queue. It does
+# not:
+#
+#     limit 0.50 s   575 s of flight   4.6 frames a second   median age 0.464
+#     limit 1.50 s   994 s of flight   2.3 frames a second   median age 1.448
+#
+# The age settles just under whatever the limit is, which is what a saturated
+# queue looks like. Raising it deepened the queue, halved the frames decoded
+# and stretched the flight by seventy three per cent, because the loop that
+# drives the setpoints is the loop that drains the decoder. Coverage did not
+# move.
 MAX_FRAME_AGE_S = 0.50
 frames_stale = {"n": 0}
 frame_ages = []
@@ -473,17 +510,55 @@ def on_down_image(msg):
         pass
 
 
-# How many strips a frame is read in, and how much they overlap.
+# How a frame is split up before the detector sees it.
 #
 # The detector copes with one or two codes in a frame and fails above that,
-# and a shelf face always shows more. Four strips leave one or two in each at
-# the spacings this warehouse uses; the overlap is there so a code on a
-# boundary is whole in one of them.
-DECODE_STRIPS = 4
+# and a shelf face usually shows more, so a frame is read in overlapping
+# vertical strips. How many depends on how large the codes are, because a code
+# wider than a strip cannot sit inside one unless it lands in the middle of
+# it. A 0.10 m label is 68 px across when the camera stands 1.30 m from the
+# shelf and 327 px at 0.271 m.
+#
+# Measured, one code moved across the frame, whole against four strips:
+#
+#     stands     label     whole    four strips
+#     1.300 m     68 px    56/56       56/56
+#     0.959       92       56/56       56/56
+#     0.612      144       56/56       56/56
+#     0.271      327       56/56       32/56
+#
+# Four strips is right for a camera 1.30 m from a shelf and wrong for one at
+# 0.271 m, and the twenty codes lost in the narrowest aisle were lost to that.
+# Each strip is now sized to hold about three codes' width, so a code has room
+# to sit anywhere in one and still be whole: four strips in the widest aisle,
+# and one in the narrowest, which is a whole frame and is what a frame holding
+# a single enormous code wants.
+MAX_DECODE_STRIPS = 4
+STRIP_WIDTH_IN_CODES = 3.0
 STRIP_OVERLAP = 0.25
 
+# How wide a box label is, used only to work out how many pixels it covers.
+LABEL_WIDTH_M = LAYOUT.get("label_width_m", 0.10)
 
-def detect_in_strips(frame, detector):
+
+def strips_for(frame_width, hfov_deg, depth):
+    """
+    How many strips to read a frame in, given how far away the shelf is.
+
+    Closer means a larger code and fewer strips. One strip is the whole frame,
+    which is what a single code covering a third of it wants.
+    """
+    if not depth or depth <= 0:
+        return MAX_DECODE_STRIPS
+    label_px = (LABEL_WIDTH_M * frame_width
+                / (2 * depth * math.tan(math.radians(hfov_deg) / 2)))
+    if label_px <= 0:
+        return MAX_DECODE_STRIPS
+    return max(1, min(MAX_DECODE_STRIPS,
+                      int(frame_width / (STRIP_WIDTH_IN_CODES * label_px))))
+
+
+def detect_in_strips(frame, detector, strips=MAX_DECODE_STRIPS):
     """
     Run the detector across the frame in overlapping vertical strips.
 
@@ -493,11 +568,11 @@ def detect_in_strips(frame, detector):
     belongs and tell how close to an edge it was found.
     """
     height, width = frame.shape[:2]
-    step = width / DECODE_STRIPS
+    step = width / strips
     pad = step * STRIP_OVERLAP
 
     sightings = []
-    for i in range(DECODE_STRIPS):
+    for i in range(strips):
         x1 = int(max(0, i * step - pad))
         x2 = int(min(width, (i + 1) * step + pad))
         if x2 - x1 < 32:
@@ -539,7 +614,9 @@ def decode_qr(frame, cam):
     results = []
     frame_h, frame_w = frame.shape[:2]
     try:
-        sightings = detect_in_strips(frame, cam.detector)
+        sightings = detect_in_strips(
+            frame, cam.detector,
+            strips_for(frame_w, cam.hfov_deg, cam.depth))
 
         # The same code appears in two strips wherever they overlap. Keep the
         # sighting furthest from its own strip's edges, which is the one least
@@ -915,45 +992,72 @@ def shelf_name(face_x):
     return None
 
 
-def face_lane_x(face):
+def face_lane_x(face, standoff):
     """
-    Where the vehicle flies to read a face with the hires camera:
-    SHELF_STANDOFF out from the shelf surface, on the side it looks from.
+    Where the vehicle flies to read a face: standoff out from the shelf
+    surface, on the side the camera looks from.
 
     yaw +90 looks towards +x, so the vehicle sits at smaller x than the face;
-    yaw -90 looks towards -x, so it sits at larger x. Deriving the lane this
-    way rather than naming it directly keeps the standoff a single number that
-    can be tuned for the camera without touching any coordinates.
+    yaw -90 looks towards -x, so it sits at larger x. Deriving the lane rather
+    than naming it keeps the coordinates out of the layout.
     """
     if face["yaw_deg"] > 0:
-        return face["face_x"] - SHELF_STANDOFF
-    return face["face_x"] + SHELF_STANDOFF
+        return face["face_x"] - standoff
+    return face["face_x"] + standoff
 
 
-def opposite_face(face, lane_x):
+def facing_face(face):
     """
-    The face across the aisle from this one, or None if there is not one.
+    The face across the aisle from this one, or None if it stands alone.
 
-    A face is across the aisle when it looks back the other way and the lane
-    lies between the two of them. The nearest such face is the one the rear
-    camera sees; anything further is behind it.
+    A face is across the aisle when it looks back the other way and sits on
+    the side the vehicle would be. The nearest such face is the one the rear
+    camera sees; anything beyond it is behind a shelf.
 
     This is what makes the pairing a property of the warehouse rather than
-    something written down. A row along a wall has nothing facing it and
-    returns None, and its pass then uses the hires alone, exactly as every
-    pass did before the rear camera was wired in.
+    something written down. A row along a wall has nothing facing it, and its
+    pass then uses the hires alone.
     """
-    candidates = []
-    for other in AISLE_FACES:
-        if other is face or other["yaw_deg"] * face["yaw_deg"] > 0:
-            continue
-        # The vehicle must sit between the two faces for one to be behind it.
-        if (other["face_x"] - lane_x) * (face["face_x"] - lane_x) >= 0:
-            continue
-        candidates.append(other)
+    ahead = 1.0 if face["yaw_deg"] < 0 else -1.0     # which way the vehicle is
+    candidates = [
+        other for other in AISLE_FACES
+        if other is not face
+        and other["yaw_deg"] * face["yaw_deg"] < 0
+        and (other["face_x"] - face["face_x"]) * ahead > 0
+    ]
     if not candidates:
         return None
-    return min(candidates, key=lambda f: abs(f["face_x"] - lane_x))
+    return min(candidates, key=lambda f: abs(f["face_x"] - face["face_x"]))
+
+
+def split_aisle(width):
+    """
+    How far the lane sits from each face of an aisle of this width.
+
+    Both distances add up to the width, and each has to stay inside what its
+    camera can read. Splitting in proportion to the two limits keeps both at
+    the same fraction of their own reach whatever the aisle, and reduces to
+    the limits themselves when the aisle is exactly as wide as they allow.
+
+    Returns None for an aisle too wide to read from one lane, which then costs
+    a pass a face instead of one for both.
+    """
+    total = HIRES_MAX_STANDOFF + REAR_MAX_STANDOFF
+    hires = width * HIRES_MAX_STANDOFF / total
+    rear = width - hires
+    if rear > REAR_MAX_STANDOFF:
+        rear = REAR_MAX_STANDOFF
+        hires = width - rear
+    if hires > HIRES_MAX_STANDOFF:
+        return None
+    return hires, rear
+
+
+def aisle_fits(width):
+    """Whether the vehicle can fly this aisle at all, with room to spare."""
+    if VEHICLE_HALF_SPAN <= 0:
+        return True
+    return width / 2.0 - VEHICLE_HALF_SPAN >= AISLE_CLEARANCE_M
 
 
 def build_route():
@@ -981,23 +1085,56 @@ def build_route():
     # behind, so the pair costs one pass instead of two. Where a face has no
     # partner, an outer row along a wall, the group has one member and it is
     # flown as before.
-    # One lane per face the hires reads, skipping any face that is already
-    # covered by the rear camera on an earlier lane. Two faces across an aisle
-    # therefore cost one pass rather than two.
+    # One lane per aisle, with both its faces read from it, and a lane of its
+    # own for any face that has nothing opposite. Where the lane sits comes
+    # from the width of the aisle, since the two cameras have to share it.
     lanes = []
     covered = []
+    skipped = []
     for face in AISLE_FACES:
         if any(face is c for c in covered):
             continue
-        lane_x = round(face_lane_x(face), 3)
-        behind = opposite_face(face, lane_x)
-        # What the rear camera is looking at from this lane, if anything.
-        rear_depth = abs(behind["face_x"] - lane_x) if behind else None
-        lanes.append({"x": lane_x, "yaw": face["yaw_deg"],
-                      "rear_depth": rear_depth})
-        covered.append(face)
-        if behind:
-            covered.append(behind)
+        opposite = facing_face(face)
+
+        if opposite is None:
+            # A row along a wall. The hires reads it alone, from as far back
+            # as it can still read, and there is nothing behind.
+            hires = min(SHELF_STANDOFF, HIRES_MAX_STANDOFF)
+            lanes.append({"x": round(face_lane_x(face, hires), 3),
+                          "yaw": face["yaw_deg"],
+                          "hires_depth": hires, "rear_depth": None})
+            covered.append(face)
+            continue
+
+        width = abs(opposite["face_x"] - face["face_x"])
+        if not aisle_fits(width):
+            skipped.append((face, opposite, width))
+            covered.extend((face, opposite))
+            continue
+
+        split = split_aisle(width)
+        if split is None:
+            # Wider than both cameras together can cover, so each face gets
+            # its own pass, as everything did before the rear camera existed.
+            for one in (face, opposite):
+                hires = min(SHELF_STANDOFF, HIRES_MAX_STANDOFF)
+                lanes.append({"x": round(face_lane_x(one, hires), 3),
+                              "yaw": one["yaw_deg"],
+                              "hires_depth": hires, "rear_depth": None})
+            covered.extend((face, opposite))
+            continue
+
+        hires, rear = split
+        lanes.append({"x": round(face_lane_x(face, hires), 3),
+                      "yaw": face["yaw_deg"],
+                      "hires_depth": hires, "rear_depth": rear})
+        covered.extend((face, opposite))
+
+    for face, opposite, width in skipped:
+        print(f"[WARN] aisle between {face.get('name')} and "
+              f"{opposite.get('name')} is {width:.2f} m; the vehicle is "
+              f"{2 * VEHICLE_HALF_SPAN:.2f} m across and needs "
+              f"{AISLE_CLEARANCE_M:.2f} m a side. Not flown.")
 
     route = []
     heading_north = True
@@ -1009,7 +1146,7 @@ def build_route():
                     else (Y_NORTH, Y_SOUTH))
             for y in ends:
                 route.append((lane["x"], y, z, lane["yaw"],
-                              lane["rear_depth"]))
+                              lane["hires_depth"], lane["rear_depth"]))
             heading_north = not heading_north
         levels_ascending = not levels_ascending
     return route
@@ -1236,7 +1373,8 @@ def save_inventory(reached, planned):
     """
     payload = {
         "scan_date": datetime.now().isoformat(timespec="seconds"),
-        "sensor_configuration": "C27, single front-facing scanning camera",
+        "sensor_configuration":
+            "C27, forward hires and rear tracking camera, both scanning",
         "localization": "visual odometry, no GPS",
         "total_detected": len(inventory),
         "waypoints_completed": f"{reached}/{planned}",
@@ -1331,7 +1469,7 @@ async def run():
     route = build_route()
     print("=" * 68)
     print("  AUTONOMOUS WAREHOUSE INVENTORY SCAN")
-    print("  Sensor configuration: C27, single front-facing scanning camera")
+    print("  Sensor configuration: C27, hires ahead and tracking behind")
     print(f"  Shelf faces    : {len(AISLE_FACES)}")
     print(f"  Shelf levels   : {len(FLIGHT_Z)}")
     print(f"  Waypoints      : {len(route)}")
@@ -1439,10 +1577,12 @@ async def run():
     mission_start = time.time()
     reached = 0
     last_yaw = YAW_NORTH
-    for index, (x, y, z, yaw, rear_depth) in enumerate(route, 1):
+    for index, (x, y, z, yaw, hires_depth, rear_depth) in enumerate(route, 1):
         # Each camera is told how far its face is before the leg begins, so a
-        # frame decoded during it is placed against the right distance.
-        HIRES.depth = SHELF_STANDOFF - HIRES_MOUNT_X
+        # frame decoded during it is placed against the right distance. Both
+        # come from the route now, because a tapering warehouse gives every
+        # aisle a different pair.
+        HIRES.depth = hires_depth - HIRES_MOUNT_X
         REAR.depth = (rear_depth + REAR_MOUNT_X) if rear_depth else None
         if yaw != last_yaw:
             await hold_heading(drone, yaw)

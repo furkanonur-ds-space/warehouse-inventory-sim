@@ -199,10 +199,19 @@ tracking_front = camera_block(
 # 30 fps, confirmed by voxl-inspect-cam, so this moves the simulation
 # towards the vehicle rather than away from it. It costs 2.0 Mpx/s, taking
 # the budget to 15.1, still under the 20.2 that ran gz out of memory.
+# 8 Hz, not 3.
+#
+# At 1 m/s the narrowest aisle puts this camera 0.229 m from its shelf, where
+# it sees 0.46 m of it at a time, so a box is in frame for 0.46 s. Three hertz
+# is 1.4 frames on it. The face only this camera reads lost 24 of 54 at that
+# rate; four frames needs 8.7 Hz.
+#
+# The vehicle runs these at 30 fps, so this is still well short of the
+# hardware. It costs 5.12 Mpx/s, paid for by the downward camera below.
 tracking_rear = camera_block(
     "camera_track_rear_link", "camera_track_rear_joint",
     -0.055, 0.0, -0.015, 0, 0, 3.14159,
-    fov=1.5708, width=1280, height=800, update_rate=3)
+    fov=1.5708, width=1280, height=800, update_rate=8)
 
 # The downward tracking camera doubles as the ArUco marker reader for drift
 # correction.
@@ -219,7 +228,7 @@ tracking_rear = camera_block(
 tracking_down = camera_block(
     "camera_track_down_link", "camera_track_down_joint",
     0.0, 0.0, -0.025, 0, 1.5708, 0,
-    fov=1.5708, width=1280, height=800, update_rate=8)
+    fov=1.5708, width=1280, height=800, update_rate=5)
 
 # --- Sensors required for GPS-free position estimation -----------------
 #

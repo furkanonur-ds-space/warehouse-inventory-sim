@@ -163,5 +163,20 @@
     "which changes the narrowest aisle: an x500 does not fit in 0.50 m and a",
     "Starling does, with 105 mm a side. Whether that is enough to fly is a",
     "separate question from whether it fits."
-  ]
+  ],
+  "_camera_reach_note": [
+    "How far each camera reads, measured by standoff_sweep.py on real label",
+    "textures rendered at the size and obliquity each distance gives, asking",
+    "for reliability out to 25 degrees off axis because a code sweeps across",
+    "the whole frame as the vehicle passes it.",
+    "",
+    "These place the lane in an aisle of any width: both distances must add",
+    "up to the width and each must stay inside its camera's reach, so the",
+    "width is split between them in proportion to these two numbers.",
+    "",
+    "An aisle wider than the two together cannot be read from one lane and",
+    "costs a pass a face instead."
+  ],
+  "hires_max_standoff": 1.3,
+  "rear_max_standoff": 1.1
 }

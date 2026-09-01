@@ -37,8 +37,11 @@ if not os.path.isdir(TEX):
 # them here is what keeps this a test of the pipeline and not of a copy of the
 # numbers.
 _ROUTE = s.build_route()
-LANE_X, _, _, YAW, REAR_DEPTH = _ROUTE[0]
-HIRES_DEPTH = s.SHELF_STANDOFF
+# By position, not by count: a route entry has gained a field three times now
+# and each time this line was the thing that broke.
+_FIRST = _ROUTE[0]
+LANE_X, YAW = _FIRST[0], _FIRST[3]
+HIRES_DEPTH, REAR_DEPTH = _FIRST[4], _FIRST[5]
 DRONE_Y = -5.0
 
 # The distance the labels are drawn at, which is not the distance the
