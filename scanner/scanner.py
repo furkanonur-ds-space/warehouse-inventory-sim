@@ -181,18 +181,68 @@ TOF_SELF_M = 0.25
 clearance = {"min_m": float("inf"), "samples": 0, "alarms": 0,
              "in_alarm": False, "alarm_positions": []}
 
-# The simulation clock, taken from the TOF because it is stamped on the same
-# clock as the camera frames, arrives twenty times a second and is a handful
-# of numbers, so it never queues. Zero means nothing has arrived yet, and a
-# frame is then accepted because there is nothing to judge it against.
+# The simulation clock, from PX4's odometry. It arrives over UDP at about
+# 26 Hz, so the camera queue cannot delay it, and its timestamps sit on the
+# same clock as the image headers: measured 4 ms apart, 14 ms spread, once the
+# opening burst is past. Zero means nothing has arrived yet.
+#
+# It was taken from the TOF before, which shares gz transport with the
+# cameras. When frames backed up the TOF backed up with them, so a stale frame
+# was measured against a stale clock and the difference stayed near zero. The
+# check reported nothing wrong because it could not see anything.
 sim_now = {"s": 0.0}
 
-# How old a frame may be before it is thrown away. The pose is read when the
-# frame is handled, so a frame this old places its codes up to this many
-# seconds of travel from where they are: 0.2 s at 0.6 m/s is 0.12 m. Before
-# this bound existed the worst was 3.20 m.
-MAX_FRAME_AGE_S = 0.20
+# Where the vehicle has been, stamped in simulation time, oldest first. A
+# frame is placed against its own entry here rather than against wherever the
+# vehicle has reached by the time the frame is decoded.
+#
+# Long enough to cover a queue far deeper than should ever form: Ibrahim's
+# failing run reached 122 s of lag, and at 26 Hz five minutes of history is
+# eight thousand tuples.
+POSE_HISTORY_S = 300.0
+pose_history = []
+
+# How old a frame may be before it is dropped. This no longer protects the
+# position, which the history now does; it sheds load so that a decoder slower
+# than the camera cannot build a queue that grows for the whole flight and
+# costs the codes at the end of it. Generous, because dropping a frame that
+# could have been placed correctly is pure loss.
+MAX_FRAME_AGE_S = 0.50
 frames_stale = {"n": 0}
+frame_ages = []
+
+
+def pose_at(when):
+    """
+    Where the vehicle was at a given simulation time.
+
+    Linear between the two samples either side, which at 26 Hz are 39 ms and
+    about 23 mm of travel apart. None if the history does not reach back that
+    far, which means the frame is older than anything we can place it against.
+    """
+    if len(pose_history) < 2 or when < pose_history[0][0]:
+        return None
+    if when >= pose_history[-1][0]:
+        return pose_history[-1][1:]
+
+    lo, hi = 0, len(pose_history) - 1
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        if pose_history[mid][0] <= when:
+            lo = mid
+        else:
+            hi = mid
+
+    t0, n0, e0, d0, y0 = pose_history[lo]
+    t1, n1, e1, d1, y1 = pose_history[hi]
+    span = t1 - t0
+    f = 0.0 if span <= 0 else (when - t0) / span
+    # Yaw wraps, so interpolate along the shorter way round.
+    dy = (y1 - y0 + 180.0) % 360.0 - 180.0
+    return (n0 + (n1 - n0) * f,
+            e0 + (e1 - e0) * f,
+            d0 + (d1 - d0) * f,
+            y0 + dy * f)
 
 
 def stamp_seconds(msg):
@@ -536,13 +586,17 @@ def on_rear_image(msg):
 
 def handle_frame(msg, cam):
     """Decode one frame from one camera and queue what it found."""
-    age = sim_now["s"] - stamp_seconds(msg)
-    if sim_now["s"] and age > MAX_FRAME_AGE_S:
-        # Older than the pose would survive. Reading it would put its codes
-        # roughly age times the cruise speed along the aisle from their shelf.
-        cam.stale += 1
-        frames_stale["n"] += 1
-        return
+    taken_at = stamp_seconds(msg)
+    age = sim_now["s"] - taken_at
+    if sim_now["s"]:
+        frame_ages.append(age)
+        if age > MAX_FRAME_AGE_S:
+            # Not because it cannot be placed; the history would place it. To
+            # keep the queue from growing for the whole flight and costing the
+            # codes at the end of it.
+            cam.stale += 1
+            frames_stale["n"] += 1
+            return
     depth = cam.depth
     if depth is None:
         # No face for this camera on this lane, so anything it sees belongs to
@@ -558,13 +612,21 @@ def handle_frame(msg, cam):
     try:
         img = np.frombuffer(msg.data, dtype=np.uint8).reshape(
             (msg.height, msg.width, 3))
-        # Read the pose before decoding, since decoding takes time and the
-        # vehicle keeps moving. The drift offset is included so the position
-        # is in the true Gazebo frame rather than the estimator's.
-        pose = (current_pos["n"] + drift_offset["n"],
-                current_pos["e"] + drift_offset["e"],
-                current_pos["d"],
-                current_yaw["deg"] + cam.yaw_offset_deg)
+        # Where the vehicle was when this frame was taken, not where it is
+        # now. Reading the current position instead is what put codes up to
+        # 6.86 m from their shelves on a machine fast enough to outrun the
+        # decoder. The drift offset is added so the result is in the true
+        # Gazebo frame rather than the estimator's.
+        was = pose_at(taken_at)
+        if was is None:
+            # Older than the history reaches. Nothing to place it against.
+            cam.stale += 1
+            frames_stale["n"] += 1
+            return
+        pose = (was[0] + drift_offset["n"],
+                was[1] + drift_offset["e"],
+                was[2],
+                was[3] + cam.yaw_offset_deg)
 
         hits = decode_qr(cv2.cvtColor(img, cv2.COLOR_RGB2BGR), cam)
         cam.frames += 1
@@ -577,24 +639,46 @@ def handle_frame(msg, cam):
         cam.busy = False
 
 
-async def track_position(drone):
-    """Mirror the EKF2 local position estimate into current_pos."""
-    global current_pos
-    try:
-        async for odom in drone.telemetry.position_velocity_ned():
-            current_pos["n"] = odom.position.north_m
-            current_pos["e"] = odom.position.east_m
-            current_pos["d"] = odom.position.down_m
-    except Exception:
-        pass
+async def track_odometry(drone):
+    """
+    Mirror the estimator's pose, and keep a history of it stamped in
+    simulation time.
 
+    This replaces separate subscriptions to position_velocity_ned and
+    attitude_euler. Odometry carries position, orientation and a timestamp
+    together, and the position agrees with position_velocity_ned to 0.2 mm, so
+    nothing is given up by taking all three from one message.
 
-async def track_heading(drone):
-    """Mirror the current heading, needed to work out which side a box is on."""
-    global current_yaw
+    The timestamp is the point. It is on the same clock as the image headers,
+    and it arrives over UDP rather than through gz transport, so it stays
+    current no matter how far behind the cameras fall.
+    """
+    global current_pos, current_yaw
     try:
-        async for att in drone.telemetry.attitude_euler():
-            current_yaw["deg"] = att.yaw_deg
+        async for o in drone.telemetry.odometry():
+            when = o.time_usec / 1e6
+            q = o.q
+            yaw = math.degrees(math.atan2(
+                2 * (q.w * q.z + q.x * q.y),
+                1 - 2 * (q.y * q.y + q.z * q.z)))
+
+            current_pos["n"] = o.position_body.x_m
+            current_pos["e"] = o.position_body.y_m
+            current_pos["d"] = o.position_body.z_m
+            current_yaw["deg"] = yaw
+            sim_now["s"] = when
+
+            pose_history.append((when, current_pos["n"], current_pos["e"],
+                                 current_pos["d"], yaw))
+            # Trim from the front rather than using a deque, so that the
+            # binary search in pose_at can index it.
+            cutoff = when - POSE_HISTORY_S
+            if pose_history[0][0] < cutoff:
+                keep = 0
+                while (keep < len(pose_history)
+                       and pose_history[keep][0] < cutoff):
+                    keep += 1
+                del pose_history[:keep]
     except Exception:
         pass
 
@@ -748,12 +832,6 @@ def on_tof_scan(msg):
     vehicle held its lane, and one that collapses is evidence it did not.
     """
     try:
-        # This is also the simulation clock. The TOF is stamped on the same
-        # clock as the camera frames, arrives twenty times a second and is
-        # small enough that it never queues behind anything, so it is the one
-        # message in the pipeline whose timestamp can be trusted to be now.
-        sim_now["s"] = stamp_seconds(msg)
-
         nearest = nearest_ahead(msg)
         if nearest is None:
             return
@@ -1156,6 +1234,20 @@ def write_navigation_report(reached, planned, duration_s):
                        "too_old": cam.stale}
             for cam in (HIRES, REAR)
         },
+        # How far behind the cameras ran. This is the measurement whose
+        # absence hid a scan that put two per cent of its codes on the right
+        # shelf: the report said nothing was wrong, when what it meant was
+        # that two broken checks had not fired.
+        "frame_age_s": {
+            "median": round(sorted(frame_ages)[len(frame_ages) // 2], 3)
+                      if frame_ages else None,
+            "p95": round(sorted(frame_ages)[int(len(frame_ages) * 0.95)], 3)
+                   if frame_ages else None,
+            "max": round(max(frame_ages), 3) if frame_ages else None,
+            "samples": len(frame_ages),
+            "dropped_for_age": frames_stale["n"],
+            "limit": MAX_FRAME_AGE_S,
+        },
         "localization_error_m": {
             "median": round(errors[len(errors) // 2], 3) if errors else None,
             "p95": round(errors[int(len(errors) * 0.95)], 3) if errors else None,
@@ -1212,8 +1304,7 @@ async def run():
         if state.is_connected:
             break
 
-    asyncio.create_task(track_position(drone))
-    asyncio.create_task(track_heading(drone))
+    asyncio.create_task(track_odometry(drone))
 
     print("[INFO] Waiting for position estimate (VIO Local Position)")
     async for health in drone.telemetry.health():

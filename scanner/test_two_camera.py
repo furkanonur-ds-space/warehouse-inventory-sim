@@ -106,9 +106,17 @@ s.current_yaw = {"deg": YAW}
 s.HIRES.depth = HIRES_DEPTH - s.HIRES_MOUNT_X
 s.REAR.depth = REAR_DEPTH + s.REAR_MOUNT_X
 
-# A plausible simulation time, and a TOF reading to announce it.
+# A plausible simulation time, and a history for the frames to be placed
+# against. Two samples either side of the moment the frames are taken at is
+# enough: the vehicle is standing still here, because what is under test is
+# which face and which side a code lands on, not the lookup itself. The lookup
+# has its own test.
 SIM_NOW = 120.0
 s.sim_now["s"] = SIM_NOW
+s.pose_history[:] = [
+    (SIM_NOW - 1.0, DRONE_Y, LANE_X, -(0.75 - s.GROUND_OFFSET), YAW),
+    (SIM_NOW + 1.0, DRONE_Y, LANE_X, -(0.75 - s.GROUND_OFFSET), YAW),
+]
 
 failures = []
 
@@ -172,6 +180,9 @@ s.inventory.clear()
 old = place(s.on_hires_image,
             frame_with_label(RENDER_M, 1024, 768, 60.0),
             taken_at=SIM_NOW - 2 * s.MAX_FRAME_AGE_S)
+# Dropping this one is a throughput choice, not a correctness one: the history
+# would have placed it correctly. It is dropped so that a decoder slower than
+# the camera cannot build a queue that grows all flight.
 check("a frame twice the age limit is dropped", old, {})
 check("and counted", s.HIRES.stale, 1)
 
