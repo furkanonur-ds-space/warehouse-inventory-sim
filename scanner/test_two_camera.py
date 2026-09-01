@@ -16,6 +16,7 @@ import glob
 import math
 import os
 import sys
+import time
 
 import cv2
 import numpy as np
@@ -90,15 +91,33 @@ class Msg:
 
 
 def place(callback, img, taken_at=None):
-    """Run one frame through a camera callback and return what it recorded."""
+    """
+    Run one frame through a camera callback and return what it recorded.
+
+    The callback hands the frame to that camera's decoder thread and returns,
+    so pending is still empty the instant it comes back. Wait for the decoder
+    to go idle rather than sleeping a guessed amount: a fixed sleep would pass
+    on this machine and fail on a slower one, which is the sort of test that
+    is worse than no test. A frame the callback rejected before the handover
+    leaves the decoder idle already, so this returns at once for those.
+    """
+    cam = s.HIRES if callback is s.on_hires_image else s.REAR
     s.inventory.clear()
     s.pending.clear()
     callback(Msg(img, taken_at))
+    deadline = time.time() + 10.0
+    while (cam.queue or cam.working) and time.time() < deadline:
+        time.sleep(0.005)
     while s.pending:
         qr, cx, cy, fw, fh, pose, hfov, cam, depth = s.pending.popleft()
         s.record_detection(qr, cx, cy, fw, fh, pose, hfov, cam, depth)
     return dict(s.inventory)
 
+
+# Each camera decodes on a thread of its own, so those threads have to be
+# running for a callback to do anything at all.
+for _cam in (s.HIRES, s.REAR):
+    _cam.start()
 
 s.origin_pos = {"n": s.SPAWN_Y, "e": s.SPAWN_X, "d": 0.0}
 s.current_pos = {"n": DRONE_Y, "e": LANE_X, "d": -(0.75 - s.GROUND_OFFSET)}
@@ -162,12 +181,23 @@ for name, callback, width, height, hfov, expect_sign in [
               % (name, side, "below" if want < 0 else "above"),
               [d < 0 for d in dy], [want < 0])
 
-print("\n3. a frame arriving mid decode is dropped, not queued")
-s.HIRES.busy = True
+print("\n3. a frame offered to a full decoder is dropped, not queued")
+# The decoder is stopped so the queue can be filled on purpose. There is no
+# busy flag to set any more: decoding happens on the camera's own thread, and
+# what fills is the queue in front of it. The old flag was set and cleared
+# inside one callback on a thread that runs callbacks one at a time, so it was
+# never true when anything looked at it, and every run reported zero drops
+# while a quarter of the frames were being thrown away at the age limit.
+s.HIRES.finish()
+s.HIRES.queue.clear()
 s.HIRES.dropped = 0
-s.on_hires_image(Msg(frame_with_label(RENDER_M, 1024, 768, 60.0)))
-check("dropped while busy", s.HIRES.dropped, 1)
-s.HIRES.busy = False
+for _ in range(s.DECODE_QUEUE_DEPTH + 1):
+    s.on_hires_image(Msg(frame_with_label(RENDER_M, 1024, 768, 60.0)))
+check("sheds one once the queue is full", s.HIRES.dropped, 1)
+check("and never grows past its depth", len(s.HIRES.queue),
+      s.DECODE_QUEUE_DEPTH)
+s.HIRES.queue.clear()
+s.HIRES.start()
 
 print("\n4. a camera with no face on this lane records nothing")
 s.REAR.depth = None
@@ -192,6 +222,9 @@ check("and counted", s.HIRES.stale, 1)
 print("\n6. each camera holds its own detector")
 check("wechat detectors differ", s.HIRES.detector is not s.REAR.detector, True)
 check("fallback detectors differ", s.HIRES.fallback is not s.REAR.fallback, True)
+
+for _cam in (s.HIRES, s.REAR):
+    _cam.finish()
 
 print("\n%s" % ("all checks passed" if not failures
                 else "%d FAILED: %s" % (len(failures), ", ".join(failures))))

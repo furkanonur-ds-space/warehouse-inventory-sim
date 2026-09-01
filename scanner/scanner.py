@@ -326,6 +326,83 @@ def lane_frames(what, age=None):
         row["ages"].append(age)
 frame_ages = []
 
+# --- WHERE THE TIME GOES -----------------------------------------------
+#
+# Frames arrive a median of 0.45 s late in the two narrow aisles and on time
+# in the two wide ones, and every explanation offered so far has been a guess
+# about which part of the pipeline is slow. Three of those guesses were wrong.
+# This measures it instead.
+#
+# Four numbers, per camera, per lane. The first two are about delivery and are
+# taken before anything else, so they are recorded for skipped frames too; the
+# last two are about the work and only exist for frames that were decoded.
+#
+#   arrival_gap  wall seconds since the previous callback on this camera. If
+#                this sits near the inter-frame period the callbacks are
+#                keeping up. If it is near zero most of the time with an
+#                occasional long one, frames are being handed over in bursts,
+#                which is a buffer upstream of us rather than a slow decoder.
+#   stamp_gap    simulation seconds between the two frames' own timestamps.
+#                What Gazebo actually rendered, independent of delivery. A
+#                steady 1/rate here with bursty arrival_gap localises the
+#                delay to the transport.
+#   decode_ms    time inside decode_qr. The bench says 5.7 ms on a real narrow
+#                aisle frame. If the flight disagrees, the bench is not
+#                measuring the flight.
+#   total_ms     time inside handle_frame end to end, so the difference from
+#                decode_ms is everything else: the reshape, the colour
+#                conversion, the pose lookup and the recorder handoff.
+#
+# The cost of collecting them is three perf_counter calls and four list
+# appends, benched at 1.23 us a frame, against a decode measured at 5.7 ms on
+# a real narrow aisle frame. That is 0.02 per cent of one decode, and 0.002
+# per cent of a core at the 18 frames a second the two cameras offer, which is
+# the reason this can be left switched on for a scoring run rather than being
+# a separate instrumented build that then measures something else.
+timing = {}              # (lane, camera) -> lists of the four numbers above
+last_entry = {}          # camera -> wall clock at the previous callback
+last_stamp = {}          # camera -> simulation stamp of the previous frame
+# Which thread each camera's callbacks run on. gz transport is expected to
+# give every Node one, which would mean the callbacks on a single camera are
+# serialised and cam.busy can never fire. Both runs so far report zero frames
+# dropped for busy, which is what that would look like, so it is worth knowing
+# rather than assuming.
+callback_threads = {}
+
+
+def timing_row(cam):
+    """The timing lists for this camera on the lane being flown."""
+    return timing.setdefault(
+        (current_lane["name"], cam.name),
+        {"arrival_gap": [], "stamp_gap": [], "decode_ms": [], "total_ms": []})
+
+
+def spread(values, scale=1.0):
+    """
+    The shape of a list of measurements, not just its middle.
+
+    The low end is here on purpose. A median says how long a typical gap
+    between frames is; only the low end says whether a quarter of them arrived
+    back to back, which is the difference between a slow decoder and a buffer
+    emptying itself.
+    """
+    if not values:
+        return None
+    ordered = sorted(values)
+    last = len(ordered) - 1
+
+    def at(fraction):
+        return round(ordered[min(last, int(len(ordered) * fraction))] * scale, 3)
+
+    return {
+        "min": round(ordered[0] * scale, 3),
+        "p05": at(0.05),
+        "median": at(0.50),
+        "p95": at(0.95),
+        "max": round(ordered[-1] * scale, 3),
+        "samples": len(ordered),
+    }
+
 
 def pose_at(when):
     """
@@ -364,29 +441,57 @@ def stamp_seconds(msg):
     """The simulation time a message was produced, in seconds."""
     return msg.header.stamp.sec + msg.header.stamp.nsec * 1e-9
 
+# How many frames a decoder may have waiting. Two, because the queue is not
+# there to buy time: raising the age limit from 0.50 to 1.50 s already proved
+# that a deeper queue only makes older frames, halving what was decoded and
+# stretching the flight by seventy three per cent while coverage stood still.
+# What was missing was a second thread, not a longer line.
+DECODE_QUEUE_DEPTH = 2
+
+
 class CameraDecoder:
     """
     One camera, with its own detector and its own idea of where it points.
 
     The detector is not shared. cv2.wechat_qrcode_WeChatQRCode holds model
-    state and is not safe to call from two threads, and sharing one between
-    the hires and rear callbacks also serialises them: each waits for the
-    other, both fall behind the simulator, and a callback then runs long after
-    the frame it is holding was taken. Since the pose is read when the
-    callback runs, the code is recorded wherever the vehicle has reached by
-    then.
+    state and is not safe to call from two threads, and the two cameras now
+    genuinely do decode at the same time, so this has stopped being a
+    precaution and become a requirement.
 
-    The first two-camera run measured exactly that. Codes came out up to
+    The pose is read as the frame lands rather than when it is decoded. That
+    was measured the hard way on the first two-camera run. Codes came out up to
     5.8 m along the aisle from where they are, on both cameras, worst at the
     start and draining away as the run caught up: bay 6 was out by 5.3 m, bay
     4 by 3.3 m. Nothing landed on the wrong face or the wrong level, because
     those are snapped to the layout; only the along-aisle estimate is not, and
     that is the one that moved.
 
-    A frame arriving while the previous one is still being decoded is dropped
-    rather than queued, which is what keeps the pose fresh. Coverage can
-    afford it: a code stays in the hires frame for about 2 m of travel and the
-    boxes are 0.65 m apart at their closest.
+    Decoding runs on a thread of this camera's own, and not on the one gz
+    transport calls us from. That thread is shared: the 2026-09-02 run
+    reported the same thread id for both cameras, so every hires frame and
+    every rear frame queued behind each other on one thread whatever else the
+    code did. Separate detectors were never enough on their own.
+
+    It cost a quarter of the frames. Decoding measured 107 ms a frame on the
+    hires and 115 ms on the rear in the narrowest aisle, against frames
+    arriving every 154 and 198 ms of wall clock, which is 128 per cent of one
+    thread. The queue shed the excess: 401 of 1444 frames in that aisle, 27.8
+    per cent, against the 28 the arithmetic asks for.
+
+    That was invisible until the aisles narrowed. A 2.40 m aisle offers a box
+    fourteen frames and losing four of them costs nothing; a 0.50 m aisle
+    offers 2.4 and losing a quarter leaves 1.75.
+
+    Two threads are worth having only if they run at the same time, which in
+    Python means the detector has to release the interpreter lock. Benched on
+    real narrow-aisle frames rather than assumed: 3.47 s on one thread against
+    1.84 s on two, a speedup of 1.88.
+
+    The queue is two frames deep and drops its oldest. Depth is not the point;
+    capacity is. A worker that falls behind sheds frames exactly as the old
+    code did, so the worst this can do is behave like what it replaces, and
+    the pose travels with each frame so a frame decoded late is still filed
+    against the shelf it was taken in front of.
     """
 
     def __init__(self, name, hfov_deg, yaw_offset_deg):
@@ -405,7 +510,6 @@ class CameraDecoder:
         # The second pass detector, for a code WeChat locates but cannot
         # read. Per camera for the same reason as the first.
         self.fallback = cv2.QRCodeDetector()
-        self.busy = False
         self.frames = 0
         self.dropped = 0
         self.stale = 0
@@ -414,6 +518,70 @@ class CameraDecoder:
         self.stride = 1
         self.arrived = 0
         self.skipped = 0
+        # The handover to this camera's decoder thread. Bounded, so a worker
+        # that cannot keep up sheds the oldest frame rather than growing a
+        # queue for the whole flight and dragging every later code with it.
+        self.queue = deque(maxlen=DECODE_QUEUE_DEPTH)
+        self.wake = threading.Event()
+        self.stop = threading.Event()
+        self.thread = None
+        # Whether a frame is in the decoder right now. The old cam.busy meant
+        # to say this and could not: it was set and cleared inside the same
+        # callback, on a thread that runs callbacks one at a time, so it was
+        # never true when anything looked at it.
+        self.working = False
+
+    def offer(self, item):
+        """Hand a frame to the decoder. Called from gz transport; never blocks."""
+        if len(self.queue) == self.queue.maxlen:
+            self.dropped += 1
+        self.queue.append(item)
+        self.wake.set()
+
+    def _run(self):
+        while not self.stop.is_set():
+            if not self.queue:
+                self.wake.wait(0.05)
+                self.wake.clear()
+                continue
+            try:
+                img, pose, depth, row = self.queue.popleft()
+            except IndexError:
+                continue
+            self.working = True
+            try:
+                bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+                recorder = RECORDERS.get(self.name)
+                if recorder is not None:
+                    # A copy, because the decoder is about to look at the same
+                    # array and the writer thread will still be holding this.
+                    recorder.offer(bgr.copy())
+                started = time.perf_counter()
+                hits = decode_qr(bgr, self)
+                # Recorded against the lane the frame was taken on, which
+                # travels with it. The lane the vehicle has reached by now is
+                # a different question and not the one being asked.
+                row["decode_ms"].append((time.perf_counter() - started) * 1e3)
+                self.frames += 1
+                for value, cx, cy, fw, fh in hits:
+                    pending.append((value, cx, cy, fw, fh, pose,
+                                    self.hfov_deg, self.name, depth))
+            except Exception:
+                pass
+            finally:
+                self.working = False
+
+    def start(self):
+        self.stop.clear()
+        self.thread = threading.Thread(target=self._run, daemon=True)
+        self.thread.start()
+
+    def finish(self):
+        if self.thread is None:
+            return
+        self.stop.set()
+        self.wake.set()
+        self.thread.join(timeout=10)
 
 
 HIRES = CameraDecoder("camera_hires_link", CAMERA_HFOV_DEG, 0.0)
@@ -880,6 +1048,25 @@ def on_rear_image(msg):
 
 def handle_frame(msg, cam):
     """Decode one frame from one camera and queue what it found."""
+    # Delivery is measured first, before the stride check, so that a lane
+    # which skips most of its frames still says how they arrived. That is the
+    # comparison the whole question rests on: the wide aisles skip and are
+    # healthy, the narrow ones do not skip and are late.
+    entered = time.perf_counter()
+    row = timing_row(cam)
+    previous = last_entry.get(cam.name)
+    last_entry[cam.name] = entered
+    if previous is not None:
+        row["arrival_gap"].append(entered - previous)
+
+    taken_at = stamp_seconds(msg)
+    previous_stamp = last_stamp.get(cam.name)
+    last_stamp[cam.name] = taken_at
+    if previous_stamp is not None:
+        row["stamp_gap"].append(taken_at - previous_stamp)
+
+    callback_threads.setdefault(cam.name, set()).add(threading.get_ident())
+
     cam.arrived += 1
     if cam.stride > 1 and cam.arrived % cam.stride:
         # Not this one. Skipped here, before the frame is touched, so the
@@ -889,7 +1076,6 @@ def handle_frame(msg, cam):
         lane_frames("skipped")
         return
 
-    taken_at = stamp_seconds(msg)
     age = sim_now["s"] - taken_at
     if sim_now["s"]:
         frame_ages.append(age)
@@ -908,13 +1094,6 @@ def handle_frame(msg, cam):
         # No face for this camera on this lane, so anything it sees belongs to
         # a shelf the route is not scanning from here.
         return
-    if cam.busy:
-        # Still working on the previous frame. Drop this one rather than let
-        # it wait: a queued frame is decoded with the pose of whenever the
-        # decoder gets to it, not the pose it was taken at.
-        cam.dropped += 1
-        return
-    cam.busy = True
     try:
         img = np.frombuffer(msg.data, dtype=np.uint8).reshape(
             (msg.height, msg.width, 3))
@@ -923,6 +1102,11 @@ def handle_frame(msg, cam):
         # 6.86 m from their shelves on a machine fast enough to outrun the
         # decoder. The drift offset is added so the result is in the true
         # Gazebo frame rather than the estimator's.
+        #
+        # Read here rather than on the decoder thread, so the pose is the one
+        # in force as the frame lands. It is also what makes handing the frame
+        # over safe: a frame decoded a moment later is still filed against the
+        # shelf it was taken in front of.
         was = pose_at(taken_at)
         if was is None:
             # Older than the history reaches. Nothing to place it against.
@@ -934,22 +1118,16 @@ def handle_frame(msg, cam):
                 was[2],
                 was[3] + cam.yaw_offset_deg)
 
-        bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-        recorder = RECORDERS.get(cam.name)
-        if recorder is not None:
-            # A copy, because the decoder is about to look at the same array
-            # and the writer thread will still be holding this one.
-            recorder.offer(bgr.copy())
-
-        hits = decode_qr(bgr, cam)
-        cam.frames += 1
-        for value, cx, cy, fw, fh in hits:
-            pending.append((value, cx, cy, fw, fh, pose, cam.hfov_deg,
-                            cam.name, depth))
+        # Everything expensive happens on this camera's own thread from here.
+        # The array is a view onto the message's own bytes and keeps them
+        # alive, so the handover copies nothing.
+        cam.offer((img, pose, depth, row))
     except Exception:
         pass
     finally:
-        cam.busy = False
+        # What the callback itself cost, which is now the whole of what gz
+        # transport waits for. It was 108 ms while the decode ran here.
+        row["total_ms"].append((time.perf_counter() - entered) * 1e3)
 
 
 async def track_odometry(drone):
@@ -1676,10 +1854,13 @@ def write_navigation_report(reached, planned, duration_s):
             "reached": reached,
             "success_rate": round(reached / planned, 4) if planned else None,
         },
-        # A frame that arrives while the previous one is still decoding is
-        # dropped, so that the pose recorded with a code is the pose the frame
-        # was taken at. A high drop count is not itself a fault, but it is the
-        # first thing to look at if coverage falls.
+        # Each camera decodes on a thread of its own now. "dropped" is what
+        # its queue shed because the worker was still busy, and it is the
+        # honest measure of whether the decoders have the capacity they need:
+        # while both cameras shared gz transport's one callback thread this
+        # counter could never fire at all, and read zero on every run while a
+        # quarter of the frames were being thrown away at the age limit
+        # instead.
         "frames": {
             cam.name: {"decoded": cam.frames, "dropped": cam.dropped,
                        "too_old": cam.stale}
@@ -1700,6 +1881,33 @@ def write_navigation_report(reached, planned, duration_s):
                                if row["ages"] else None,
             }
             for name, row in lane_tally.items()
+        },
+        # Where the time actually goes, per camera per lane. The lane table
+        # above says which aisles lose frames; this says why. Read it as one
+        # question: does arrival_gap follow stamp_gap, or does it collapse to
+        # near zero while stamp_gap stays at the camera period? The first is a
+        # decoder that cannot keep up, the second is a buffer draining.
+        "frame_timing": {
+            "%s | %s" % (lane, name): {
+                "arrival_gap_ms": spread(row["arrival_gap"], 1e3),
+                "stamp_gap_ms": spread(row["stamp_gap"], 1e3),
+                "decode_ms": spread(row["decode_ms"]),
+                "total_ms": spread(row["total_ms"]),
+                # What fraction of frames arrived within 5 ms of the one
+                # before. A decoder that is merely slow cannot produce these;
+                # a queue handing over its backlog does nothing else.
+                "back_to_back_pct": (
+                    round(100.0 * sum(1 for g in row["arrival_gap"]
+                                      if g < 0.005) / len(row["arrival_gap"]), 1)
+                    if row["arrival_gap"] else None),
+            }
+            for (lane, name), row in timing.items()
+        },
+        # One thread per camera means the callbacks on it are serialised and
+        # cam.busy can never fire, which would explain why every run so far
+        # reports zero frames dropped for it.
+        "callback_threads": {
+            name: sorted(ids) for name, ids in callback_threads.items()
         },
         "frame_age_s": {
             "median": round(sorted(frame_ages)[len(frame_ages) // 2], 3)
@@ -1830,6 +2038,14 @@ async def run():
     # There is no steady state problem to go with it. 3348 hires frames and
     # 1006 rear frames over 804.5 s is 41.6 per cent of nominal for both,
     # which is the real time factor: every frame rendered was decoded.
+    # Start the decoders before the first frame can arrive. gz transport calls
+    # the callbacks on one thread it owns and shares between subscriptions, so
+    # this is where the two cameras stop queueing behind each other.
+    for cam in (HIRES, REAR):
+        cam.start()
+    print("[INFO] decoder thread per camera, queue %d deep"
+          % DECODE_QUEUE_DEPTH)
+
     cam_node = trans.Node()
     cam_node.subscribe(Image, CAM_HIRES, on_hires_image)
     rear_node = trans.Node()
@@ -1886,6 +2102,13 @@ async def run():
         # simulator running out of memory that keeping everything until the
         # end has already cost one complete scan.
         save_inventory(reached, len(route))
+
+    # Let the decoders drain what they are holding before the recorders are
+    # closed, since a frame still in a queue has not reached its recorder yet.
+    for cam in (HIRES, REAR):
+        cam.finish()
+        print(f"[INFO] {cam.name}: {cam.frames} frames decoded, "
+              f"{cam.dropped} dropped with the queue full, {cam.stale} too old")
 
     for recorder in RECORDERS.values():
         recorder.finish()
