@@ -28,6 +28,7 @@ import json
 import time
 import cv2
 import numpy as np
+import threading
 from collections import deque
 from datetime import datetime
 from mavsdk import System
@@ -245,6 +246,15 @@ pose_history = []
 # drives the setpoints is the loop that drains the decoder. Coverage did not
 # move.
 MAX_FRAME_AGE_S = 0.50
+
+# Whether to write what the scanning cameras saw to mp4 alongside the scan.
+#
+# Off by default: it costs about a tenth of a core for both cameras, which is
+# little, but this is a scan and not a recording. Turn it on with
+# RECORD_VIDEO=1 in the environment when there is something to look at, which
+# at the moment means the narrowest aisle, where two codes go missing and
+# every test of why has been synthetic.
+RECORD_VIDEO = os.environ.get("RECORD_VIDEO", "") not in ("", "0")
 frames_stale = {"n": 0}
 frame_ages = []
 
@@ -541,6 +551,74 @@ STRIP_OVERLAP = 0.25
 LABEL_WIDTH_M = LAYOUT.get("label_width_m", 0.10)
 
 
+class Recorder:
+    """
+    Writes one camera's frames to an mp4, on a thread of its own.
+
+    The camera callback hands over a frame and returns; encoding happens
+    elsewhere. If the writer cannot keep up the queue drops its oldest rather
+    than growing, because the recording exists to be looked at afterwards and
+    the scan exists to find every box. Losing a frame from the video costs a
+    frame of video; making the decoder wait costs a box.
+    """
+
+    def __init__(self, name, path, fps, queue_depth=8):
+        self.name = name
+        self.path = path
+        self.fps = fps
+        self.queue = deque(maxlen=queue_depth)
+        self.written = 0
+        self.dropped = 0
+        self.lock = threading.Lock()
+        self.stop = threading.Event()
+        self.thread = None
+        self.writer = None
+
+    def offer(self, frame):
+        """Called from the camera callback. Must not block."""
+        with self.lock:
+            if len(self.queue) == self.queue.maxlen:
+                self.dropped += 1
+            self.queue.append(frame)
+
+    def _run(self):
+        while not (self.stop.is_set() and not self.queue):
+            frame = None
+            with self.lock:
+                if self.queue:
+                    frame = self.queue.popleft()
+            if frame is None:
+                time.sleep(0.01)
+                continue
+            if self.writer is None:
+                height, width = frame.shape[:2]
+                os.makedirs(os.path.dirname(self.path), exist_ok=True)
+                self.writer = cv2.VideoWriter(
+                    self.path, cv2.VideoWriter_fourcc(*"mp4v"),
+                    self.fps, (width, height))
+                if not self.writer.isOpened():
+                    print(f"[WARN] cannot record {self.name} to {self.path}")
+                    return
+            self.writer.write(frame)
+            self.written += 1
+        if self.writer is not None:
+            self.writer.release()
+
+    def start(self):
+        self.thread = threading.Thread(target=self._run, daemon=True)
+        self.thread.start()
+
+    def finish(self):
+        if self.thread is None:
+            return
+        self.stop.set()
+        self.thread.join(timeout=20)
+
+
+# One per scanning camera, created only when recording is asked for.
+RECORDERS = {}
+
+
 def strips_for(frame_width, hfov_deg, depth):
     """
     How many strips to read a frame in, given how far away the shelf is.
@@ -755,7 +833,14 @@ def handle_frame(msg, cam):
                 was[2],
                 was[3] + cam.yaw_offset_deg)
 
-        hits = decode_qr(cv2.cvtColor(img, cv2.COLOR_RGB2BGR), cam)
+        bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        recorder = RECORDERS.get(cam.name)
+        if recorder is not None:
+            # A copy, because the decoder is about to look at the same array
+            # and the writer thread will still be holding this one.
+            recorder.offer(bgr.copy())
+
+        hits = decode_qr(bgr, cam)
         cam.frames += 1
         for value, cx, cy, fw, fh in hits:
             pending.append((value, cx, cy, fw, fh, pose, cam.hfov_deg,
@@ -1474,6 +1559,8 @@ async def run():
     print(f"  Shelf levels   : {len(FLIGHT_Z)}")
     print(f"  Waypoints      : {len(route)}")
     print("  Localization   : visual odometry with EKF2, GPS disabled")
+    print(f"  Recording      : {'on, to out/video' if RECORD_VIDEO else 'off'}"
+          f"{'' if RECORD_VIDEO else '  (RECORD_VIDEO=1 to turn it on)'}")
     print("  Drift correction: ArUco floor markers, offset applied to setpoints")
     print("=" * 68)
 
@@ -1573,6 +1660,14 @@ async def run():
     pending.clear()
     inventory.clear()
 
+    if RECORD_VIDEO:
+        for cam, fps in ((HIRES, 10), (REAR, 8)):
+            path = os.path.join(os.path.dirname(OUTPUT_JSON),
+                                "video", cam.name + ".mp4")
+            RECORDERS[cam.name] = Recorder(cam.name, path, fps)
+            RECORDERS[cam.name].start()
+            print(f"[INFO] recording {cam.name} to {path}")
+
     print("\n[INFO] Starting scan")
     mission_start = time.time()
     reached = 0
@@ -1593,6 +1688,11 @@ async def run():
         # simulator running out of memory that keeping everything until the
         # end has already cost one complete scan.
         save_inventory(reached, len(route))
+
+    for recorder in RECORDERS.values():
+        recorder.finish()
+        print(f"[INFO] {recorder.name}: {recorder.written} frames written, "
+              f"{recorder.dropped} dropped, {recorder.path}")
 
     print("\n" + "=" * 68)
     print("  SCAN COMPLETE")
