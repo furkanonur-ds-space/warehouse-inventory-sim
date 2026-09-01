@@ -22,7 +22,7 @@ import sys
 import cv2
 import numpy as np
 
-import warehouse_scanner as ws
+import scanner as ws
 
 
 class FakeImage:

@@ -80,13 +80,25 @@ def camera_block(link_name, joint_name, x_off, y_off, z_off,
 
 
 def range_block(link_name, joint_name, x_off, y_off, z_off,
-                roll, pitch, yaw, max_range=10.0):
+                roll, pitch, yaw, max_range=5.0,
+                h_fov=1.8500, v_fov=1.5010, h_samples=32, v_samples=8):
     """
-    A single-beam range sensor standing in for the PMD TOF module.
+    The PMD TOF module, as a ray grid rather than a depth camera.
 
-    A full depth camera is not simulated here. For obstacle detection the
-    relevant quantity is the distance to whatever is directly ahead, which a
-    one-beam ray gives at a fraction of the cost.
+    Datasheet for the MSU-M0178-1-01 (PMD IRS2975C): 240x180 px, 106 x 86
+    degrees, 4 to 6 m range. Rendering a full depth image would cost as much as
+    another camera, and nothing here needs per-pixel depth: the question being
+    asked is how far away the nearest thing in front is. A 32 x 8 ray grid over
+    the same cone answers that and costs almost nothing.
+
+    The width matters more than it looks. Flying an aisle sideways puts the
+    direction of travel 90 degrees off the nose, and a 106 degree cone reaches
+    within 53 degrees of it. Checking the way ahead is therefore a 50 degree
+    turn rather than a 90 degree one, which is most of what makes a periodic
+    look affordable.
+
+    A one-beam version modelled this as far blinder than the hardware is, and
+    at 10 m it also claimed more than twice the real range.
     """
     return f'''
     <joint name="{joint_name}" type="fixed">
@@ -111,12 +123,14 @@ def range_block(link_name, joint_name, x_off, y_off, z_off,
         <ray>
           <scan>
             <horizontal>
-              <samples>1</samples><resolution>1</resolution>
-              <min_angle>0</min_angle><max_angle>0</max_angle>
+              <samples>{h_samples}</samples><resolution>1</resolution>
+              <min_angle>{-h_fov / 2:.4f}</min_angle>
+              <max_angle>{h_fov / 2:.4f}</max_angle>
             </horizontal>
             <vertical>
-              <samples>1</samples><resolution>1</resolution>
-              <min_angle>0</min_angle><max_angle>0</max_angle>
+              <samples>{v_samples}</samples><resolution>1</resolution>
+              <min_angle>{-v_fov / 2:.4f}</min_angle>
+              <max_angle>{v_fov / 2:.4f}</max_angle>
             </vertical>
           </scan>
           <range>
@@ -129,15 +143,14 @@ def range_block(link_name, joint_name, x_off, y_off, z_off,
 
 # --- IMX412, front facing, scanning ------------------------------------
 #
-# Resolution follows a readability budget rather than an arbitrary choice.
-# A QR code needs roughly 3 pixels per module to decode. For a 14 cm code at
-# the 1.37 m aisle standoff:
+# Read off the hardware rather than assumed. voxl-camera-server.conf on the
+# vehicle configures the IMX412 with three streams: a 640x480 preview, a
+# 1024x768 small_video, and a 4056x3040 large_video. voxl-inspect-cam confirms
+# all three running at 30 fps, the largest of them at 4.4 Gbps.
 #
-#     640x480,  60 deg -> 1.95 px/module, below threshold
-#     1280x720, 60 deg -> 3.91 px/module, 30 percent margin
-#
-# The real IMX412 is 4056x3040, but its processing streams are downscaled to
-# 1024x768, so 1280x720 is representative of what the pipeline actually sees.
+# 1024x768 is the one a real-time pipeline can consume, so that is what this
+# simulates. An earlier 1280x720 matched none of the three, which meant any
+# result measured here could not be expected to hold on the aircraft.
 # Camera update rates are deliberately low.
 #
 # Gazebo's memory grows with every rendered frame here, and a full scan takes
@@ -150,39 +163,72 @@ def range_block(link_name, joint_name, x_off, y_off, z_off,
 # 10 Hz at 0.6 m/s cruise is a frame every 6 cm, far more than a box needs.
 hires_front = camera_block(
     "camera_hires_link", "camera_hires_joint",
-    0.10, 0.0, 0.0, 0, 0, 0,
-    fov=1.0472, width=1280, height=720, update_rate=10)
+    0.06, 0.0, 0.0, 0, 0, 0,
+    fov=1.0472, width=1024, height=768, update_rate=10)
 
 # --- AR0144 tracking cameras -------------------------------------------
 #
-# 1280x800 mono on the real vehicle. Used for visual odometry, not for reading
-# labels: at 1.37 m a 14 cm code resolves to about 2.6 px/module through these,
-# which is below the decode threshold.
+# 1280x800 on the vehicle, all three of them, confirmed from
+# voxl-camera-server.conf. Simulated at the same size now: they were 640x480
+# here, which understated them by half in each direction and would have made
+# any judgement about what they can read too pessimistic.
 #
-# Simulated at 640x480 because they feed motion estimation rather than
-# perception, and the resolution saves render time that the hires camera needs.
-# The front and rear tracking cameras exist to represent the C27 sensor set.
+# They exist to represent the C27 sensor set.
 # Nothing consumes their images: the VIO they would feed is simulated by
 # OdometryPublisher instead, which reads the model pose directly. They are kept
 # for fidelity but rendered as rarely as possible, since every frame costs
 # memory that the run cannot spare.
 tracking_front = camera_block(
     "camera_track_front_link", "camera_track_front_joint",
-    0.08, 0.0, -0.03, 0, 0, 0,
-    fov=1.5708, width=640, height=480, update_rate=1)
+    0.055, 0.0, -0.015, 0, 0, 0,
+    fov=1.5708, width=1280, height=800, update_rate=1)
 
+# The rear camera is no longer decorative: it reads the shelf behind the
+# vehicle while the hires reads the one in front, so a single pass covers
+# both faces of an aisle. That makes its frame rate part of the result.
+#
+# At 1.20 m from the face it resolves 1.49 px per module on axis, and that
+# falls as the square of the cosine of the bearing, because the range grows
+# and the label foreshortens by the same cosine. A code is readable over
+# roughly 0.6 m of travel, which at 0.6 m/s is one second. At 1 Hz that is
+# one frame per box and frequently none, so a run would report almost
+# nothing whether or not the camera can read, measuring the frame rate
+# rather than the camera.
+#
+# 3 Hz puts three frames inside that window. The hardware runs these at
+# 30 fps, confirmed by voxl-inspect-cam, so this moves the simulation
+# towards the vehicle rather than away from it. It costs 2.0 Mpx/s, taking
+# the budget to 15.1, still under the 20.2 that ran gz out of memory.
+# 8 Hz, not 3.
+#
+# At 1 m/s the narrowest aisle puts this camera 0.229 m from its shelf, where
+# it sees 0.46 m of it at a time, so a box is in frame for 0.46 s. Three hertz
+# is 1.4 frames on it. The face only this camera reads lost 24 of 54 at that
+# rate; four frames needs 8.7 Hz.
+#
+# The vehicle runs these at 30 fps, so this is still well short of the
+# hardware. It costs 5.12 Mpx/s, paid for by the downward camera below.
 tracking_rear = camera_block(
     "camera_track_rear_link", "camera_track_rear_joint",
-    -0.08, 0.0, -0.03, 0, 0, 3.14159,
-    fov=1.5708, width=640, height=480, update_rate=1)
+    -0.055, 0.0, -0.015, 0, 0, 3.14159,
+    fov=1.5708, width=1280, height=800, update_rate=8)
 
 # The downward tracking camera doubles as the ArUco marker reader for drift
-# correction. A 40 cm marker at 1.8 m altitude resolves to about 10 px/module
-# through a 90 degree lens, well clear of the threshold.
+# correction.
+#
+# 3 Hz, not 10. Gazebo's memory grows with every pixel it renders, and raising
+# this camera from 640x480 to its real 1280x800 tripled its share: the render
+# budget went from 12.9 to 20.2 Mpx/s and gz reached 27 GB before the mission
+# finished, at which point the kernel killed it. The scan lost its output file
+# and the decode rate collapsed, both of which looked like unrelated faults.
+#
+# Corrections are only taken during the 1.5 second settle at the end of a leg,
+# so 3 Hz still offers four or five frames of a marker, and the earlier 10 Hz
+# was spending most of its frames on stretches where sightings are ignored.
 tracking_down = camera_block(
     "camera_track_down_link", "camera_track_down_joint",
-    0.0, 0.0, -0.05, 0, 1.5708, 0,
-    fov=1.5708, width=640, height=480, update_rate=10)
+    0.0, 0.0, -0.025, 0, 1.5708, 0,
+    fov=1.5708, width=1280, height=800, update_rate=5)
 
 # --- Sensors required for GPS-free position estimation -----------------
 #
@@ -266,14 +312,27 @@ vio_odometry = '''
       <dimensions>3</dimensions>
     </plugin>'''
 
-tof_front = ""
+# --- PMD TOF, front facing, obstacle distance --------------------------
+#
+# The link is called tof_link and not lidar_sensor_link. That name is not
+# cosmetic: PX4's gz bridge subscribes to exactly two hardcoded lidar topics,
+# .../link/link/sensor/lidar_2d_v2/scan and
+# .../link/lidar_sensor_link/sensor/lidar/scan, and publishes whatever arrives
+# as distance_sensor. A forward-facing beam on that link would reach EKF2 as a
+# height above ground, which is what the earlier "collides with the range
+# sensor" note was about. Under any other name PX4 ignores it and the reading
+# is ours alone, read straight from Gazebo.
+tof_front = range_block(
+    "tof_link", "tof_joint",
+    0.06, 0.0, 0.0, 0, 0, 0,
+    max_range=5.0)
 
 sdf = f'''<?xml version="1.0" encoding="UTF-8"?>
 <sdf version='1.9'>
   <model name='{model_name}'>
     <self_collide>false</self_collide>
     <include merge='true'>
-      <uri>x500</uri>
+      <uri>starling2</uri>
     </include>
 {hires_front}
 {tracking_front}
@@ -287,12 +346,12 @@ with open(os.path.join(model_dir, 'model.sdf'), 'w') as f:
     f.write(sdf)
 
 print(f"{model_name} model generated, C27 sensor configuration")
-print("  camera_hires_link        1280x720  front, 60 deg   scanning")
-print("  camera_track_front_link   640x480  front, 90 deg   odometry")
-print("  camera_track_rear_link    640x480  rear,  90 deg   odometry")
-print("  camera_track_down_link    640x480  down,  90 deg   odometry and ArUco")
+print("  camera_hires_link        1024x768  front, 60 deg   scanning")
+print("  camera_track_front_link  1280x800  front, 90 deg   odometry")
+print("  camera_track_rear_link   1280x800  rear,  90 deg   odometry")
+print("  camera_track_down_link   1280x800  down,  90 deg   odometry and ArUco")
 print("  OdometryPublisher         plugin   VIO simulation")
-print("  tof_link                  DISABLED, collides with the range sensor")
+print("  tof_link                  PMD TOF, 106x86 deg, 5 m, 32x8 rays")
 print()
 print("  Note: scanning now requires the vehicle to face the shelf, so each")
 print("  shelf face needs its own pass. Mission time roughly doubles.")

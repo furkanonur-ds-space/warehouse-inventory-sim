@@ -91,6 +91,9 @@ class BudgetRow:
     distance_m: float
     module_mm: float
     px_per_module: float
+    # Hangi koridorun okuma mesafesi olduğu; koridorlar eşit genişlikte
+    # olmadığı için satırın hangi koridora ait olduğu tabloda görünmeli.
+    aisle: str = ""
 
     @property
     def verdict(self) -> str:
@@ -437,31 +440,34 @@ def make_aisle_marker(marker_id: int, caption: str, spec: dict,
 # CLI
 # --------------------------------------------------------------------------
 
-def aisle_half_width(cfg: dict) -> float:
-    """Koridor merkezinden en yakın raf yüzüne mesafe -- okunabilirlik
+def aisle_half_widths(cfg: dict) -> dict[int, float]:
+    """Her koridorun merkezinden raf yüzüne mesafesi -- okunabilirlik
     bütçesinin en önemli girdisi.
 
-    Eskiden 1.5 m sabitiydi. Artık yerleşimden TÜRETİLİYOR: config'te koridor
-    genişliği değişince bütçe tablosu da kendiliğinden değişsin diye. Sabit
-    bırakılsaydı 3.0 -> 2.4 m daralması bütçeye hiç yansımazdı ve tablo
-    sessizce yanlış olurdu.
+    Eskiden 1.5 m sabitiydi, sonra tek bir türetilmiş sayı oldu. Artık
+    KORİDOR BAŞINA: bu depoda koridorlar 2.40 m'den 0.50 m'ye daralıyor, yani
+    okuma mesafesi de koridordan koridora değişiyor ve tek bir satır tabloyu
+    üç koridor için yanlış yapardı.
     """
     rk = cfg["racking"]
     depth = rk["depth"]
-    faces = []
-    for row in rk["rows"]:
-        faces.append(row["y0"] + depth if row["facing"] > 0 else row["y0"])
-    halves = []
+    faces = [row["y0"] + depth if row["facing"] > 0 else row["y0"]
+             for row in rk["rows"]]
+    out = {}
     for aisle in rk["aisles"]:
         yc = aisle["y_center"]
         near = min((abs(f - yc) for f in faces), default=None)
         if near is not None:
-            halves.append(near)
-    if not halves:
+            out[aisle["id"]] = near
+    if not out:
         raise ValueError("racking.aisles / racking.rows boş -- koridor genişliği türetilemedi")
-    # Koridorlar eşit genişlikte olmalı; değilse en darını raporla (en kötü
-    # durum bütçesi, drone en uzak yüzü de okumak zorunda).
-    return max(halves)
+    return out
+
+
+def aisle_half_width(cfg: dict) -> float:
+    """En kötü durum okuma mesafesi: en GENİŞ koridorun yarısı. Kamera orada
+    raf yüzüne en uzakta durur, yani modül başına px orada en düşüktür."""
+    return max(aisle_half_widths(cfg).values())
 
 
 def compute_budget(cfg: dict) -> list[BudgetRow]:
@@ -474,7 +480,7 @@ def compute_budget(cfg: dict) -> list[BudgetRow]:
     """
     codes = cfg["codes"]
     cams = {c["name"]: c for c in cfg["cameras"]}
-    half = aisle_half_width(cfg)
+    halves = aisle_half_widths(cfg)
 
     # Yan kameralar birbirinin aynası; bütçe için ilki temsil eder.
     scan_name = next((n for n in ("left", "right") if n in cams), None)
@@ -482,21 +488,24 @@ def compute_budget(cfg: dict) -> list[BudgetRow]:
         raise ValueError("config'te 'left'/'right' tarama kamerası yok")
     cam = cams[scan_name]
 
-    # Koridor yarı genişliği tabloda mutlaka olsun; komşularıyla birlikte
-    # sıralanır (drone merkezden sapınca ne kaybediyoruz).
-    distances = sorted({round(d, 2) for d in
-                        (half - 0.3, half, half + 0.3, half + 0.8, 2 * half)
-                        if d > 0.2})
+    # Her koridor için orta çizgi ve karşı yüz mesafesi. Koridorlar artık eşit
+    # değil, o yüzden tek bir mesafe listesi yerine koridor başına iki satır:
+    # drone orta çizgide durursa yakın yüz, karşıya bakarsa uzak yüz.
+    measurements: list[tuple[str, float]] = []
+    for aid in sorted(halves):
+        half = halves[aid]
+        measurements.append((f"k{aid} orta", round(half, 2)))
+        measurements.append((f"k{aid} karşı", round(2 * half, 2)))
 
     rows: list[BudgetRow] = []
     box_module = codes["box_label"]["code"] / qr_module_count(codes["box_label"]["qr_version"])
     placard_module = codes["box_placard"]["bar_width"] / len(code128_modules(PLACARD_SAMPLE))
-    for d in distances:
-        rows.append(BudgetRow("kutu QR", scan_name, d, box_module * 1000,
-                              px_per_module(cam["width"], cam["hfov"], d, box_module)))
-    for d in distances:
-        rows.append(BudgetRow("kutu barkodu", scan_name, d, placard_module * 1000,
-                              px_per_module(cam["width"], cam["hfov"], d, placard_module)))
+    for name, module in (("kutu QR", box_module),
+                         ("kutu barkodu", placard_module)):
+        for label, d in measurements:
+            rows.append(BudgetRow(name, scan_name, d, module * 1000,
+                                  px_per_module(cam["width"], cam["hfov"], d, module),
+                                  label))
     return rows
 
 
@@ -521,20 +530,23 @@ def main() -> int:
 
     if args.budget or not args.samples:
         rows = compute_budget(cfg)
-        print(f"{'kod':<16}{'kamera':<8}{'mesafe':>8}{'modül':>10}{'px/modül':>11}  sonuç")
-        print("-" * 62)
+        print(f"{'kod':<16}{'kamera':<8}{'koridor':<10}{'mesafe':>8}"
+              f"{'modül':>10}{'px/modül':>11}  sonuç")
+        print("-" * 72)
         last = None
         for r in rows:
             if last is not None and r.code != last:
                 print()
             last = r.code
-            print(f"{r.code:<16}{r.camera:<8}{r.distance_m:>7.1f}m"
+            print(f"{r.code:<16}{r.camera:<8}{r.aisle:<10}{r.distance_m:>7.2f}m"
                   f"{r.module_mm:>9.2f}mm{r.px_per_module:>11.2f}  {r.verdict}")
-        half = aisle_half_width(cfg)
+        halves = aisle_half_widths(cfg)
         print(f"\neşik: >={MIN_PX_PER_MODULE} px/modül okunur, "
               f">={COMFORT_PX_PER_MODULE} rahat")
-        print(f"koridor merkezinden raf yüzüne {half:.2f} m "
-              f"(net koridor {2*half:.2f} m, yerleşimden türetildi)")
+        print("koridor merkezinden raf yüzüne (yerleşimden türetildi):")
+        for aid in sorted(halves):
+            print(f"  koridor {aid}: {halves[aid]:.3f} m "
+                  f"(net koridor {2*halves[aid]:.2f} m)")
 
     if args.samples:
         out = args.samples

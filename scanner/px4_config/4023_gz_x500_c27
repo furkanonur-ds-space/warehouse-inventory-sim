@@ -10,6 +10,90 @@
 PX4_SIM_MODEL=${PX4_SIM_MODEL:=x500_c27}
 . ${R}etc/init.d-posix/airframes/4001_gz_x500
 
+# --- MODALAI STARLING 2 --------------------------------------------------
+#
+# 4001_gz_x500 above describes a 500 mm, 2.0 kg vehicle. This is a 211 mm,
+# 285 g one. The numbers below are ModalAI's own, from
+# voxl-px4-params params/v1.18/D0014, rather than scaled from the x500.
+
+echo "Starling 2: motors 85 x 62.5 mm, 120 mm propellers, 285 g"
+
+# Where the motors are. Not a square: the frame is longer than it is wide,
+# which is why roll and pitch are tuned differently below.
+param set-default CA_ROTOR0_PX 0.085
+param set-default CA_ROTOR0_PY 0.0625
+param set-default CA_ROTOR0_KM 0.05
+
+param set-default CA_ROTOR1_PX -0.085
+param set-default CA_ROTOR1_PY -0.0625
+param set-default CA_ROTOR1_KM 0.05
+
+param set-default CA_ROTOR2_PX 0.085
+param set-default CA_ROTOR2_PY -0.0625
+param set-default CA_ROTOR2_KM -0.05
+
+param set-default CA_ROTOR3_PX -0.085
+param set-default CA_ROTOR3_PY 0.0625
+param set-default CA_ROTOR3_KM -0.05
+
+# The model's motors reach 1500 rad/s. The x500's cap of 1000 would hold
+# thrust to (1000/1500) squared of maximum, and hover needs 0.34 of it.
+param set-default SIM_GZ_EC_MAX1 1500
+param set-default SIM_GZ_EC_MAX2 1500
+param set-default SIM_GZ_EC_MAX3 1500
+param set-default SIM_GZ_EC_MAX4 1500
+
+# Hover at 34 per cent, not the x500's 60. The model's motor constant is
+# derived from this figure, so the two have to agree.
+param set-default MPC_THR_HOVER 0.34
+param set-default MPC_THR_MIN 0.07
+param set-default MPC_THR_MAX 0.60
+
+# The rate loop. Roll and pitch differ because the frame does.
+param set-default MC_ROLLRATE_P 0.072
+param set-default MC_ROLLRATE_I 0.171
+param set-default MC_ROLLRATE_D 0.0009
+param set-default MC_PITCHRATE_P 0.097
+param set-default MC_PITCHRATE_I 0.228
+param set-default MC_PITCHRATE_D 0.0011
+param set-default MC_YAWRATE_P 0.15
+param set-default MC_YAWRATE_I 0.5
+param set-default MC_YAWRATE_D 0.0
+
+# The attitude loop, far stiffer than the 6.5 a 2 kg airframe runs.
+param set-default MC_ROLL_P 16.0
+param set-default MC_PITCH_P 16.0
+param set-default MC_YAW_P 2.8
+
+# Gyro filtering, from the same file.
+param set-default IMU_GYRO_CUTOFF 80.0
+param set-default IMU_DGYRO_CUTOFF 60.0
+
+# The position controller, from starling_2_indoor_position.params. How
+# tightly a lane is held decides how far the rear camera sits from its shelf,
+# and it has about 50 mm of margin at the distance it flies.
+param set-default MPC_XY_P 3.50
+param set-default MPC_XY_VEL_P_ACC 3.00
+param set-default MPC_XY_VEL_I_ACC 0.10
+param set-default MPC_XY_VEL_D_ACC 0.00
+param set-default MPC_Z_P 5.0
+param set-default MPC_Z_VEL_P_ACC 8.0
+param set-default MPC_Z_VEL_I_ACC 2.0
+param set-default MPC_Z_VEL_D_ACC 0.0
+param set-default MPC_VELD_LP 5.0
+
+# Envelope, also from the indoor file. The scan cruises at 0.6 m/s so none of
+# these bind; they are here so the vehicle behaves like the real one if a leg
+# ever asks for more.
+param set-default MPC_ACC_HOR 3.0
+param set-default MPC_ACC_UP_MAX 3.0
+param set-default MPC_ACC_DOWN_MAX 3.0
+param set-default MPC_JERK_MAX 40.0
+param set-default MPC_TILTMAX_AIR 30.0
+param set-default MPC_XY_VEL_MAX 3.0
+param set-default MPC_Z_VEL_MAX_UP 1.0
+param set-default MPC_Z_VEL_MAX_DN 1.0
+
 echo "Disabling simulated GPS - indoor VIO operation"
 param set-default SYS_HAS_GPS 0
 param set-default SIM_GPS_USED 0

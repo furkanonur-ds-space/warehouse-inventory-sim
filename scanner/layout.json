@@ -12,33 +12,242 @@
     "which lets it stand closer to the shelf than the middle of the aisle.",
     "That matters here: the real C27 hires stream is 1024x768, and at the",
     "1.216 m aisle centre a 2.8 mm module resolves to 2.04 px, below the 3 px",
-    "a QR needs. At 0.80 m it is 3.10 px."
+    "a QR needs. At 0.80 m it is 3.10 px.",
+    "",
+    "The aisles in this warehouse taper: 2.40, 1.77, 1.13 and 0.50 m of clear",
+    "width. Standoff is therefore per face, not one number for the building.",
+    "Aisles 1 and 2 are wide enough to hold the 0.80 m the camera wants; in",
+    "aisles 3 and 4 the vehicle can only fly the centre line, so standoff is",
+    "half the aisle. A face falls back to shelf_standoff when it names none.",
+    "",
+    "READ THIS BEFORE FLYING. The x500 is 0.648 m across (rotor hub 0.174 +",
+    "propeller radius 0.150, so 0.324 m either side of centre). Against the",
+    "half-widths above that leaves 0.876, 0.561, 0.241 and -0.074 m of side",
+    "clearance. Aisle 3 is inside waypoint_tolerance, which is 0.40 m, so the",
+    "vehicle can be commanded onto the racking there. Aisle 4 is narrower",
+    "than the vehicle: faces G and H cannot be flown at all. Both are left",
+    "in the route rather than quietly dropped, because a scan that silently",
+    "skips a quarter of the warehouse reads as a scan that found nothing",
+    "there. The vehicle size was not changed to fit; the aisle was narrowed",
+    "under it on purpose."
   ],
-
   "world": "warehouse",
   "model": "x500_c27",
-
   "aisle_faces": [
-    {"name": "A", "face_x":  -9.7, "yaw_deg": -90},
-    {"name": "B", "face_x":  -7.3, "yaw_deg":  90},
-    {"name": "C", "face_x":  -5.1, "yaw_deg": -90},
-    {"name": "D", "face_x":  -2.7, "yaw_deg":  90},
-    {"name": "E", "face_x":  -0.5, "yaw_deg": -90},
-    {"name": "F", "face_x":   1.9, "yaw_deg":  90},
-    {"name": "G", "face_x":   4.1, "yaw_deg": -90},
-    {"name": "H", "face_x":   6.5, "yaw_deg":  90}
+    {
+      "name": "A",
+      "face_x": -9.7,
+      "yaw_deg": -90,
+      "aisle": 1,
+      "standoff": 0.8,
+      "code_z": [
+        [
+          0.701,
+          0.811
+        ],
+        [
+          2.401,
+          2.511
+        ],
+        [
+          4.101,
+          4.211
+        ]
+      ]
+    },
+    {
+      "name": "B",
+      "face_x": -7.3,
+      "yaw_deg": 90,
+      "aisle": 1,
+      "standoff": 0.8,
+      "code_z": [
+        [
+          0.701,
+          0.811
+        ],
+        [
+          2.401,
+          2.511
+        ],
+        [
+          4.101,
+          4.211
+        ]
+      ]
+    },
+    {
+      "name": "C",
+      "face_x": -5.1,
+      "yaw_deg": -90,
+      "aisle": 2,
+      "standoff": 0.8,
+      "code_z": [
+        [
+          0.701,
+          0.811
+        ],
+        [
+          2.401,
+          2.511
+        ],
+        [
+          4.111,
+          4.211
+        ]
+      ]
+    },
+    {
+      "name": "D",
+      "face_x": -3.33,
+      "yaw_deg": 90,
+      "aisle": 2,
+      "standoff": 0.8,
+      "code_z": [
+        [
+          0.701,
+          0.811
+        ],
+        [
+          2.401,
+          2.511
+        ],
+        [
+          4.101,
+          4.211
+        ]
+      ]
+    },
+    {
+      "name": "E",
+      "face_x": -1.13,
+      "yaw_deg": -90,
+      "aisle": 3,
+      "standoff": 0.565,
+      "code_z": [
+        [
+          0.701,
+          0.811
+        ],
+        [
+          2.401,
+          2.511
+        ],
+        [
+          4.101,
+          4.211
+        ]
+      ]
+    },
+    {
+      "name": "F",
+      "face_x": 0.0,
+      "yaw_deg": 90,
+      "aisle": 3,
+      "standoff": 0.565,
+      "code_z": [
+        [
+          0.701,
+          0.811
+        ],
+        [
+          2.401,
+          2.511
+        ],
+        [
+          4.101,
+          4.211
+        ]
+      ]
+    },
+    {
+      "name": "G",
+      "face_x": 2.2,
+      "yaw_deg": -90,
+      "aisle": 4,
+      "standoff": 0.25,
+      "code_z": [
+        [
+          0.701,
+          0.701
+        ],
+        [
+          2.401,
+          2.401
+        ],
+        [
+          4.101,
+          4.101
+        ]
+      ]
+    },
+    {
+      "name": "H",
+      "face_x": 2.7,
+      "yaw_deg": 90,
+      "aisle": 4,
+      "standoff": 0.25,
+      "code_z": [
+        [
+          0.701,
+          0.701
+        ],
+        [
+          2.401,
+          2.401
+        ],
+        [
+          4.101,
+          4.101
+        ]
+      ]
+    }
   ],
-
-  "flight_z": [0.75, 2.45, 4.15],
-
+  "aisles": [
+    {
+      "id": 1,
+      "centre_x": -8.5,
+      "width": 2.4,
+      "flyable": true,
+      "clearance_each_side": 1.055
+    },
+    {
+      "id": 2,
+      "centre_x": -4.215,
+      "width": 1.77,
+      "flyable": true,
+      "clearance_each_side": 0.74
+    },
+    {
+      "id": 3,
+      "centre_x": -0.565,
+      "width": 1.13,
+      "flyable": true,
+      "clearance_each_side": 0.42
+    },
+    {
+      "id": 4,
+      "centre_x": 2.45,
+      "width": 0.5,
+      "flyable": true,
+      "clearance_each_side": 0.105
+    }
+  ],
+  "vehicle_half_span": 0.145,
+  "flight_z": [
+    0.75,
+    2.45,
+    4.15
+  ],
   "y_south": -9.0,
   "y_north": 9.0,
-
   "spawn_x": -8.5,
   "spawn_y": -9.0,
-
-  "shelf_standoff": 0.80,
-
+  "_shelf_standoff_note": [
+    "Fallback for a face that names no standoff of its own. Every face here",
+    "does, so this is only the default for a hand-written layout."
+  ],
+  "shelf_standoff": 0.8,
   "_ground_offset_note": [
     "How far base_link, and therefore the camera, rests above the floor when",
     "the vehicle is landed. Commanded altitudes are relative to the spawn",
@@ -51,9 +260,58 @@
     "axis instead of on it, so only the topmost of the three box heights fell",
     "inside the 0.234 m half-frame; the other two read 22 and 0 percent."
   ],
-  "ground_offset": 0.227,
-
+  "ground_offset": 0.06,
   "aruco_dictionary": "DICT_5X5_100",
   "marker_map": "../warehouse/generated/out/marker_map.json",
-  "output": "../out/inventory_scanned.json"
+  "output": "../out/inventory_scanned.json",
+  "navigation_report": "../out/navigation_report.json",
+  "_merge_note": [
+    "The warehouse comes from warehouse_ibrahim; the vehicle from",
+    "starling2_furkan. ground_offset is the airframe's, not the building's:",
+    "0.060 for the Starling 2 where the x500 measured 0.227.",
+    "",
+    "vehicle_half_span is 0.145, half of the Starling's 290 mm across the",
+    "propeller tips. The aisle table's flyable flags are recomputed from it,",
+    "which changes the narrowest aisle: an x500 does not fit in 0.50 m and a",
+    "Starling does, with 105 mm a side. Whether that is enough to fly is a",
+    "separate question from whether it fits."
+  ],
+  "_camera_reach_note": [
+    "How far each camera reads, measured by standoff_sweep.py on real label",
+    "textures rendered at the size and obliquity each distance gives, asking",
+    "for reliability out to 25 degrees off axis because a code sweeps across",
+    "the whole frame as the vehicle passes it.",
+    "",
+    "These place the lane in an aisle of any width: both distances must add",
+    "up to the width and each must stay inside its camera's reach, so the",
+    "width is split between them in proportion to these two numbers.",
+    "",
+    "An aisle wider than the two together cannot be read from one lane and",
+    "costs a pass a face instead."
+  ],
+  "hires_max_standoff": 1.3,
+  "rear_max_standoff": 1.1,
+  "code_size_m": 0.072,
+  "_code_z_note": [
+    "Per face, the band of code centre heights at each shelf level: the",
+    "lowest and the highest. A face whose boxes are all one size has a band",
+    "of zero width; mixed box heights spread it, because the label travels",
+    "with the front of the box it is on.",
+    "",
+    "The scanner aims the optical axis at the middle of the band it has to",
+    "read on a lane, which is one rule applied everywhere. flight_z stays as",
+    "the fallback for a layout that does not carry this, and as the level",
+    "the estimate is snapped to.",
+    "",
+    "It matters where the frame is small. In the 2.40 m aisle the hires sees",
+    "a metre of shelf height and a five centimetre error is nothing. In the",
+    "0.50 m aisle it sees 0.18 m, and rows G and H carry their codes 0.049 m",
+    "below the flight_z median, which put them against the bottom edge of",
+    "the frame: measured in the 2026-09-01 recording at 0.76 of frame height",
+    "with the worst survivor at 0.97, against 0.49 for row A.",
+    "",
+    "Derived from warehouse/ground_truth.json, the same source and the same",
+    "way as flight_z. code_size_m is the QR side from gen_labels, needed to",
+    "ask whether a whole code fits the frame rather than just its centre."
+  ]
 }

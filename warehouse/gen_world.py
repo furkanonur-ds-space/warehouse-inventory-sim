@@ -123,7 +123,7 @@ LABEL_STANDOFF = 0.004
 
 # QR ile barkod arasındaki dikey boşluk. İkisi tek dikey blok olarak kutunun
 # ön yüzü içine ortalanıyor (bkz. inventory() içindeki `margin` hesabı) -- en
-# küçük kutuda (S, dz=0.30) bile taşmasın diye.
+# küçük kutuda (XS, dz=0.28) bile taşmasın diye: 150 + 10 + 90 = 250 mm.
 # MODÜL DÜZEYİNDE: scan_boxes barkodu QR'a göre konumlandırırken bu değere
 # ihtiyaç duyuyor; iki yerde ayrı tutmak sessiz bir ROI kayması üretirdi.
 LABEL_GAP = 0.010
@@ -315,6 +315,43 @@ def building(cfg, textures) -> str:
     return "".join(parts)
 
 
+def check_aisles(cfg) -> None:
+    """`aisles` ile `rows` birbirini tutuyor mu?
+
+    Koridorlar artık eşit genişlikte değil (2.40'tan 0.50'ye daralıyor), yani
+    koridor merkezi ve genişliği raf sırası kotlarından ARTIK türetilemiyor
+    gibi görünse de tam tersi: ikisi de aynı geometriyi iki ayrı yerde
+    yazıyor. Elle senkron tutulan iki kaynak sessizce ayrışır -- markörler ve
+    lambalar bir yere, raflar başka yere gider. Onun yerine burada kontrol
+    ediliyor ve tutmazsa üretim duruyor.
+
+    Bir koridorun net açıklığı, ona bakan iki raf YÜZÜ arasındaki mesafedir
+    (dış sıralarda tek yüz olsaydı bu tanım çökerdi -- bu yerleşimde her
+    koridorun iki yüzü var: rows[].aisle her id'yi tam iki kez veriyor).
+    """
+    rk = cfg["racking"]
+    depth = rk["depth"]
+    faces: dict[int, list[float]] = {}
+    for row in rk["rows"]:
+        # sıranın koridora bakan yüzü
+        y_face = (row["y0"] + depth) if row["facing"] > 0 else row["y0"]
+        faces.setdefault(row["aisle"], []).append(y_face)
+
+    for aisle in rk["aisles"]:
+        aid = aisle["id"]
+        ys = sorted(faces.get(aid, []))
+        if len(ys) != 2:
+            raise SystemExit(f"koridor {aid}: {len(ys)} raf yüzü var, 2 olmalı "
+                             f"(rows[].aisle alanlarına bak)")
+        width, centre = ys[1] - ys[0], (ys[0] + ys[1]) / 2
+        if abs(width - aisle["width"]) > 1e-6:
+            raise SystemExit(f"koridor {aid}: rows {width:.3f} m diyor, "
+                             f"aisles[].width {aisle['width']:.3f} m diyor")
+        if abs(centre - aisle["y_center"]) > 1e-6:
+            raise SystemExit(f"koridor {aid}: rows merkezi {centre:.3f}, "
+                             f"aisles[].y_center {aisle['y_center']:.3f}")
+
+
 def racking(cfg) -> str:
     rk = cfg["racking"]
     bw, nb, depth = rk["bay_width"], rk["bay_count"], rk["depth"]
@@ -371,12 +408,31 @@ def inventory(cfg, rng, textures, manifest) -> str:
     pw, ph = pc_spec["label"]
     label_gap = LABEL_GAP
 
+    # Koridor genişliği -> o koridordan geçirilebilecek en büyük kutu. Bir
+    # kutu rafa konmadan önce koridordan geçmek zorunda, ve en dar koridor
+    # 0.50 m: sınır konmazsa dünya oraya 0.80 m'lik kutular dizer ve kimse
+    # onların nasıl geldiğini soramaz.
+    aisle_width = {a["id"]: a["width"] for a in rk["aisles"]}
+    clearance = bx.get("aisle_clearance", 0.0)
+
     out = ['  <model name="inventory">\n    <static>true</static>\n'
            + model_pose_tag(world_yaw_rad(cfg))]
     n_box = 0
+    used_sizes: dict[str, set] = {}
 
     for row in rk["rows"]:
         rid, y0, facing = row["id"], row["y0"], row["facing"]
+        # bu sıraya hizmet eden koridorun geçirebildiği kutular
+        limit = aisle_width[row["aisle"]] - clearance
+        allowed = [s for s in bx["sizes"]
+                   if max(s["dims"][0], s["dims"][1]) <= limit]
+        if not allowed:
+            raise SystemExit(
+                f"sıra {rid}: koridor {row['aisle']} "
+                f"({aisle_width[row['aisle']]:.2f} m) hiçbir kutu boyutunu "
+                f"geçirmiyor (sınır {limit:.2f} m). boxes.sizes'a daha küçük "
+                f"bir kutu ekle ya da koridoru genişlet.")
+        used_sizes[rid] = {s["name"] for s in allowed}
         # ürün yüzü: koridora bakan kenar
         y_face = (y0 + depth) if facing > 0 else y0
 
@@ -385,7 +441,7 @@ def inventory(cfg, rng, textures, manifest) -> str:
                 if rng.random() > bx["fill_probability"]:
                     continue
                 count = rng.randint(*bx["per_slot"])
-                sizes = [rng.choice(bx["sizes"]) for _ in range(count)]
+                sizes = [rng.choice(allowed) for _ in range(count)]
                 total_w = sum(s["dims"][0] for s in sizes)
                 if total_w > bw - rk["frame_thickness"] - 0.1:
                     sizes = sizes[:1]
@@ -478,6 +534,12 @@ def inventory(cfg, rng, textures, manifest) -> str:
 
     out.append("  </model>\n")
     print(f"  kutu           : {n_box}")
+    for aisle in rk["aisles"]:
+        rows_here = [r["id"] for r in rk["rows"] if r["aisle"] == aisle["id"]]
+        names = sorted(set().union(*(used_sizes[r] for r in rows_here)),
+                       key=lambda n: [s["name"] for s in bx["sizes"]].index(n))
+        print(f"  koridor {aisle['id']}      : {aisle['width']:.2f} m açıklık, "
+              f"yüzler {'+'.join(rows_here)}, kutular {'/'.join(names)}")
     return "".join(out)
 
 
@@ -589,6 +651,7 @@ def build(cfg) -> tuple[str, list]:
     br, bg, bb, ba = lg["background"]
 
     yaw = world_yaw_rad(cfg)
+    check_aisles(cfg)
 
     # SIRA ÖNEMLİ. inventory() manifest'i CONFIG çerçevesinde doldurur;
     # rotate_manifest onu dünyaya çevirir. aisle_markers() ise zaten dünya

@@ -1,0 +1,1199 @@
+{
+  "inventory": "/home/coban/Desktop/warehouse-inventory-sim/out/inventory_scanned.json",
+  "scan_date": "2026-08-27T10:32:37",
+  "total": 432,
+  "scanned": 428,
+  "coverage_pct": 99.1,
+  "unknown_payloads": [],
+  "passes": {
+    "complete": [
+      "A-L1",
+      "A-L2",
+      "A-L3",
+      "B-L1",
+      "B-L2",
+      "B-L3",
+      "C-L1",
+      "C-L2",
+      "C-L3",
+      "D-L2",
+      "E-L1",
+      "E-L2",
+      "E-L3",
+      "F-L2",
+      "G-L1",
+      "G-L2",
+      "G-L3",
+      "H-L1",
+      "H-L2",
+      "H-L3"
+    ],
+    "partial": [
+      "D-L1 (17/18)",
+      "D-L3 (17/18)",
+      "F-L1 (17/18)",
+      "F-L3 (17/18)"
+    ],
+    "none": []
+  },
+  "tree": {
+    "total": 432,
+    "scanned": 428,
+    "aisles": {
+      "1": {
+        "total": 108,
+        "scanned": 108,
+        "faces": {
+          "A": {
+            "total": 54,
+            "scanned": 54,
+            "levels": {
+              "1": {
+                "total": 18,
+                "scanned": 18,
+                "bays": {
+                  "1": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "2": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "3": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "4": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "5": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "6": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  }
+                },
+                "status": "full",
+                "pct": 100.0
+              },
+              "2": {
+                "total": 18,
+                "scanned": 18,
+                "bays": {
+                  "1": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "2": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "3": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "4": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "5": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "6": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  }
+                },
+                "status": "full",
+                "pct": 100.0
+              },
+              "3": {
+                "total": 18,
+                "scanned": 18,
+                "bays": {
+                  "1": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "2": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "3": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "4": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "5": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "6": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  }
+                },
+                "status": "full",
+                "pct": 100.0
+              }
+            },
+            "status": "full",
+            "pct": 100.0
+          },
+          "B": {
+            "total": 54,
+            "scanned": 54,
+            "levels": {
+              "1": {
+                "total": 18,
+                "scanned": 18,
+                "bays": {
+                  "1": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "2": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "3": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "4": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "5": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "6": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  }
+                },
+                "status": "full",
+                "pct": 100.0
+              },
+              "2": {
+                "total": 18,
+                "scanned": 18,
+                "bays": {
+                  "1": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "2": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "3": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "4": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "5": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "6": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  }
+                },
+                "status": "full",
+                "pct": 100.0
+              },
+              "3": {
+                "total": 18,
+                "scanned": 18,
+                "bays": {
+                  "1": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "2": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "3": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "4": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "5": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "6": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  }
+                },
+                "status": "full",
+                "pct": 100.0
+              }
+            },
+            "status": "full",
+            "pct": 100.0
+          }
+        },
+        "status": "full",
+        "pct": 100.0
+      },
+      "2": {
+        "total": 108,
+        "scanned": 106,
+        "faces": {
+          "C": {
+            "total": 54,
+            "scanned": 54,
+            "levels": {
+              "1": {
+                "total": 18,
+                "scanned": 18,
+                "bays": {
+                  "1": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "2": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "3": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "4": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "5": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "6": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  }
+                },
+                "status": "full",
+                "pct": 100.0
+              },
+              "2": {
+                "total": 18,
+                "scanned": 18,
+                "bays": {
+                  "1": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "2": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "3": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "4": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "5": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "6": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  }
+                },
+                "status": "full",
+                "pct": 100.0
+              },
+              "3": {
+                "total": 18,
+                "scanned": 18,
+                "bays": {
+                  "1": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "2": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "3": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "4": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "5": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "6": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  }
+                },
+                "status": "full",
+                "pct": 100.0
+              }
+            },
+            "status": "full",
+            "pct": 100.0
+          },
+          "D": {
+            "total": 54,
+            "scanned": 52,
+            "levels": {
+              "1": {
+                "total": 18,
+                "scanned": 17,
+                "bays": {
+                  "1": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "2": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "3": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "4": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "5": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "6": {
+                    "total": 3,
+                    "scanned": 2,
+                    "status": "partial",
+                    "pct": 66.7
+                  }
+                },
+                "status": "partial",
+                "pct": 94.4
+              },
+              "2": {
+                "total": 18,
+                "scanned": 18,
+                "bays": {
+                  "1": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "2": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "3": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "4": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "5": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "6": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  }
+                },
+                "status": "full",
+                "pct": 100.0
+              },
+              "3": {
+                "total": 18,
+                "scanned": 17,
+                "bays": {
+                  "1": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "2": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "3": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "4": {
+                    "total": 3,
+                    "scanned": 2,
+                    "status": "partial",
+                    "pct": 66.7
+                  },
+                  "5": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "6": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  }
+                },
+                "status": "partial",
+                "pct": 94.4
+              }
+            },
+            "status": "partial",
+            "pct": 96.3
+          }
+        },
+        "status": "partial",
+        "pct": 98.1
+      },
+      "3": {
+        "total": 108,
+        "scanned": 106,
+        "faces": {
+          "E": {
+            "total": 54,
+            "scanned": 54,
+            "levels": {
+              "1": {
+                "total": 18,
+                "scanned": 18,
+                "bays": {
+                  "1": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "2": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "3": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "4": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "5": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "6": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  }
+                },
+                "status": "full",
+                "pct": 100.0
+              },
+              "2": {
+                "total": 18,
+                "scanned": 18,
+                "bays": {
+                  "1": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "2": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "3": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "4": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "5": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "6": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  }
+                },
+                "status": "full",
+                "pct": 100.0
+              },
+              "3": {
+                "total": 18,
+                "scanned": 18,
+                "bays": {
+                  "1": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "2": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "3": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "4": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "5": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "6": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  }
+                },
+                "status": "full",
+                "pct": 100.0
+              }
+            },
+            "status": "full",
+            "pct": 100.0
+          },
+          "F": {
+            "total": 54,
+            "scanned": 52,
+            "levels": {
+              "1": {
+                "total": 18,
+                "scanned": 17,
+                "bays": {
+                  "1": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "2": {
+                    "total": 3,
+                    "scanned": 2,
+                    "status": "partial",
+                    "pct": 66.7
+                  },
+                  "3": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "4": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "5": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "6": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  }
+                },
+                "status": "partial",
+                "pct": 94.4
+              },
+              "2": {
+                "total": 18,
+                "scanned": 18,
+                "bays": {
+                  "1": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "2": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "3": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "4": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "5": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "6": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  }
+                },
+                "status": "full",
+                "pct": 100.0
+              },
+              "3": {
+                "total": 18,
+                "scanned": 17,
+                "bays": {
+                  "1": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "2": {
+                    "total": 3,
+                    "scanned": 2,
+                    "status": "partial",
+                    "pct": 66.7
+                  },
+                  "3": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "4": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "5": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "6": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  }
+                },
+                "status": "partial",
+                "pct": 94.4
+              }
+            },
+            "status": "partial",
+            "pct": 96.3
+          }
+        },
+        "status": "partial",
+        "pct": 98.1
+      },
+      "4": {
+        "total": 108,
+        "scanned": 108,
+        "faces": {
+          "G": {
+            "total": 54,
+            "scanned": 54,
+            "levels": {
+              "1": {
+                "total": 18,
+                "scanned": 18,
+                "bays": {
+                  "1": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "2": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "3": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "4": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "5": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "6": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  }
+                },
+                "status": "full",
+                "pct": 100.0
+              },
+              "2": {
+                "total": 18,
+                "scanned": 18,
+                "bays": {
+                  "1": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "2": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "3": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "4": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "5": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "6": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  }
+                },
+                "status": "full",
+                "pct": 100.0
+              },
+              "3": {
+                "total": 18,
+                "scanned": 18,
+                "bays": {
+                  "1": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "2": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "3": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "4": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "5": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "6": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  }
+                },
+                "status": "full",
+                "pct": 100.0
+              }
+            },
+            "status": "full",
+            "pct": 100.0
+          },
+          "H": {
+            "total": 54,
+            "scanned": 54,
+            "levels": {
+              "1": {
+                "total": 18,
+                "scanned": 18,
+                "bays": {
+                  "1": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "2": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "3": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "4": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "5": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "6": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  }
+                },
+                "status": "full",
+                "pct": 100.0
+              },
+              "2": {
+                "total": 18,
+                "scanned": 18,
+                "bays": {
+                  "1": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "2": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "3": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "4": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "5": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "6": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  }
+                },
+                "status": "full",
+                "pct": 100.0
+              },
+              "3": {
+                "total": 18,
+                "scanned": 18,
+                "bays": {
+                  "1": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "2": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "3": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "4": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "5": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  },
+                  "6": {
+                    "total": 3,
+                    "scanned": 3,
+                    "status": "full",
+                    "pct": 100.0
+                  }
+                },
+                "status": "full",
+                "pct": 100.0
+              }
+            },
+            "status": "full",
+            "pct": 100.0
+          }
+        },
+        "status": "full",
+        "pct": 100.0
+      }
+    },
+    "status": "partial",
+    "pct": 99.1
+  }
+}

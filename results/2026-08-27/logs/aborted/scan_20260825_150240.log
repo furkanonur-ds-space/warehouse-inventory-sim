@@ -1,0 +1,27 @@
+====================================================================
+  AUTONOMOUS WAREHOUSE INVENTORY SCAN
+  Sensor configuration: C27, single front-facing scanning camera
+  Shelf faces    : 8
+  Shelf levels   : 3
+  Waypoints      : 48
+  Localization   : visual odometry with EKF2, GPS disabled
+  Drift correction: ArUco floor markers, offset applied to setpoints
+====================================================================
+[INFO] Loaded 8 floor markers from marker_map.json
+
+[INFO] Connecting to vehicle
+[INFO] Waiting for position estimate (VIO Local Position)
+Connection using udp:// is deprecated, please use udpin:// or udpout:// (cli_arg.cpp:28)
+bind error: Address in use (udp_connection.cpp:93)
+Connection failed: Bind error (connection_initiator.h:47)
+[INFO] Position estimate valid
+[INFO] EKF2 Local Origin mapped to: {'n': -8.966504096984863, 'e': 5.731968402862549, 'd': 0.012887940742075443}
+[INFO] Arming and taking off (Offboard VIO Mode)
+           ascending...
+           turning to route heading...
+           turning to heading +0
+
+[INFO] Starting scan
+           turning to heading -90
+
+[WAYPOINT 1/48] x=-8.9 y=-9.0 z=0.75 heading -90  0.4 m  cruise at 0.6 m/s

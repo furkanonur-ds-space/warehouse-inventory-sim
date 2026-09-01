@@ -1,15 +1,17 @@
 """
 Autonomous Warehouse Inventory Scanner, C27 sensor configuration.
 
-Scans a warehouse using a UAV with a single front-facing high resolution
-camera, three tracking cameras and a forward TOF sensor. No GPS is used at any
+Scans a warehouse using a UAV with a forward high resolution camera, three
+tracking cameras of which the rear one also reads codes, and a forward TOF
+sensor. No GPS is used at any
 point: localization relies on visual odometry from the tracking cameras, fed to
 the PX4 EKF2 estimator as an external vision source.
 
 Because the scanning camera faces forward rather than sideways, the vehicle
-must turn to face each shelf and fly sideways along it. Each shelf face
-therefore needs its own pass, and the route is roughly twice as long as the
-earlier two-camera design.
+must turn to face the shelves and fly sideways along them. Flying the centre
+of an aisle puts both of its faces at the same distance, so the forward hires
+camera reads the face ahead while the rear tracking camera reads the one
+behind, and one pass covers both.
 
 The warehouse floor plan is known in advance, so the route is planned rather
 than discovered.
@@ -26,12 +28,14 @@ import json
 import time
 import cv2
 import numpy as np
+import threading
 from collections import deque
 from datetime import datetime
 from mavsdk import System
 from mavsdk.offboard import PositionNedYaw, OffboardError
 import gz.transport13 as trans
 from gz.msgs10.image_pb2 import Image
+from gz.msgs10.laserscan_pb2 import LaserScan
 
 # --- WAREHOUSE FLOOR PLAN ----------------------------------------------
 #
@@ -79,16 +83,90 @@ YAW_NORTH = 0.0
 # Must match the values in build_scanner_drone.py. Used to convert a pixel
 # position into a bearing, which is how box positions are estimated.
 CAMERA_HFOV_DEG = 60.0
-# Aisle centre line to shelf face. A property of the warehouse, not the
-# vehicle, so it comes from the layout.
-SHELF_STANDOFF = LAYOUT["shelf_standoff"]
+# The AR0144 tracking cameras. Wider than the hires, so a code at the same
+# pixel offset sits at a different bearing.
+TRACKING_HFOV_DEG = 90.0
+# The furthest each camera can be from a shelf and still read it, measured by
+# standoff_sweep.py against real label textures. These are properties of the
+# camera and the label, not of the building, and they are what decides where
+# the lane goes in an aisle of any width.
+HIRES_MAX_STANDOFF = LAYOUT.get("hires_max_standoff", 1.30)
+REAR_MAX_STANDOFF = LAYOUT.get("rear_max_standoff", 1.10)
+
+# Where to stand off a face that has no aisle: a row along a wall, read by the
+# hires alone. Also the fallback for a layout that names no limits.
+SHELF_STANDOFF = LAYOUT.get("shelf_standoff", HIRES_MAX_STANDOFF)
+
+# How wide the vehicle is, so an aisle it does not fit down can be named
+# rather than flown into. The Starling 2 is 290 mm across at the propeller
+# tips.
+VEHICLE_HALF_SPAN = LAYOUT.get("vehicle_half_span", 0.0)
+
+# How much room to leave between a propeller tip and a shelf.
+AISLE_CLEARANCE_M = 0.05
+
+# Where each camera sits along the body, from build_c27_drone.py. The bearing
+# to a code is turned into a position using the distance from the camera to
+# the shelf, and the camera is not at base_link: the hires looks forward from
+# the front face and the rear camera looks back from the rear one, so each is
+# nearer its own shelf than base_link is. Leaving these out scaled every
+# lateral offset by eight per cent.
+HIRES_MOUNT_X = 0.06
+REAR_MOUNT_X = -0.055
+
+# --- WHAT THE CAMERA CAN SEE VERTICALLY --------------------------------
+#
+# The frame is a rectangle whose height grows with the distance to the shelf.
+# The hires stands 1.24 m off in the 2.40 m aisle and sees 1.07 m of shelf; it
+# stands 0.21 m off in the 0.50 m aisle and sees 0.18 m. Everything below
+# follows from that collapse, and so does the reason the narrow aisle needs
+# the optical axis aimed at its codes while the wide ones do not care.
+#
+# What the cameras are rendered at, from build_c27_drone.py. The vertical
+# field is the horizontal one scaled by the aspect ratio, and the two cameras
+# share neither: 60 degrees over 1024x768 against 90 over 1280x800.
+HIRES_FRAME_PX = (1024, 768)
+REAR_FRAME_PX = (1280, 800)
+
+# How much of the geometric field is worth counting on. report/warehouse_model
+# measures 0.23 m of half-frame where the lens gives 0.260 at the same
+# distance; the shortfall is vignetting and the decode margin at the edge of
+# the frame. Kept as a ratio because it belongs to the camera and not to any
+# one distance.
+USABLE_FRAME = 0.885
+
+# How tall a code is, so that the question can be whether a whole one fits
+# rather than whether its centre does. A code clipped by the frame edge does
+# not decode at all; there is no partial credit for most of a QR.
+CODE_SIZE_M = LAYOUT.get("code_size_m", 0.072)
+
+
+def half_frame_m(hfov_deg, frame_px, depth):
+    """Half the camera's vertical field, in metres, at this distance."""
+    width, height = frame_px
+    tan_half_v = math.tan(math.radians(hfov_deg) / 2) * height / width
+    return depth * tan_half_v * USABLE_FRAME
+
 
 # --- SCAN PARAMETERS ---------------------------------------------------
 WAYPOINT_TOLERANCE = 0.4      # metres
-CRUISE_SPEED = 0.6             # m/s along an aisle
+# One speed in every aisle.
+#
+# Slowing down in the narrow ones was tried, on the reading that the codes
+# lost there were lost to a shortage of frames. The measurement does not
+# support it: flying a box past the camera on paper at 1 m/s with a 10 Hz
+# camera gives four samples at the 0.271 m the narrowest aisle is flown at,
+# and all four decode. What was losing them was the strips cutting a code too
+# large to fit in one, which is fixed above.
+CRUISE_SPEED = 1.0             # m/s along an aisle
 CLIMB_SPEED = 0.15             # m/s when changing shelf level
 TURN_SETTLE_S = 3.0            # seconds held after a heading change
-SETTLE_TOLERANCE = 0.05        # metres, how close before a leg counts as settled
+SETTLE_TOLERANCE = 0.05        # metres of altitude error before a leg counts as settled
+# Metres of lateral error allowed before a leg starts. Tighter than
+# WAYPOINT_TOLERANCE by a long way, because this one decides how far the
+# cameras are from their shelves for the whole of the leg that follows, and
+# the rear camera has only 0.05 m of margin at the distance it flies.
+SETTLE_LATERAL_M = 0.08
 SETTLE_TIMEOUT_S = 8.0         # seconds allowed for settling
 TIMEOUT_MARGIN = 20.0          # seconds of slack added to expected leg time
 
@@ -103,6 +181,10 @@ WORLD = LAYOUT["world"]
 DRONE = LAYOUT["model"] + "_0"
 CAM_HIRES = f"/world/{WORLD}/model/{DRONE}/link/camera_hires_link/sensor/camera/image"
 CAM_DOWN = f"/world/{WORLD}/model/{DRONE}/link/camera_track_down_link/sensor/camera/image"
+CAM_REAR = f"/world/{WORLD}/model/{DRONE}/link/camera_track_rear_link/sensor/camera/image"
+# The PMD TOF. Deliberately not on a link PX4 bridges, so this reading is ours
+# and never reaches EKF2 as a height above ground.
+TOF_SCAN = f"/world/{WORLD}/model/{DRONE}/link/tof_link/sensor/tof/scan"
 
 MARKER_MAP_PATH = _layout_path("marker_map")
 
@@ -118,6 +200,7 @@ DOWN_CAM_HFOV_DEG = 90.0
 ARUCO_DICT = getattr(cv2.aruco, LAYOUT["aruco_dictionary"])
 
 OUTPUT_JSON = _layout_path("output")
+NAV_REPORT_JSON = _layout_path("navigation_report")
 os.makedirs(os.path.dirname(OUTPUT_JSON), exist_ok=True)
 
 # --- STATE -------------------------------------------------------------
@@ -140,7 +223,370 @@ marker_map = {}
 marker_events = []
 last_correction_time = [0.0]
 
-qr_detector = cv2.QRCodeDetector()
+# Forward clearance, from the TOF. The simulated airframe is PX4's x500, half
+# a metre across, so anything inside this band is closer than it should ever be
+# to a shelf it is scanning.
+#
+# The real vehicle is a ModalAI Starling 2, 283 mm across at the propeller
+# tips, and on that airframe this would be 0.20. See build_starling2.py.
+CLEARANCE_ALARM_M = 0.20
+# Only rays this far from level count as looking ahead. The cone is 86 degrees
+# tall and its lower half always finds the floor; see nearest_ahead.
+TOF_BAND_DEG = 10.0
+# Anything nearer than this is the vehicle's own structure, measured at 0.101 m
+# on rotor arms with the sensor's minimum range at 0.1 m.
+TOF_SELF_M = 0.12
+clearance = {"min_m": float("inf"), "samples": 0, "alarms": 0,
+             "in_alarm": False, "alarm_positions": []}
+
+# The simulation clock, from PX4's odometry. It arrives over UDP at about
+# 26 Hz, so the camera queue cannot delay it, and its timestamps sit on the
+# same clock as the image headers: measured 4 ms apart, 14 ms spread, once the
+# opening burst is past. Zero means nothing has arrived yet.
+#
+# It was taken from the TOF before, which shares gz transport with the
+# cameras. When frames backed up the TOF backed up with them, so a stale frame
+# was measured against a stale clock and the difference stayed near zero. The
+# check reported nothing wrong because it could not see anything.
+sim_now = {"s": 0.0}
+
+# Where the vehicle has been, stamped in simulation time, oldest first. A
+# frame is placed against its own entry here rather than against wherever the
+# vehicle has reached by the time the frame is decoded.
+#
+# Long enough to cover a queue far deeper than should ever form: Ibrahim's
+# failing run reached 122 s of lag, and at 26 Hz five minutes of history is
+# eight thousand tuples.
+POSE_HISTORY_S = 300.0
+pose_history = []
+
+# How old a frame may be before it is dropped.
+#
+# This does not protect the position; the pose history does that, and a frame
+# handled late is still filed against the shelf it was taken in front of. The
+# limit is a throughput control: it keeps the decoder from falling behind the
+# cameras and dragging the flight with it.
+#
+# It was raised to 1.50 s once, on the reading that a median age of 0.464
+# against a limit of 0.50 meant a fixed latency rather than a queue. It does
+# not:
+#
+#     limit 0.50 s   575 s of flight   4.6 frames a second   median age 0.464
+#     limit 1.50 s   994 s of flight   2.3 frames a second   median age 1.448
+#
+# The age settles just under whatever the limit is, which is what a saturated
+# queue looks like. Raising it deepened the queue, halved the frames decoded
+# and stretched the flight by seventy three per cent, because the loop that
+# drives the setpoints is the loop that drains the decoder. Coverage did not
+# move.
+MAX_FRAME_AGE_S = 0.50
+
+# What the cameras are rendered at, from build_c27_drone.py. Needed to work
+# out how many frames a box gets, which decides how many are worth decoding.
+HIRES_HZ = 10.0
+REAR_HZ = 8.0
+
+# How many frames of a box are enough to read it.
+#
+# Seven, which is what the runs support rather than what sounds tidy. The
+# 1.13 m aisle gives a box 7.1 looks and has come back complete every time;
+# the 0.50 m aisle gives 3.1 and has lost one or two on every run.
+#
+# This was five for one run, and the widest aisle lost a code for the first
+# time: fifteen looks cut to five was not enough, on the aisle where nothing
+# had ever been missed. Five contradicted the note written beside it, which
+# already said seven was the figure that held.
+TARGET_FRAMES_PER_BOX = 7.0
+
+# Whether to write what the scanning cameras saw to mp4 alongside the scan.
+#
+# Off by default: it costs about a tenth of a core for both cameras, which is
+# little, but this is a scan and not a recording. Turn it on with
+# RECORD_VIDEO=1 in the environment when there is something to look at, which
+# at the moment means the narrowest aisle, where two codes go missing and
+# every test of why has been synthetic.
+RECORD_VIDEO = os.environ.get("RECORD_VIDEO", "") not in ("", "0")
+frames_stale = {"n": 0}
+
+# What happened to the frames on each lane. The flight totals never said where
+# the losses were, and whether the narrowest aisle is starved or merely
+# unlucky is a question about that aisle rather than about the run.
+current_lane = {"name": "before the scan"}
+lane_tally = {}
+
+
+def lane_frames(what, age=None):
+    """Record what became of one frame, against the lane being flown."""
+    row = lane_tally.setdefault(
+        current_lane["name"],
+        {"decoded": 0, "skipped": 0, "too_old": 0, "ages": []})
+    if what in row:
+        row[what] += 1
+    if age is not None:
+        row["ages"].append(age)
+frame_ages = []
+
+# --- WHERE THE TIME GOES -----------------------------------------------
+#
+# Frames arrive a median of 0.45 s late in the two narrow aisles and on time
+# in the two wide ones, and every explanation offered so far has been a guess
+# about which part of the pipeline is slow. Three of those guesses were wrong.
+# This measures it instead.
+#
+# Four numbers, per camera, per lane. The first two are about delivery and are
+# taken before anything else, so they are recorded for skipped frames too; the
+# last two are about the work and only exist for frames that were decoded.
+#
+#   arrival_gap  wall seconds since the previous callback on this camera. If
+#                this sits near the inter-frame period the callbacks are
+#                keeping up. If it is near zero most of the time with an
+#                occasional long one, frames are being handed over in bursts,
+#                which is a buffer upstream of us rather than a slow decoder.
+#   stamp_gap    simulation seconds between the two frames' own timestamps.
+#                What Gazebo actually rendered, independent of delivery. A
+#                steady 1/rate here with bursty arrival_gap localises the
+#                delay to the transport.
+#   decode_ms    time inside decode_qr. The bench says 5.7 ms on a real narrow
+#                aisle frame. If the flight disagrees, the bench is not
+#                measuring the flight.
+#   total_ms     time inside handle_frame end to end, so the difference from
+#                decode_ms is everything else: the reshape, the colour
+#                conversion, the pose lookup and the recorder handoff.
+#
+# The cost of collecting them is three perf_counter calls and four list
+# appends, benched at 1.23 us a frame, against a decode measured at 5.7 ms on
+# a real narrow aisle frame. That is 0.02 per cent of one decode, and 0.002
+# per cent of a core at the 18 frames a second the two cameras offer, which is
+# the reason this can be left switched on for a scoring run rather than being
+# a separate instrumented build that then measures something else.
+timing = {}              # (lane, camera) -> lists of the four numbers above
+last_entry = {}          # camera -> wall clock at the previous callback
+last_stamp = {}          # camera -> simulation stamp of the previous frame
+# Which thread each camera's callbacks run on. gz transport is expected to
+# give every Node one, which would mean the callbacks on a single camera are
+# serialised and cam.busy can never fire. Both runs so far report zero frames
+# dropped for busy, which is what that would look like, so it is worth knowing
+# rather than assuming.
+callback_threads = {}
+
+
+def timing_row(cam):
+    """The timing lists for this camera on the lane being flown."""
+    return timing.setdefault(
+        (current_lane["name"], cam.name),
+        {"arrival_gap": [], "stamp_gap": [], "decode_ms": [], "total_ms": []})
+
+
+def spread(values, scale=1.0):
+    """
+    The shape of a list of measurements, not just its middle.
+
+    The low end is here on purpose. A median says how long a typical gap
+    between frames is; only the low end says whether a quarter of them arrived
+    back to back, which is the difference between a slow decoder and a buffer
+    emptying itself.
+    """
+    if not values:
+        return None
+    ordered = sorted(values)
+    last = len(ordered) - 1
+
+    def at(fraction):
+        return round(ordered[min(last, int(len(ordered) * fraction))] * scale, 3)
+
+    return {
+        "min": round(ordered[0] * scale, 3),
+        "p05": at(0.05),
+        "median": at(0.50),
+        "p95": at(0.95),
+        "max": round(ordered[-1] * scale, 3),
+        "samples": len(ordered),
+    }
+
+
+def pose_at(when):
+    """
+    Where the vehicle was at a given simulation time.
+
+    Linear between the two samples either side, which at 26 Hz are 39 ms and
+    about 23 mm of travel apart. None if the history does not reach back that
+    far, which means the frame is older than anything we can place it against.
+    """
+    if len(pose_history) < 2 or when < pose_history[0][0]:
+        return None
+    if when >= pose_history[-1][0]:
+        return pose_history[-1][1:]
+
+    lo, hi = 0, len(pose_history) - 1
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        if pose_history[mid][0] <= when:
+            lo = mid
+        else:
+            hi = mid
+
+    t0, n0, e0, d0, y0 = pose_history[lo]
+    t1, n1, e1, d1, y1 = pose_history[hi]
+    span = t1 - t0
+    f = 0.0 if span <= 0 else (when - t0) / span
+    # Yaw wraps, so interpolate along the shorter way round.
+    dy = (y1 - y0 + 180.0) % 360.0 - 180.0
+    return (n0 + (n1 - n0) * f,
+            e0 + (e1 - e0) * f,
+            d0 + (d1 - d0) * f,
+            y0 + dy * f)
+
+
+def stamp_seconds(msg):
+    """The simulation time a message was produced, in seconds."""
+    return msg.header.stamp.sec + msg.header.stamp.nsec * 1e-9
+
+# How many frames a decoder may have waiting. Two, because the queue is not
+# there to buy time: raising the age limit from 0.50 to 1.50 s already proved
+# that a deeper queue only makes older frames, halving what was decoded and
+# stretching the flight by seventy three per cent while coverage stood still.
+# What was missing was a second thread, not a longer line.
+DECODE_QUEUE_DEPTH = 2
+
+
+class CameraDecoder:
+    """
+    One camera, with its own detector and its own idea of where it points.
+
+    The detector is not shared. cv2.wechat_qrcode_WeChatQRCode holds model
+    state and is not safe to call from two threads, and the two cameras now
+    genuinely do decode at the same time, so this has stopped being a
+    precaution and become a requirement.
+
+    The pose is read as the frame lands rather than when it is decoded. That
+    was measured the hard way on the first two-camera run. Codes came out up to
+    5.8 m along the aisle from where they are, on both cameras, worst at the
+    start and draining away as the run caught up: bay 6 was out by 5.3 m, bay
+    4 by 3.3 m. Nothing landed on the wrong face or the wrong level, because
+    those are snapped to the layout; only the along-aisle estimate is not, and
+    that is the one that moved.
+
+    Decoding runs on a thread of this camera's own, and not on the one gz
+    transport calls us from. That thread is shared: the 2026-09-02 run
+    reported the same thread id for both cameras, so every hires frame and
+    every rear frame queued behind each other on one thread whatever else the
+    code did. Separate detectors were never enough on their own.
+
+    It cost a quarter of the frames. Decoding measured 107 ms a frame on the
+    hires and 115 ms on the rear in the narrowest aisle, against frames
+    arriving every 154 and 198 ms of wall clock, which is 128 per cent of one
+    thread. The queue shed the excess: 401 of 1444 frames in that aisle, 27.8
+    per cent, against the 28 the arithmetic asks for.
+
+    That was invisible until the aisles narrowed. A 2.40 m aisle offers a box
+    fourteen frames and losing four of them costs nothing; a 0.50 m aisle
+    offers 2.4 and losing a quarter leaves 1.75.
+
+    Two threads are worth having only if they run at the same time, which in
+    Python means the detector has to release the interpreter lock. Benched on
+    real narrow-aisle frames rather than assumed: 3.47 s on one thread against
+    1.84 s on two, a speedup of 1.88.
+
+    The queue is two frames deep and drops its oldest. Depth is not the point;
+    capacity is. A worker that falls behind sheds frames exactly as the old
+    code did, so the worst this can do is behave like what it replaces, and
+    the pose travels with each frame so a frame decoded late is still filed
+    against the shelf it was taken in front of.
+    """
+
+    def __init__(self, name, hfov_deg, yaw_offset_deg):
+        self.name = name
+        self.hfov_deg = hfov_deg
+        # The rear camera is mounted looking backwards, so its frames are
+        # interpreted with the heading turned through 180 degrees and the
+        # existing geometry puts the code on the far side of the aisle.
+        self.yaw_offset_deg = yaw_offset_deg
+        # Perpendicular distance to the face this camera reads. The hires
+        # holds the layout's standoff for the whole flight; the rear camera's
+        # changes with the aisle, so the route sets it on entry to each lane.
+        # None means this camera has no face to read on the current lane.
+        self.depth = None
+        self.detector = cv2.wechat_qrcode_WeChatQRCode()
+        # The second pass detector, for a code WeChat locates but cannot
+        # read. Per camera for the same reason as the first.
+        self.fallback = cv2.QRCodeDetector()
+        self.frames = 0
+        self.dropped = 0
+        self.stale = 0
+        # Take one frame in this many. Set per lane, because how many frames
+        # a box gets depends on how much shelf the camera sees from it.
+        self.stride = 1
+        self.arrived = 0
+        self.skipped = 0
+        # The handover to this camera's decoder thread. Bounded, so a worker
+        # that cannot keep up sheds the oldest frame rather than growing a
+        # queue for the whole flight and dragging every later code with it.
+        self.queue = deque(maxlen=DECODE_QUEUE_DEPTH)
+        self.wake = threading.Event()
+        self.stop = threading.Event()
+        self.thread = None
+        # Whether a frame is in the decoder right now. The old cam.busy meant
+        # to say this and could not: it was set and cleared inside the same
+        # callback, on a thread that runs callbacks one at a time, so it was
+        # never true when anything looked at it.
+        self.working = False
+
+    def offer(self, item):
+        """Hand a frame to the decoder. Called from gz transport; never blocks."""
+        if len(self.queue) == self.queue.maxlen:
+            self.dropped += 1
+        self.queue.append(item)
+        self.wake.set()
+
+    def _run(self):
+        while not self.stop.is_set():
+            if not self.queue:
+                self.wake.wait(0.05)
+                self.wake.clear()
+                continue
+            try:
+                img, pose, depth, row = self.queue.popleft()
+            except IndexError:
+                continue
+            self.working = True
+            try:
+                bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+                recorder = RECORDERS.get(self.name)
+                if recorder is not None:
+                    # A copy, because the decoder is about to look at the same
+                    # array and the writer thread will still be holding this.
+                    recorder.offer(bgr.copy())
+                started = time.perf_counter()
+                hits = decode_qr(bgr, self)
+                # Recorded against the lane the frame was taken on, which
+                # travels with it. The lane the vehicle has reached by now is
+                # a different question and not the one being asked.
+                row["decode_ms"].append((time.perf_counter() - started) * 1e3)
+                self.frames += 1
+                for value, cx, cy, fw, fh in hits:
+                    pending.append((value, cx, cy, fw, fh, pose,
+                                    self.hfov_deg, self.name, depth))
+            except Exception:
+                pass
+            finally:
+                self.working = False
+
+    def start(self):
+        self.stop.clear()
+        self.thread = threading.Thread(target=self._run, daemon=True)
+        self.thread.start()
+
+    def finish(self):
+        if self.thread is None:
+            return
+        self.stop.set()
+        self.wake.set()
+        self.thread.join(timeout=10)
+
+
+HIRES = CameraDecoder("camera_hires_link", CAMERA_HFOV_DEG, 0.0)
+REAR = CameraDecoder("camera_track_rear_link", TRACKING_HFOV_DEG, 180.0)
+
 aruco_detector = cv2.aruco.ArucoDetector(
     cv2.aruco.getPredefinedDictionary(ARUCO_DICT),
     cv2.aruco.DetectorParameters())
@@ -315,16 +761,185 @@ def on_down_image(msg):
         pass
 
 
-def decode_qr(frame):
+# How a frame is split up before the detector sees it.
+#
+# The detector copes with one or two codes in a frame and fails above that,
+# and a shelf face usually shows more, so a frame is read in overlapping
+# vertical strips. How many depends on how large the codes are, because a code
+# wider than a strip cannot sit inside one unless it lands in the middle of
+# it. A 0.10 m label is 68 px across when the camera stands 1.30 m from the
+# shelf and 327 px at 0.271 m.
+#
+# Measured, one code moved across the frame, whole against four strips:
+#
+#     stands     label     whole    four strips
+#     1.300 m     68 px    56/56       56/56
+#     0.959       92       56/56       56/56
+#     0.612      144       56/56       56/56
+#     0.271      327       56/56       32/56
+#
+# Four strips is right for a camera 1.30 m from a shelf and wrong for one at
+# 0.271 m, and the twenty codes lost in the narrowest aisle were lost to that.
+# Each strip is now sized to hold about three codes' width, so a code has room
+# to sit anywhere in one and still be whole: four strips in the widest aisle,
+# and one in the narrowest, which is a whole frame and is what a frame holding
+# a single enormous code wants.
+MAX_DECODE_STRIPS = 4
+STRIP_WIDTH_IN_CODES = 3.0
+STRIP_OVERLAP = 0.25
+
+# How wide a box label is, used only to work out how many pixels it covers.
+LABEL_WIDTH_M = LAYOUT.get("label_width_m", 0.10)
+
+
+class Recorder:
+    """
+    Writes one camera's frames to an mp4, on a thread of its own.
+
+    The camera callback hands over a frame and returns; encoding happens
+    elsewhere. If the writer cannot keep up the queue drops its oldest rather
+    than growing, because the recording exists to be looked at afterwards and
+    the scan exists to find every box. Losing a frame from the video costs a
+    frame of video; making the decoder wait costs a box.
+    """
+
+    def __init__(self, name, path, fps, queue_depth=8):
+        self.name = name
+        self.path = path
+        self.fps = fps
+        self.queue = deque(maxlen=queue_depth)
+        self.written = 0
+        self.dropped = 0
+        self.lock = threading.Lock()
+        self.stop = threading.Event()
+        self.thread = None
+        self.writer = None
+
+    def offer(self, frame):
+        """Called from the camera callback. Must not block."""
+        with self.lock:
+            if len(self.queue) == self.queue.maxlen:
+                self.dropped += 1
+            self.queue.append(frame)
+
+    def _run(self):
+        while not (self.stop.is_set() and not self.queue):
+            frame = None
+            with self.lock:
+                if self.queue:
+                    frame = self.queue.popleft()
+            if frame is None:
+                time.sleep(0.01)
+                continue
+            if self.writer is None:
+                height, width = frame.shape[:2]
+                os.makedirs(os.path.dirname(self.path), exist_ok=True)
+                self.writer = cv2.VideoWriter(
+                    self.path, cv2.VideoWriter_fourcc(*"mp4v"),
+                    self.fps, (width, height))
+                if not self.writer.isOpened():
+                    print(f"[WARN] cannot record {self.name} to {self.path}")
+                    return
+            self.writer.write(frame)
+            self.written += 1
+        if self.writer is not None:
+            self.writer.release()
+
+    def start(self):
+        self.thread = threading.Thread(target=self._run, daemon=True)
+        self.thread.start()
+
+    def finish(self):
+        if self.thread is None:
+            return
+        self.stop.set()
+        self.thread.join(timeout=20)
+
+
+# One per scanning camera, created only when recording is asked for.
+RECORDERS = {}
+
+
+def frame_stride(standoff, hfov_deg, camera_hz):
+    """
+    Take one frame in this many, on a lane at this standoff.
+
+    A box is in frame for as long as it takes to cross the width of view, and
+    the camera offers that many frames of it. Five is enough to read one, so
+    anything beyond that is spent on a box that is already found while the
+    decoder has none to spare for the aisle that only gets three.
+    """
+    if not standoff or standoff <= 0:
+        return 1
+    span = 2 * standoff * math.tan(math.radians(hfov_deg) / 2)
+    offered = span / CRUISE_SPEED * camera_hz
+    return max(1, int(offered / TARGET_FRAMES_PER_BOX))
+
+
+def strips_for(frame_width, hfov_deg, depth):
+    """
+    How many strips to read a frame in, given how far away the shelf is.
+
+    Closer means a larger code and fewer strips. One strip is the whole frame,
+    which is what a single code covering a third of it wants.
+    """
+    if not depth or depth <= 0:
+        return MAX_DECODE_STRIPS
+    label_px = (LABEL_WIDTH_M * frame_width
+                / (2 * depth * math.tan(math.radians(hfov_deg) / 2)))
+    if label_px <= 0:
+        return MAX_DECODE_STRIPS
+    return max(1, min(MAX_DECODE_STRIPS,
+                      int(frame_width / (STRIP_WIDTH_IN_CODES * label_px))))
+
+
+def detect_in_strips(frame, detector, strips=MAX_DECODE_STRIPS):
+    """
+    Run the detector across the frame in overlapping vertical strips.
+
+    Yields one tuple per sighting: the decoded value or an empty string, the
+    corner points in that strip's coordinates, and the strip's left and right
+    edges in the frame, so the caller can put the sighting back where it
+    belongs and tell how close to an edge it was found.
+    """
+    height, width = frame.shape[:2]
+    step = width / strips
+    pad = step * STRIP_OVERLAP
+
+    sightings = []
+    for i in range(strips):
+        x1 = int(max(0, i * step - pad))
+        x2 = int(min(width, (i + 1) * step + pad))
+        if x2 - x1 < 32:
+            continue
+        values, quads = detector.detectAndDecode(frame[:, x1:x2])
+        for value, quad in zip(values, quads):
+            sightings.append((value, quad, x1, x2))
+    return sightings
+
+
+def decode_qr(frame, cam):
     """
     Decode QR codes and report where each one sits in the frame.
 
-    Gazebo renders the white quiet zone of a QR code as mid grey, leaving too
-    little contrast for the decoder to work on the raw frame. Thresholding the
-    whole frame does not help either, because brightness varies across it.
+    WeChat's detector does the finding. The live view told us where the
+    pipeline was losing codes: it draws orange for a code that was located but
+    would not decode, and green for one that read, and there was never any
+    orange. Missed codes were not being located at all.
 
-    The reliable approach is to locate the code first, crop that region, then
-    threshold locally. A 3x upscale is a fallback for codes seen at range.
+    That is not a shortage of pixels. Given the same synthetic label at the
+    size the real 1024x768 stream sees it, cv2.QRCodeDetector failed to find it
+    at every distance from 0.6 m to 1.5 m, including 4.14 px per module, half
+    again over the usual threshold. WeChat read it at all of them, down to
+    1.66 px per module, and QRCodeDetectorAruco managed all but the furthest.
+
+    Reading at the aisle centre depends on this. At 1.20 m from both faces
+    there are 2.07 px per module, which the old detector never found and this
+    one reads.
+
+    The crop, threshold and upscale that follow are kept as a second pass for
+    anything WeChat locates but cannot read: Gazebo renders the white quiet
+    zone as mid grey, and a local threshold recovers the contrast.
 
     Returns a list of (value, centre_x_px, centre_y_px, frame_width,
     frame_height). The pixel position is needed to work out the bearing to the
@@ -334,12 +949,36 @@ def decode_qr(frame):
     results = []
     frame_h, frame_w = frame.shape[:2]
     try:
-        ok, points = qr_detector.detectMulti(frame)
-        if not ok or points is None:
-            ok_single, points_single = qr_detector.detect(frame)
-            if not ok_single or points_single is None:
-                return results
-            points = points_single
+        sightings = detect_in_strips(
+            frame, cam.detector,
+            strips_for(frame_w, cam.hfov_deg, cam.depth))
+
+        # The same code appears in two strips wherever they overlap. Keep the
+        # sighting furthest from its own strip's edges, which is the one least
+        # likely to have been clipped.
+        best = {}
+        unread = []
+        for value, quad, x1, x2 in sightings:
+            p = np.asarray(quad)
+            cx = float(p[:, 0].mean())
+            cy = float(p[:, 1].mean())
+            if not value:
+                unread.append(p + np.array([x1, 0.0]))
+                continue
+            margin = min(cx, (x2 - x1) - cx)
+            if value not in best or margin > best[value][0]:
+                best[value] = (margin, cx + x1, cy)
+
+        for value, (_, cx, cy) in best.items():
+            results.append((value, cx, cy, frame_w, frame_h))
+        if results:
+            return results
+
+        # Anything located but not read gets the local threshold. Rare now:
+        # what the detector fails at is locating, not reading.
+        points = unread
+        if not points:
+            return results
 
         for quad in points:
             p = quad.astype(int)
@@ -357,14 +996,14 @@ def decode_qr(frame):
             centre_x = float(p[:, 0].mean())
             centre_y = float(p[:, 1].mean())
 
-            data, _, _ = qr_detector.detectAndDecode(binary)
+            data, _, _ = cam.fallback.detectAndDecode(binary)
             if data:
                 results.append((data, centre_x, centre_y, frame_w, frame_h))
                 continue
 
             upscaled = cv2.resize(binary, None, fx=3.0, fy=3.0,
                                   interpolation=cv2.INTER_CUBIC)
-            data_up, _, _ = qr_detector.detectAndDecode(upscaled)
+            data_up, _, _ = cam.fallback.detectAndDecode(upscaled)
             if data_up:
                 results.append((data_up, centre_x, centre_y, frame_w, frame_h))
     except Exception:
@@ -384,48 +1023,159 @@ def on_hires_image(msg):
     that produced a median error of 5.1 m, with the largest errors along the
     aisle, in the direction of travel.
     """
+    handle_frame(msg, HIRES)
+
+
+def on_rear_image(msg):
+    """
+    The same, through the rear tracking camera, looking at the opposite face.
+
+    Flying the aisle centre puts both shelf faces at the same distance, so one
+    pass can read both: the hires reads what the nose is pointed at and this
+    reads what is behind. Every face still gets covered, in half the passes.
+
+    Nothing else needs to change to place these boxes. The camera looks the
+    other way, so the pose is recorded with the heading turned through 180
+    degrees, and the existing geometry then puts the code on the far side of
+    the aisle and snaps it to the face that is actually there.
+
+    Its field of view is not the same as the hires, though. These are 90 degree
+    lenses against 60, so a code at the same pixel offset is at a different
+    bearing, and using one figure for both would place the far shelf wrongly.
+    """
+    handle_frame(msg, REAR)
+
+
+def handle_frame(msg, cam):
+    """Decode one frame from one camera and queue what it found."""
+    # Delivery is measured first, before the stride check, so that a lane
+    # which skips most of its frames still says how they arrived. That is the
+    # comparison the whole question rests on: the wide aisles skip and are
+    # healthy, the narrow ones do not skip and are late.
+    entered = time.perf_counter()
+    row = timing_row(cam)
+    previous = last_entry.get(cam.name)
+    last_entry[cam.name] = entered
+    if previous is not None:
+        row["arrival_gap"].append(entered - previous)
+
+    taken_at = stamp_seconds(msg)
+    previous_stamp = last_stamp.get(cam.name)
+    last_stamp[cam.name] = taken_at
+    if previous_stamp is not None:
+        row["stamp_gap"].append(taken_at - previous_stamp)
+
+    callback_threads.setdefault(cam.name, set()).add(threading.get_ident())
+
+    cam.arrived += 1
+    if cam.stride > 1 and cam.arrived % cam.stride:
+        # Not this one. Skipped here, before the frame is touched, so the
+        # callback returns at once and gz transport has less reason to
+        # discard the next one.
+        cam.skipped += 1
+        lane_frames("skipped")
+        return
+
+    age = sim_now["s"] - taken_at
+    if sim_now["s"]:
+        frame_ages.append(age)
+        lane_frames("age", age)
+        if age > MAX_FRAME_AGE_S:
+            # Not because it cannot be placed; the history would place it. To
+            # keep the queue from growing for the whole flight and costing the
+            # codes at the end of it.
+            cam.stale += 1
+            frames_stale["n"] += 1
+            lane_frames("too_old")
+            return
+    lane_frames("decoded")
+    depth = cam.depth
+    if depth is None:
+        # No face for this camera on this lane, so anything it sees belongs to
+        # a shelf the route is not scanning from here.
+        return
     try:
         img = np.frombuffer(msg.data, dtype=np.uint8).reshape(
             (msg.height, msg.width, 3))
-        # Capture pose BEFORE decoding, because decoding takes time and drone moves!
-        # Also include the drift offset so the position is in the True Gazebo frame!
-        pose = (current_pos["n"] + drift_offset["n"], 
-                current_pos["e"] + drift_offset["e"], 
-                current_pos["d"],
-                current_yaw["deg"])
-
-        hits = decode_qr(cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
-        if not hits:
+        # Where the vehicle was when this frame was taken, not where it is
+        # now. Reading the current position instead is what put codes up to
+        # 6.86 m from their shelves on a machine fast enough to outrun the
+        # decoder. The drift offset is added so the result is in the true
+        # Gazebo frame rather than the estimator's.
+        #
+        # Read here rather than on the decoder thread, so the pose is the one
+        # in force as the frame lands. It is also what makes handing the frame
+        # over safe: a frame decoded a moment later is still filed against the
+        # shelf it was taken in front of.
+        was = pose_at(taken_at)
+        if was is None:
+            # Older than the history reaches. Nothing to place it against.
+            cam.stale += 1
+            frames_stale["n"] += 1
             return
-        for value, cx, cy, fw, fh in hits:
-            pending.append((value, cx, cy, fw, fh, pose))
+        pose = (was[0] + drift_offset["n"],
+                was[1] + drift_offset["e"],
+                was[2],
+                was[3] + cam.yaw_offset_deg)
+
+        # Everything expensive happens on this camera's own thread from here.
+        # The array is a view onto the message's own bytes and keeps them
+        # alive, so the handover copies nothing.
+        cam.offer((img, pose, depth, row))
     except Exception:
         pass
+    finally:
+        # What the callback itself cost, which is now the whole of what gz
+        # transport waits for. It was 108 ms while the decode ran here.
+        row["total_ms"].append((time.perf_counter() - entered) * 1e3)
 
 
-async def track_position(drone):
-    """Mirror the EKF2 local position estimate into current_pos."""
-    global current_pos
+async def track_odometry(drone):
+    """
+    Mirror the estimator's pose, and keep a history of it stamped in
+    simulation time.
+
+    This replaces separate subscriptions to position_velocity_ned and
+    attitude_euler. Odometry carries position, orientation and a timestamp
+    together, and the position agrees with position_velocity_ned to 0.2 mm, so
+    nothing is given up by taking all three from one message.
+
+    The timestamp is the point. It is on the same clock as the image headers,
+    and it arrives over UDP rather than through gz transport, so it stays
+    current no matter how far behind the cameras fall.
+    """
+    global current_pos, current_yaw
     try:
-        async for odom in drone.telemetry.position_velocity_ned():
-            current_pos["n"] = odom.position.north_m
-            current_pos["e"] = odom.position.east_m
-            current_pos["d"] = odom.position.down_m
+        async for o in drone.telemetry.odometry():
+            when = o.time_usec / 1e6
+            q = o.q
+            yaw = math.degrees(math.atan2(
+                2 * (q.w * q.z + q.x * q.y),
+                1 - 2 * (q.y * q.y + q.z * q.z)))
+
+            current_pos["n"] = o.position_body.x_m
+            current_pos["e"] = o.position_body.y_m
+            current_pos["d"] = o.position_body.z_m
+            current_yaw["deg"] = yaw
+            sim_now["s"] = when
+
+            pose_history.append((when, current_pos["n"], current_pos["e"],
+                                 current_pos["d"], yaw))
+            # Trim from the front rather than using a deque, so that the
+            # binary search in pose_at can index it.
+            cutoff = when - POSE_HISTORY_S
+            if pose_history[0][0] < cutoff:
+                keep = 0
+                while (keep < len(pose_history)
+                       and pose_history[keep][0] < cutoff):
+                    keep += 1
+                del pose_history[:keep]
     except Exception:
         pass
 
 
-async def track_heading(drone):
-    """Mirror the current heading, needed to work out which side a box is on."""
-    global current_yaw
-    try:
-        async for att in drone.telemetry.attitude_euler():
-            current_yaw["deg"] = att.yaw_deg
-    except Exception:
-        pass
-
-
-def record_detection(qr_id, cx_px, cy_px, frame_w, frame_h, pose):
+def record_detection(qr_id, cx_px, cy_px, frame_w, frame_h, pose,
+                     hfov_deg=None, camera="camera_hires_link", depth=None):
     """
     Store a newly seen code together with an estimated shelf position.
 
@@ -454,7 +1204,7 @@ def record_detection(qr_id, cx_px, cy_px, frame_w, frame_h, pose):
     gx, gy, gz = ned_to_gazebo(pose_n, pose_e, pose_d)
 
     # Bearing from the optical axis, from the pixel position.
-    h_fov = math.radians(CAMERA_HFOV_DEG)
+    h_fov = math.radians(hfov_deg if hfov_deg else CAMERA_HFOV_DEG)
     v_fov = 2 * math.atan(math.tan(h_fov / 2) * frame_h / frame_w)
 
     dx_norm = (cx_px - frame_w / 2) / (frame_w / 2)    # -1 left, +1 right
@@ -463,10 +1213,14 @@ def record_detection(qr_id, cx_px, cy_px, frame_w, frame_h, pose):
     bearing = math.atan(dx_norm * math.tan(h_fov / 2))
     elevation = math.atan(dy_norm * math.tan(v_fov / 2))
 
-    # The shelf face is a known perpendicular distance from the aisle centre,
-    # so the depth along the optical axis is fixed and the lateral offset is
-    # what varies.
-    depth = SHELF_STANDOFF
+    # The shelf face is a known perpendicular distance away, so the depth
+    # along the optical axis is fixed and the lateral offset is what varies.
+    # The two cameras are not the same distance from their faces: the lane
+    # sits off centre so that each one is close enough to read. Using one
+    # figure for both would scale every bearing on the far camera by the ratio
+    # between them.
+    if depth is None:
+        depth = SHELF_STANDOFF
     lateral = depth * math.tan(bearing)
     vertical = -depth * math.tan(elevation)   # image y grows downward
 
@@ -490,6 +1244,15 @@ def record_detection(qr_id, cx_px, cy_px, frame_w, frame_h, pose):
         "estimated_x": round(box_x, 2),
         "estimated_y": round(box_y, 2),
         "estimated_z": round(box_z, 2),
+        # Which face and which level, named rather than left as coordinates.
+        # Scoring a scan asks "right shelf?" more often than "how many metres
+        # out?", and the snap above has already decided both.
+        "shelf": shelf_name(box_x),
+        "level": FLIGHT_Z.index(box_z) + 1,
+        # Which camera read it. Two cameras now scan two different faces on
+        # the same pass, so a bare count no longer says which one is
+        # earning its place.
+        "camera": camera,
         "uav_position": {"x": round(gx, 2), "y": round(gy, 2), "z": round(gz, 2)},
         "uav_heading_deg": round(pose_yaw, 1),
         "bearing_deg": round(math.degrees(bearing), 1),
@@ -507,28 +1270,221 @@ def record_detection(qr_id, cx_px, cy_px, frame_w, frame_h, pose):
 async def poll_camera():
     """Drain everything the camera callback has queued since the last check."""
     while pending:
-        qr, cx, cy, fw, fh, pose = pending.popleft()
-        record_detection(qr, cx, cy, fw, fh, pose)
+        qr, cx, cy, fw, fh, pose, hfov, cam, depth = pending.popleft()
+        record_detection(qr, cx, cy, fw, fh, pose, hfov, cam, depth)
 
 
-def face_lane_x(face):
+def nearest_ahead(msg):
     """
-    Where the vehicle flies to scan a face: SHELF_STANDOFF out from the shelf
+    The nearest thing genuinely in front, out of the whole TOF cone.
+
+    Two things in that cone are not obstacles, and both were measured on the
+    ground before deciding this:
+
+    The floor. The cone is 86 degrees tall, so its lower rays point down and
+    always find something. On the ground the bottom row read 0.33 m across all
+    32 rays, uniform, which is the floor and not an object. Restricting to rays
+    within TOF_BAND_DEG of horizontal removes it: at 6 degrees below level the
+    floor is 7 m away at the lowest flight altitude, past the sensor's range.
+
+    The airframe. Rays angled up found something at 0.101 m, the sensor's
+    minimum, which is a rotor arm rather than the world. Anything closer than
+    TOF_SELF_M is the vehicle looking at itself.
+
+    A real depth camera has both problems and real pipelines segment the ground
+    plane out the same way.
+    """
+    h, v = msg.count, msg.vertical_count
+    if h <= 0 or v <= 0 or len(msg.ranges) < h * v:
+        return None
+    v_min, v_max = msg.vertical_angle_min, msg.vertical_angle_max
+    step = (v_max - v_min) / (v - 1) if v > 1 else 0.0
+    band = math.radians(TOF_BAND_DEG)
+
+    nearest = None
+    for row in range(v):
+        if abs(v_min + row * step) > band:
+            continue
+        for r in msg.ranges[row * h:(row + 1) * h]:
+            if math.isfinite(r) and r > TOF_SELF_M:
+                if nearest is None or r < nearest:
+                    nearest = r
+    return nearest
+
+
+def on_tof_scan(msg):
+    """
+    Track how close the nearest thing in front of the vehicle gets.
+
+    The beam grid returns inf for rays that hit nothing inside the sensor's
+    range, so those are dropped rather than treated as a reading. During a
+    scanning pass the nearest thing is the shelf itself, at the standoff, which
+    is the point: a clearance that stays near SHELF_STANDOFF is evidence the
+    vehicle held its lane, and one that collapses is evidence it did not.
+    """
+    try:
+        nearest = nearest_ahead(msg)
+        if nearest is None:
+            return
+        clearance["samples"] += 1
+        if nearest < clearance["min_m"]:
+            clearance["min_m"] = nearest
+        if nearest < CLEARANCE_ALARM_M:
+            # Count entries into the alarm band, not every frame inside it,
+            # so one close pass is one event rather than a few hundred.
+            if not clearance["in_alarm"]:
+                clearance["in_alarm"] = True
+                clearance["alarms"] += 1
+                clearance["alarm_positions"].append({
+                    "x": round(ned_to_gazebo(current_pos["n"], current_pos["e"],
+                                             current_pos["d"])[0], 2),
+                    "y": round(ned_to_gazebo(current_pos["n"], current_pos["e"],
+                                             current_pos["d"])[1], 2),
+                    "clearance_m": round(nearest, 3),
+                })
+        else:
+            clearance["in_alarm"] = False
+    except Exception:
+        pass
+
+
+def shelf_name(face_x):
+    """The name of the shelf face at this x, or None if the layout has none."""
+    for face in AISLE_FACES:
+        if abs(face["face_x"] - face_x) < 0.01:
+            return face.get("name")
+    return None
+
+
+def face_lane_x(face, standoff):
+    """
+    Where the vehicle flies to read a face: standoff out from the shelf
     surface, on the side the camera looks from.
 
     yaw +90 looks towards +x, so the vehicle sits at smaller x than the face;
-    yaw -90 looks towards -x, so it sits at larger x. Deriving the lane this
-    way rather than naming it directly keeps standoff a single number that can
-    be tuned for the camera without touching any coordinates.
+    yaw -90 looks towards -x, so it sits at larger x. Deriving the lane rather
+    than naming it keeps the coordinates out of the layout.
     """
     if face["yaw_deg"] > 0:
-        return face["face_x"] - SHELF_STANDOFF
-    return face["face_x"] + SHELF_STANDOFF
+        return face["face_x"] - standoff
+    return face["face_x"] + standoff
+
+
+def facing_face(face):
+    """
+    The face across the aisle from this one, or None if it stands alone.
+
+    A face is across the aisle when it looks back the other way and sits on
+    the side the vehicle would be. The nearest such face is the one the rear
+    camera sees; anything beyond it is behind a shelf.
+
+    This is what makes the pairing a property of the warehouse rather than
+    something written down. A row along a wall has nothing facing it, and its
+    pass then uses the hires alone.
+    """
+    ahead = 1.0 if face["yaw_deg"] < 0 else -1.0     # which way the vehicle is
+    candidates = [
+        other for other in AISLE_FACES
+        if other is not face
+        and other["yaw_deg"] * face["yaw_deg"] < 0
+        and (other["face_x"] - face["face_x"]) * ahead > 0
+    ]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda f: abs(f["face_x"] - face["face_x"]))
+
+
+def split_aisle(width):
+    """
+    How far the lane sits from each face of an aisle of this width.
+
+    Both distances add up to the width, and each has to stay inside what its
+    camera can read. Splitting in proportion to the two limits keeps both at
+    the same fraction of their own reach whatever the aisle, and reduces to
+    the limits themselves when the aisle is exactly as wide as they allow.
+
+    Returns None for an aisle too wide to read from one lane, which then costs
+    a pass a face instead of one for both.
+    """
+    total = HIRES_MAX_STANDOFF + REAR_MAX_STANDOFF
+    hires = width * HIRES_MAX_STANDOFF / total
+    rear = width - hires
+    if rear > REAR_MAX_STANDOFF:
+        rear = REAR_MAX_STANDOFF
+        hires = width - rear
+    if hires > HIRES_MAX_STANDOFF:
+        return None
+    return hires, rear
+
+
+def aisle_fits(width):
+    """Whether the vehicle can fly this aisle at all, with room to spare."""
+    if VEHICLE_HALF_SPAN <= 0:
+        return True
+    return width / 2.0 - VEHICLE_HALF_SPAN >= AISLE_CLEARANCE_M
+
+
+def lane_levels(reads):
+    """
+    What altitude to fly at each level on this lane, and whether it is enough.
+
+    One rule, applied to every aisle: put the optical axis in the middle of
+    the band of code heights the lane has to read. A face whose boxes are all
+    one size carries its codes at a single height, and the axis lands on them
+    exactly; a face with mixed box heights spreads them, because the label
+    travels with the front of the box it is on, and the axis lands in the
+    middle of the spread. That is what flight_z was already approximating with
+    a median taken over the whole building.
+
+    It changes almost nothing in a wide aisle and everything in a narrow one.
+    The hires frame is 1.07 m tall in the 2.40 m aisle, so an axis 0.05 m out
+    is not worth naming. It is 0.18 m tall in the 0.50 m aisle, and rows G and
+    H carry their codes 0.049 m below the building median. Measured in the
+    2026-09-01 recording, their codes sat at 0.76 of frame height with the
+    worst survivor at 0.97, against 0.49 for row A; both of that run's narrow
+    aisle misses were on those two faces, opposite each other.
+
+    The second half is the check, and it is the half that travels to a
+    warehouse we have not seen. Below some aisle width a band of code heights
+    does not fit the frame at all, whatever the axis: at 0.50 m one pass
+    covers 0.09 m of band, and the mixed box heights on rows A to F span
+    0.11 m. Saying so out loud is the point. A level read half way looks in
+    the inventory exactly like a level holding half as many boxes, which is
+    the vertical twin of the warning aisle_fits already prints for a width.
+
+    `reads` is one entry per face this lane reads: the face, its camera's
+    field of view and frame, and how far that camera is from it.
+    """
+    levels = []
+    for index, fallback in enumerate(FLIGHT_Z):
+        bands = [face["code_z"][index] for face, _, _, _ in reads
+                 if face.get("code_z")]
+        if len(bands) != len(reads):
+            # A layout that does not say where its codes are keeps the old
+            # behaviour. Guessing would be worse than the median it replaces.
+            levels.append(fallback)
+            continue
+
+        axis = (min(b[0] for b in bands) + max(b[1] for b in bands)) / 2.0
+        levels.append(round(axis, 3))
+
+        for face, hfov_deg, frame_px, depth in reads:
+            low, high = face["code_z"][index]
+            reach = max(abs(low - axis), abs(high - axis)) + CODE_SIZE_M / 2
+            limit = half_frame_m(hfov_deg, frame_px, depth)
+            if reach > limit:
+                print(f"[WARN] face {face.get('name')} level {index + 1}: its "
+                      f"codes span {high - low:.3f} m, and the camera sees "
+                      f"{2 * limit:.3f} m of shelf from {depth:.3f} m away. "
+                      f"{reach - limit:.3f} m of that band falls outside the "
+                      f"frame whatever the altitude, so this level cannot be "
+                      f"read completely in one pass.")
+    return levels
 
 
 def build_route():
     """
-    Build one pass per shelf face per level, in a continuous boustrophedon.
+    Build one pass per flight lane per level, in a continuous boustrophedon.
 
     The faces come from the layout, in the order they should be visited. They
     used to be derived from island geometry, on the assumption that every shelf
@@ -544,22 +1500,94 @@ def build_route():
     every face, which made the vehicle descend the full height of the rack
     between faces for no reason.
     """
+    # Group the faces by the lane they are flown from. Two faces across an
+    # aisle share a lane exactly when the standoff equals half the aisle
+    # width, which is what flying the centre line means. Where they do, the
+    # hires reads the face ahead and the rear tracking camera reads the one
+    # behind, so the pair costs one pass instead of two. Where a face has no
+    # partner, an outer row along a wall, the group has one member and it is
+    # flown as before.
+    # One lane per aisle, with both its faces read from it, and a lane of its
+    # own for any face that has nothing opposite. Where the lane sits comes
+    # from the width of the aisle, since the two cameras have to share it.
+    lanes = []
+    covered = []
+    skipped = []
+    for face in AISLE_FACES:
+        if any(face is c for c in covered):
+            continue
+        opposite = facing_face(face)
+
+        if opposite is None:
+            # A row along a wall. The hires reads it alone, from as far back
+            # as it can still read, and there is nothing behind.
+            hires = min(SHELF_STANDOFF, HIRES_MAX_STANDOFF)
+            lanes.append({"x": round(face_lane_x(face, hires), 3),
+                          "yaw": face["yaw_deg"],
+                          "hires_depth": hires, "rear_depth": None,
+                          "hires_face": face, "rear_face": None})
+            covered.append(face)
+            continue
+
+        width = abs(opposite["face_x"] - face["face_x"])
+        if not aisle_fits(width):
+            skipped.append((face, opposite, width))
+            covered.extend((face, opposite))
+            continue
+
+        split = split_aisle(width)
+        if split is None:
+            # Wider than both cameras together can cover, so each face gets
+            # its own pass, as everything did before the rear camera existed.
+            for one in (face, opposite):
+                hires = min(SHELF_STANDOFF, HIRES_MAX_STANDOFF)
+                lanes.append({"x": round(face_lane_x(one, hires), 3),
+                              "yaw": one["yaw_deg"],
+                              "hires_depth": hires, "rear_depth": None,
+                              "hires_face": one, "rear_face": None})
+            covered.extend((face, opposite))
+            continue
+
+        hires, rear = split
+        lanes.append({"x": round(face_lane_x(face, hires), 3),
+                      "yaw": face["yaw_deg"],
+                      "hires_depth": hires, "rear_depth": rear,
+                      "hires_face": face, "rear_face": opposite})
+        covered.extend((face, opposite))
+
+    for face, opposite, width in skipped:
+        print(f"[WARN] aisle between {face.get('name')} and "
+              f"{opposite.get('name')} is {width:.2f} m; the vehicle is "
+              f"{2 * VEHICLE_HALF_SPAN:.2f} m across and needs "
+              f"{AISLE_CLEARANCE_M:.2f} m a side. Not flown.")
+
+    # Where the optical axis goes on each lane. Done here, once the lane knows
+    # both the faces it reads and how far its cameras are from them, because
+    # the answer depends on all three.
+    for lane in lanes:
+        reads = [(lane["hires_face"], CAMERA_HFOV_DEG, HIRES_FRAME_PX,
+                  lane["hires_depth"] - HIRES_MOUNT_X)]
+        if lane["rear_face"] is not None and lane["rear_depth"] is not None:
+            reads.append((lane["rear_face"], TRACKING_HFOV_DEG, REAR_FRAME_PX,
+                          lane["rear_depth"] + REAR_MOUNT_X))
+        lane["z"] = lane_levels(reads)
+        if lane["z"] != FLIGHT_Z:
+            names = "/".join(f.get("name", "?") for f in
+                             (lane["hires_face"], lane["rear_face"]) if f)
+            print("[INFO] lane %s: flying %s rather than %s, to put the axis "
+                  "on the codes" % (names, lane["z"], FLIGHT_Z))
+
     route = []
     heading_north = True
     levels_ascending = True
-    for face in AISLE_FACES:
-        # Stand SHELF_STANDOFF away from the shelf surface, on the side the
-        # camera looks from. Flying the aisle centre line instead would put the
-        # code at 2.04 px per module on this camera, which does not decode.
-        lane_x = face_lane_x(face)
-        levels = FLIGHT_Z if levels_ascending else list(reversed(FLIGHT_Z))
+    for lane in lanes:
+        levels = lane["z"] if levels_ascending else list(reversed(lane["z"]))
         for z in levels:
-            if heading_north:
-                route.append((lane_x, Y_SOUTH, z, face["yaw_deg"]))
-                route.append((lane_x, Y_NORTH, z, face["yaw_deg"]))
-            else:
-                route.append((lane_x, Y_NORTH, z, face["yaw_deg"]))
-                route.append((lane_x, Y_SOUTH, z, face["yaw_deg"]))
+            ends = ((Y_SOUTH, Y_NORTH) if heading_north
+                    else (Y_NORTH, Y_SOUTH))
+            for y in ends:
+                route.append((lane["x"], y, z, lane["yaw"],
+                              lane["hires_depth"], lane["rear_depth"]))
             heading_north = not heading_north
         levels_ascending = not levels_ascending
     return route
@@ -729,7 +1757,15 @@ async def goto_waypoint(drone, index, total, x, y, z, yaw_deg):
                 cn, ce = corrected(target_n, target_e)
                 await send_setpoint(drone, cn, ce, target_d, yaw_deg)
                 await poll_camera()
-                if abs(-current_pos["d"] - z) < SETTLE_TOLERANCE:
+                # Both axes. Checking only altitude let a change of aisle,
+                # which is a move in x, pass straight through: the vehicle was
+                # already at the right height, so it began the leg still up to
+                # WAYPOINT_TOLERANCE out of the lane.
+                lateral = math.sqrt(
+                    (current_pos["n"] + drift_offset["n"] - target_n) ** 2 +
+                    (current_pos["e"] + drift_offset["e"] - target_e) ** 2)
+                if (abs(-current_pos["d"] - z) < SETTLE_TOLERANCE
+                        and lateral < SETTLE_LATERAL_M):
                     break
                 await asyncio.sleep(dt)
                 settle += dt
@@ -764,24 +1800,175 @@ async def goto_waypoint(drone, index, total, x, y, z, yaw_deg):
     return False
 
 
+def save_inventory(reached, planned):
+    """
+    Write the inventory, without destroying what is already there.
+
+    Opening the target with "w" truncates it before anything is written, so a
+    failure at that moment leaves nothing at all. One run ended exactly that
+    way: the summary printed, the file was emptied, and the process was killed
+    by the kernel before the write completed. 258 decoded codes went with it.
+
+    Writing beside the target and renaming means the previous file survives
+    until a complete one replaces it, and rename is atomic.
+    """
+    payload = {
+        "scan_date": datetime.now().isoformat(timespec="seconds"),
+        "sensor_configuration":
+            "C27, forward hires and rear tracking camera, both scanning",
+        "localization": "visual odometry, no GPS",
+        "total_detected": len(inventory),
+        "waypoints_completed": f"{reached}/{planned}",
+        "marker_corrections": marker_events,
+        "final_drift_offset_m": round(
+            math.hypot(drift_offset["n"], drift_offset["e"]), 3),
+        "items": list(inventory.values()),
+    }
+    tmp = OUTPUT_JSON + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, ensure_ascii=False)
+    os.replace(tmp, OUTPUT_JSON)
+
+
+def write_navigation_report(reached, planned, duration_s):
+    """
+    Write the navigation side of the run: how well it flew, not what it read.
+
+    Localization error is the disagreement between a marker fix and the
+    estimator at the moment of the sighting. It is the only direct measurement
+    of position error available in flight, since nothing else here knows where
+    the vehicle truly is.
+
+    Two fields are null until the vehicle carries a range sensor. The model has
+    none at the moment, so there is nothing to measure a clearance or a
+    collision against, and reporting a zero would claim a clean run that was
+    never checked.
+    """
+    errors = sorted(e["error_m"] for e in marker_events)
+    report = {
+        "report_date": datetime.now().isoformat(timespec="seconds"),
+        "world": WORLD,
+        "mission_duration_s": round(duration_s, 1),
+        "waypoints": {
+            "planned": planned,
+            "reached": reached,
+            "success_rate": round(reached / planned, 4) if planned else None,
+        },
+        # Each camera decodes on a thread of its own now. "dropped" is what
+        # its queue shed because the worker was still busy, and it is the
+        # honest measure of whether the decoders have the capacity they need:
+        # while both cameras shared gz transport's one callback thread this
+        # counter could never fire at all, and read zero on every run while a
+        # quarter of the frames were being thrown away at the age limit
+        # instead.
+        "frames": {
+            cam.name: {"decoded": cam.frames, "dropped": cam.dropped,
+                       "too_old": cam.stale}
+            for cam in (HIRES, REAR)
+        },
+        # How far behind the cameras ran. This is the measurement whose
+        # absence hid a scan that put two per cent of its codes on the right
+        # shelf: the report said nothing was wrong, when what it meant was
+        # that two broken checks had not fired.
+        # Where the frames went, lane by lane. A flight total cannot say
+        # whether the aisle that loses codes is starved or unlucky.
+        "lanes": {
+            name: {
+                "decoded": row["decoded"],
+                "skipped": row["skipped"],
+                "too_old": row["too_old"],
+                "age_median": round(sorted(row["ages"])[len(row["ages"]) // 2], 3)
+                               if row["ages"] else None,
+            }
+            for name, row in lane_tally.items()
+        },
+        # Where the time actually goes, per camera per lane. The lane table
+        # above says which aisles lose frames; this says why. Read it as one
+        # question: does arrival_gap follow stamp_gap, or does it collapse to
+        # near zero while stamp_gap stays at the camera period? The first is a
+        # decoder that cannot keep up, the second is a buffer draining.
+        "frame_timing": {
+            "%s | %s" % (lane, name): {
+                "arrival_gap_ms": spread(row["arrival_gap"], 1e3),
+                "stamp_gap_ms": spread(row["stamp_gap"], 1e3),
+                "decode_ms": spread(row["decode_ms"]),
+                "total_ms": spread(row["total_ms"]),
+                # What fraction of frames arrived within 5 ms of the one
+                # before. A decoder that is merely slow cannot produce these;
+                # a queue handing over its backlog does nothing else.
+                "back_to_back_pct": (
+                    round(100.0 * sum(1 for g in row["arrival_gap"]
+                                      if g < 0.005) / len(row["arrival_gap"]), 1)
+                    if row["arrival_gap"] else None),
+            }
+            for (lane, name), row in timing.items()
+        },
+        # One thread per camera means the callbacks on it are serialised and
+        # cam.busy can never fire, which would explain why every run so far
+        # reports zero frames dropped for it.
+        "callback_threads": {
+            name: sorted(ids) for name, ids in callback_threads.items()
+        },
+        "frame_age_s": {
+            "median": round(sorted(frame_ages)[len(frame_ages) // 2], 3)
+                      if frame_ages else None,
+            "p95": round(sorted(frame_ages)[int(len(frame_ages) * 0.95)], 3)
+                   if frame_ages else None,
+            "max": round(max(frame_ages), 3) if frame_ages else None,
+            "samples": len(frame_ages),
+            "dropped_for_age": frames_stale["n"],
+            "limit": MAX_FRAME_AGE_S,
+        },
+        "localization_error_m": {
+            "median": round(errors[len(errors) // 2], 3) if errors else None,
+            "p95": round(errors[int(len(errors) * 0.95)], 3) if errors else None,
+            "max": round(errors[-1], 3) if errors else None,
+            "samples": len(errors),
+            "source": "ArUco marker fix versus estimator at the sighting",
+        },
+        "maximum_drift_m": round(errors[-1], 3) if errors else None,
+        "final_drift_offset_m": round(
+            math.hypot(drift_offset["n"], drift_offset["e"]), 3),
+        "marker_correction_count": len(marker_events),
+        "markers_seen": sorted({e["marker_id"] for e in marker_events}),
+        "minimum_obstacle_distance_m": (
+            round(clearance["min_m"], 3)
+            if math.isfinite(clearance["min_m"]) else None),
+        "clearance_samples": clearance["samples"],
+        "clearance_alarm_threshold_m": CLEARANCE_ALARM_M,
+        # Not a contact count. Nothing here can detect a collision, so this is
+        # the number of times forward clearance entered the alarm band, which
+        # is the nearest honest proxy the TOF can give. A run with zero of
+        # these did not touch anything in front of it.
+        "clearance_alarms": clearance["alarms"],
+        "clearance_alarm_positions": clearance["alarm_positions"],
+    }
+    with open(NAV_REPORT_JSON, "w", encoding="utf-8") as handle:
+        json.dump(report, handle, indent=2, ensure_ascii=False)
+    print(f"[INFO] Navigation report written to {NAV_REPORT_JSON}")
+
+
 async def run():
     route = build_route()
     print("=" * 68)
     print("  AUTONOMOUS WAREHOUSE INVENTORY SCAN")
-    print("  Sensor configuration: C27, single front-facing scanning camera")
+    print("  Sensor configuration: C27, hires ahead and tracking behind")
     print(f"  Shelf faces    : {len(AISLE_FACES)}")
     print(f"  Shelf levels   : {len(FLIGHT_Z)}")
     print(f"  Waypoints      : {len(route)}")
     print("  Localization   : visual odometry with EKF2, GPS disabled")
+    print(f"  Recording      : {'on, to out/video' if RECORD_VIDEO else 'off'}"
+          f"{'' if RECORD_VIDEO else '  (RECORD_VIDEO=1 to turn it on)'}")
     print("  Drift correction: ArUco floor markers, offset applied to setpoints")
     print("=" * 68)
 
     load_marker_map()
 
-    cam_node = trans.Node()
-    cam_node.subscribe(Image, CAM_HIRES, on_hires_image)
-    down_node = trans.Node()
-    down_node.subscribe(Image, CAM_DOWN, on_down_image)
+    # The TOF is a handful of numbers and is wanted from the moment the
+    # vehicle leaves the ground, so it subscribes here. The cameras do not:
+    # see the note above the subscription further down.
+    tof_node = trans.Node()
+    tof_node.subscribe(LaserScan, TOF_SCAN, on_tof_scan)
 
     drone = System()
     await drone.connect(system_address="udp://:14540")
@@ -790,8 +1977,7 @@ async def run():
         if state.is_connected:
             break
 
-    asyncio.create_task(track_position(drone))
-    asyncio.create_task(track_heading(drone))
+    asyncio.create_task(track_odometry(drone))
 
     print("[INFO] Waiting for position estimate (VIO Local Position)")
     async for health in drone.telemetry.health():
@@ -830,15 +2016,104 @@ async def run():
     print("           turning to route heading...")
     await hold_heading(drone, YAW_NORTH)
 
+    # Subscribe to the cameras here, with the vehicle already on the route
+    # heading and about to move, rather than at the top of run.
+    #
+    # Subscribing at the top left gz transport queueing frames through
+    # everything above it: connecting to the vehicle, waiting for a position
+    # estimate, arming, a seven second ascent and the turn onto the route.
+    # Those frames are delivered afterwards, one at a time, each holding an
+    # image from before the vehicle moved, and the pose is read when the
+    # callback runs rather than when the frame was taken.
+    #
+    # The first two camera run measured the cost. Nothing was recorded until
+    # sixteen seconds into a leg that starts at y = -9, then codes arrived in
+    # a burst, each naming a shelf position up to 8.8 m behind the vehicle,
+    # with the gap closing steadily as the queue drained. Every one of the
+    # remaining 384 codes landed within 0.17 m. The direction is what
+    # identifies it: a stale pose would put a code south of its shelf, since
+    # the vehicle is heading north, and these were north of it, so the pose
+    # was current and the image was old.
+    #
+    # There is no steady state problem to go with it. 3348 hires frames and
+    # 1006 rear frames over 804.5 s is 41.6 per cent of nominal for both,
+    # which is the real time factor: every frame rendered was decoded.
+    # Start the decoders before the first frame can arrive. gz transport calls
+    # the callbacks on one thread it owns and shares between subscriptions, so
+    # this is where the two cameras stop queueing behind each other.
+    for cam in (HIRES, REAR):
+        cam.start()
+    print("[INFO] decoder thread per camera, queue %d deep"
+          % DECODE_QUEUE_DEPTH)
+
+    cam_node = trans.Node()
+    cam_node.subscribe(Image, CAM_HIRES, on_hires_image)
+    rear_node = trans.Node()
+    rear_node.subscribe(Image, CAM_REAR, on_rear_image)
+    down_node = trans.Node()
+    down_node.subscribe(Image, CAM_DOWN, on_down_image)
+
+    # Let the cameras deliver whatever gz transport has been holding while
+    # the vehicle is still standing still. Every run so far has put its first
+    # fifteen seconds of codes up to three metres along the aisle from their
+    # shelves, decaying smoothly to nothing, which is the shape of a queue
+    # draining. Drained here, those frames carry a pose that is not moving.
+    print("[INFO] Letting the cameras catch up")
+    for _ in range(50):
+        await send_setpoint(drone, start_n, start_e,
+                            start_d - 1.5, YAW_NORTH)
+        await asyncio.sleep(0.1)
+    pending.clear()
+    inventory.clear()
+
+    if RECORD_VIDEO:
+        for cam, fps in ((HIRES, 10), (REAR, 8)):
+            path = os.path.join(os.path.dirname(OUTPUT_JSON),
+                                "video", cam.name + ".mp4")
+            RECORDERS[cam.name] = Recorder(cam.name, path, fps)
+            RECORDERS[cam.name].start()
+            print(f"[INFO] recording {cam.name} to {path}")
+
     print("\n[INFO] Starting scan")
+    mission_start = time.time()
     reached = 0
     last_yaw = YAW_NORTH
-    for index, (x, y, z, yaw) in enumerate(route, 1):
+    for index, (x, y, z, yaw, hires_depth, rear_depth) in enumerate(route, 1):
+        # Each camera is told how far its face is before the leg begins, so a
+        # frame decoded during it is placed against the right distance. Both
+        # come from the route now, because a tapering warehouse gives every
+        # aisle a different pair.
+        HIRES.depth = hires_depth - HIRES_MOUNT_X
+        REAR.depth = (rear_depth + REAR_MOUNT_X) if rear_depth else None
+
+        # How many frames a box gets on this lane, and therefore how many are
+        # worth decoding. A wide aisle offers fifteen and needs five.
+        HIRES.stride = frame_stride(hires_depth, CAMERA_HFOV_DEG, HIRES_HZ)
+        REAR.stride = (frame_stride(rear_depth, TRACKING_HFOV_DEG, REAR_HZ)
+                       if rear_depth else 1)
+        current_lane["name"] = "aisle %.2f m" % (
+            hires_depth + (rear_depth or 0))
         if yaw != last_yaw:
             await hold_heading(drone, yaw)
             last_yaw = yaw
         if await goto_waypoint(drone, index, len(route), x, y, z, yaw):
             reached += 1
+        # Save as we go. Runs here have been cut short often enough by the
+        # simulator running out of memory that keeping everything until the
+        # end has already cost one complete scan.
+        save_inventory(reached, len(route))
+
+    # Let the decoders drain what they are holding before the recorders are
+    # closed, since a frame still in a queue has not reached its recorder yet.
+    for cam in (HIRES, REAR):
+        cam.finish()
+        print(f"[INFO] {cam.name}: {cam.frames} frames decoded, "
+              f"{cam.dropped} dropped with the queue full, {cam.stale} too old")
+
+    for recorder in RECORDERS.values():
+        recorder.finish()
+        print(f"[INFO] {recorder.name}: {recorder.written} frames written, "
+              f"{recorder.dropped} dropped, {recorder.path}")
 
     print("\n" + "=" * 68)
     print("  SCAN COMPLETE")
@@ -855,19 +2130,10 @@ async def run():
               f"{math.hypot(drift_offset['n'], drift_offset['e']):.3f} m")
     print("=" * 68)
 
-    with open(OUTPUT_JSON, "w", encoding="utf-8") as handle:
-        json.dump({
-            "scan_date": datetime.now().isoformat(timespec="seconds"),
-            "sensor_configuration": "C27, single front-facing scanning camera",
-            "localization": "visual odometry, no GPS",
-            "total_detected": len(inventory),
-            "waypoints_completed": f"{reached}/{len(route)}",
-            "marker_corrections": marker_events,
-            "final_drift_offset_m": round(
-                math.hypot(drift_offset["n"], drift_offset["e"]), 3),
-            "items": list(inventory.values()),
-        }, handle, indent=2, ensure_ascii=False)
+    save_inventory(reached, len(route))
     print(f"\n[INFO] Inventory written to {OUTPUT_JSON}")
+
+    write_navigation_report(reached, len(route), time.time() - mission_start)
 
     print("[INFO] Landing")
     await drone.offboard.stop()
