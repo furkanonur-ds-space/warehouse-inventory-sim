@@ -23,7 +23,15 @@
 # which is what a torn or missing label looks like from the air.
 set -u
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-PY="${PY:-/home/furk/autonomous_landing/venv/bin/python}"
+PY="${PY:-$HOME/autonomous_landing/venv/bin/python}"
+if [ ! -x "$PY" ]; then
+    PY="$HERE/.venv/bin/python"
+fi
+if [ ! -x "$PY" ]; then
+    echo "no interpreter; set PY, for example"
+    echo "  PY=~/autonomous_landing/venv/bin/python $0"
+    exit 1
+fi
 MODE="${1:-rear}"
 
 LAYOUT="$HERE/scanner/layout.json"
