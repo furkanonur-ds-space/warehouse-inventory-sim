@@ -1,9 +1,9 @@
 # Warehouse Inventory Simulation
 
-A UAV scans a warehouse and reports where every box is. The vehicle flies a
-planned route past each shelf face, reads the QR label on every box, and writes
-a JSON inventory mapping each code to a 3D position. No GPS is used at any
-point.
+A UAV scans a warehouse and reports where every box is. The vehicle flies one
+pass down each aisle, reading the shelf ahead with a forward high resolution
+camera and the shelf behind with a rear tracking camera, and writes a JSON
+inventory mapping each code to a 3D position. No GPS is used at any point.
 
 The project has two halves, developed separately:
 
@@ -18,25 +18,47 @@ scanner learns anything about a warehouse.
 
 ## Results
 
-Latest run, 2026-08-23, against `warehouse/ground_truth.json`:
+Latest run, 2026-09-01, against `warehouse/ground_truth.json`:
 
 | Metric | Value |
 |---|---|
-| Box QR codes decoded | 426 / 432 (99%) |
-| Waypoints reached | 48 / 48 |
-| Position error, median | 0.062 m |
-| Position error, p95 | 0.087 m |
-| Marker fixes applied | 614, across all eight markers |
-| Final drift offset | 0.032 m |
+| Box QR codes decoded | 430 / 432 (99.5%) |
+| Filed correctly | 430 / 430 (100%) |
+| Wrong shelf, level or bay | 0, 0, 0 |
+| Waypoints reached | 24 / 24 |
+| Position error, median | 0.052 m |
+| Position error, p95 | 0.060 m |
+| Position error, worst | 0.096 m |
+| Within 10 cm | 100% |
+| Marker fixes applied | 358 |
+| Flight time | 775 s |
 
-By shelf level: 97%, 100%, 99%. Six of the eight shelf faces scanned 100%.
+Both faces of an aisle are read in one pass, the forward hires camera ahead and
+the rear tracking camera behind, which is what halves the route to 24
+waypoints. The two cameras are not equally comfortable: the hires has read 216
+of 216 on every run for a fortnight, and every miss has been on a face the rear
+camera reads. Its two misses this run were on F and H.
 
-The six misses and the two positions worse than 0.2 m all fall in one window,
-on face F, where the simulator stalled: the console showed
-`vehicle_imu timestamp error` and `NodeShared::Publish() Interrupted system
-call`, and the position estimate froze for a few seconds. The battery was
-checked and ruled out - it never went below 50%, and `vehicle_status.failsafe`
-was never set in 1800 samples.
+### The frames arrive late, and it no longer matters
+
+This run decoded frames a median of 0.268 s after they were taken, with 439
+dropped for being older than half a second. That congestion is real and it is
+new: freeing render budget let Gazebo produce 5.1 frames a second where it had
+managed 3.8, which is more than the decoder can swallow.
+
+The positions are the most accurate this project has recorded anyway, because
+a code is filed against the pose the frame was taken at rather than the pose
+the vehicle had reached by the time it was decoded. Before that changed, a
+median lag of 0.268 s would have displaced every code by about 16 cm, and a
+queue that deepened through a flight put them metres out: a machine fast
+enough to outrun the decoder produced 299 of 432 codes with two per cent on the
+right shelf and a median error of 6.86 m, while the same code on a slower
+machine looked perfect.
+
+The pose history is fed by PX4's odometry, which carries a timestamp on the
+same clock as the image headers and arrives over UDP where the camera queue
+cannot delay it. `navigation_report.json` now reports frame age, so congestion
+is visible instead of being something the run has to be fast enough to avoid.
 
 ## Localization: no GPS
 
@@ -83,20 +105,43 @@ would have invented a pass down the wall for each.
 
 ### Standoff
 
-The vehicle does not fly the aisle centre line. It stands `shelf_standoff` out
-from the face it is scanning, which puts it 0.40 m off centre in a 2.40 m
-aisle, with 1.60 m to the opposite face.
+`shelf_standoff` is the distance from the face the forward hires camera reads.
+The rear camera reads the face across the aisle and its distance is not written
+down: it is whatever is left between the lane and that face, which comes from
+the face positions. A warehouse with a different aisle width needs no change
+here.
 
-The reason is resolution. A QR code needs about 3 pixels per module to decode.
-The label modules here are 2.8 mm, and the scanning camera renders 1280 px
-across a 60 degree field:
+The lane is off centre, and the split was measured rather than chosen. Real
+label textures were rendered at the size and obliquity each camera sees them at
+a given distance and bearing, then put through the same `decode_qr` the scanner
+uses. A code sweeps from one edge of the frame to the other as the vehicle
+passes it, so what matters is reading reliably out to about 25 degrees off
+axis, not at the extreme edge:
 
 ```
-px per module = 3.10 / distance
+hires 1024 px, 60 deg   good at 1.10, 1.20 and 1.30 m
+                        at 1.40 m it reads 1 of 12 at 25 degrees,
+                        and 25 degrees is inside a 60 degree frame
+
+rear 1280 px, 90 deg    good from 0.80 to 1.10 m
+                        at 1.20 m it reads 2 of 12 at 15 degrees
+                        and none at 25
 ```
 
-At the 1.216 m aisle centre that is 2.55, below the threshold. At 0.80 m it is
-3.79, which decodes reliably.
+The aisle is 2.40 m and those two limits add to exactly that, so 1.30 and 1.10
+is forced rather than picked. `standoff_sweep.py` produces that table; run it
+after changing warehouse, since the aisle width sets what is on offer and the
+label size sets what each camera needs.
+
+The centre of the aisle, 1.20 and 1.20, was tried over three runs: the hires
+read 216 of 216 every time and the rear camera 201, 204 and 208, with every
+miss on a rear face. Equal distances spend resolution on the camera that has
+none left to gain from it.
+
+Mind that the distance that matters is to the lens, not to `base_link`. The
+setpoint puts `base_link` on the lane and the cameras are mounted ahead of and
+behind it, so on a 1.30 m standoff the hires sits at 1.24 m. Using
+`base_link`'s distance scaled every lateral offset by eight per cent.
 
 ### ground_offset
 
@@ -217,10 +262,29 @@ succeeded.
 
 ```sh
 # Terminal 1
+./scripts/clean.sh                # always: see below
+./scripts/launch_sim.sh nvidia    # drop "nvidia" off WSL, or without one
+```
+
+`launch_sim.sh` sets `HEADLESS`, picks the discrete GPU when asked, and takes
+the spawn point from `scanner/layout.json` so that it cannot disagree with what
+the scanner treats as its origin. It prints nothing and opens no window;
+output goes to `out/sitl_nvidia.log`.
+
+Run `clean.sh` first, every time. Gazebo's memory grows with every pixel it
+renders and a scan has ended at 26 GB of 27. A simulator that size does not
+always die on the first signal, and a second one started beside it leaves
+neither with enough memory: PX4 then reports `Accel Sensor 0 missing` and
+`Found 0 compass`, the scan never starts, and nothing appears on the terminal
+to say why.
+
+The equivalent by hand, if you would rather:
+
+```sh
 cd ~/PX4-Autopilot
 export HEADLESS=1                               # drop this to watch the scene
 export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA   # WSL only, see below, worth 6x
-export PX4_GZ_MODEL_POSE="-8.5,-9,0.30,0,0,0"
+export PX4_GZ_MODEL_POSE="-8.5,-9,0.30,0,0,0"   # must match layout.json
 make px4_sitl gz_x500_c27_warehouse
 ```
 
@@ -301,6 +365,26 @@ Both GPUs are real; one is simply much faster than the other.
 More CPU does not help. Gazebo sat between 130 and 180 percent across this
 measurement, so it was not short of the eight processors WSL is given.
 
+
+## Checks that need no flight
+
+```sh
+./scripts/run_tests.sh
+```
+
+Three suites, seconds each, no simulator:
+
+- `test_pose_history.py` - that a code is filed against the pose its frame was
+  taken at. Includes the case the whole thing exists for: a frame handled two
+  minutes late still lands on the right shelf.
+- `test_two_camera.py` - which face a code lands on and which side of the
+  vehicle. The centre of a frame cannot show the second one, because the
+  bearing is zero there, so a left for right swap in the rear camera would look
+  perfect and still put every off-axis code on the wrong part of the shelf.
+- `test_drift_correction.py` - the marker correction geometry.
+
+A scan takes thirteen minutes and only tells you the total. These say which
+piece of the geometry is wrong.
 
 ## Reports
 
@@ -529,7 +613,8 @@ are already reduced for this (10 Hz on the scanning and downward cameras, 1 Hz
 on the front and rear tracking cameras, which nothing consumes). Restart the
 simulator between runs.
 
-**Readability margin is thin.** 3.79 px per module at 0.80 m, against a
+**Readability margin is thin on the rear camera.** 1.63 px per module at the
+1.10 m it flies, against a
 threshold of 3. Enlarging the label QR from 70 mm to 100 mm would let the
 vehicle stand back at 0.95 m and give 3.73 px per module with far more room on
 both sides. That is a change on the warehouse side.

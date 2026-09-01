@@ -1,0 +1,52 @@
+#!/bin/bash
+#
+# Run everything that can be checked without a simulator.
+#
+#   ./scripts/run_tests.sh
+#
+# All three take seconds and need no flight, which is the point: a scan takes
+# thirteen minutes and only tells you the total. These say which piece of the
+# geometry is wrong.
+set -u
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PY="${PY:-$HOME/autonomous_landing/venv/bin/python}"
+if [ ! -x "$PY" ]; then
+    PY="$HERE/.venv/bin/python"
+fi
+if [ ! -x "$PY" ]; then
+    echo "no interpreter; set PY, for example"
+    echo "  PY=~/autonomous_landing/venv/bin/python $0"
+    exit 1
+fi
+
+cd "$HERE/scanner" || exit 1
+failed=0
+
+run() {
+    echo "== $1"
+    out=$("$PY" "$1" 2>&1 | grep -v libprotobuf | grep -v DynamicFactory)
+    echo "$out" | tail -2 | sed 's/^/   /'
+    echo "$out" | grep -qiE "all checks passed|8/8 passed" \
+        || { echo "   !! FAILED"; failed=$((failed + 1)); }
+    echo
+}
+
+# The pose a code is filed against, which is where a whole scan went wrong
+# once: frames were placed against wherever the vehicle had reached by the
+# time they were decoded rather than where it was when they were taken.
+run test_pose_history.py
+
+# Which face a code lands on and which side of the vehicle. The centre of a
+# frame cannot show the second one, since the bearing is zero there.
+run test_two_camera.py
+
+# The marker correction geometry.
+run test_drift_correction.py
+
+if [ "$failed" -eq 0 ]; then
+    echo "all suites passed"
+else
+    echo "$failed suite(s) failed"
+fi
+exit "$failed"

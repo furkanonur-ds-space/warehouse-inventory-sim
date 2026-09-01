@@ -137,4 +137,13 @@ def main(readings_name="barcode_readings.jsonl"):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else "barcode_readings.jsonl")
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument(
+        "readings", nargs="?", default="barcode_readings.jsonl",
+        help="the readings file under out/, for when a run had a reader on "
+             "more than one camera and each wrote its own")
+    main(parser.parse_args().readings)

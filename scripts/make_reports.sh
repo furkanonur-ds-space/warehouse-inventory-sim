@@ -18,7 +18,16 @@ set -u
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$HERE"
-PY="$HERE/.venv/bin/python"
+# The project local virtualenv by default, but let the environment say
+# otherwise: the two machines this runs on keep theirs in different
+# places, and hardcoding one of them makes the script unusable on the
+# other.
+PY="${PY:-$HERE/.venv/bin/python}"
+if [ ! -x "$PY" ]; then
+  echo "no interpreter at $PY; set PY to one, for example"
+  echo "  PY=~/autonomous_landing/venv/bin/python $0"
+  exit 1
+fi
 
 failed=0
 run() {
