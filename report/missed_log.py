@@ -20,7 +20,7 @@ last one.
 Each miss line carries what is needed to reason about the cause without opening
 the world: the QR payload, the shelf location, the label position in world
 coordinates, the box's real dimensions, how far the label sat off the camera's
-optical axis, and the pixels per QR module at the nominal standoff.
+optical axis, and the pixels per QR module at the standoff flown for its aisle.
 
 The header line is metadata about the run, not a box. It exists so the tally
 has a denominator: a run that missed nothing still has to be counted, otherwise
@@ -46,9 +46,11 @@ from warehouse_model import (CONFIG, GROUND_TRUTH, INVENTORY, REPO_ROOT,
 
 LOG = REPO_ROOT / "out" / "missed_boxes.jsonl"
 
-# The camera's vertical half-frame at the scanning standoff. A label further
-# off the optical axis than this was never in shot.
-HALF_FRAME_M = 0.23
+# The camera's vertical half-frame is no longer one number. It scales with the
+# standoff, and the standoff now varies by aisle: these aisles taper from
+# 2.40 m to 0.50 m, so a face on the narrow end is flown at 0.25 m and sees a
+# 0.07 m half-frame against a 0.25 m label stack. label_profile carries the
+# per-face value out as "half_frame_m"; see warehouse_model.half_frame_m.
 
 
 def location(row: str, bay: int, level: int) -> str:
@@ -147,7 +149,10 @@ def main() -> int:
                     "flight_z": pr["axis_z"],
                     "z_offset_m": pr["z_offset_m"],
                     "outside_frame": (pr["z_offset_m"] is not None
-                                      and abs(pr["z_offset_m"]) > HALF_FRAME_M),
+                                      and abs(pr["z_offset_m"])
+                                      > pr["half_frame_m"]),
+                    "standoff_m": pr["standoff_m"],
+                    "half_frame_m": pr["half_frame_m"],
                     "px_per_module": pr["px_per_module"],
                 }, ensure_ascii=False))
 

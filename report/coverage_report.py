@@ -51,15 +51,21 @@ def status_of(scanned: int, total: int) -> str:
 
 def row_to_aisle(cfg: dict) -> dict[str, int]:
     """
-    Shelf face -> aisle, by nearest aisle centre to the face.
+    Shelf face -> aisle.
 
-    Both are in the config frame here, so no world rotation is involved: the
-    question is which aisle a face looks into, and that is unchanged by
-    rotating the whole building.
+    A row states its aisle outright; that is also what decides the box sizes it
+    can hold, so reading it here keeps the coverage tree and the world in
+    agreement. Falling back to the nearest aisle centre covers a config written
+    before rows named one. Both are in the config frame, so no world rotation
+    is involved: which aisle a face looks into is unchanged by rotating the
+    whole building.
     """
     r = cfg["racking"]
     out = {}
     for row in r["rows"]:
+        if "aisle" in row:
+            out[row["id"]] = row["aisle"]
+            continue
         face = row["y0"] + r["depth"] if row["facing"] > 0 else row["y0"]
         out[row["id"]] = min(r["aisles"],
                              key=lambda a: abs(a["y_center"] - face))["id"]

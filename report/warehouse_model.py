@@ -267,8 +267,47 @@ def flight_altitudes(path: Path = LAYOUT) -> list[float]:
     return json.loads(Path(path).read_text())["flight_z"]
 
 
+def standoffs(path: Path = LAYOUT) -> dict[str, float]:
+    """
+    Shelf face -> how far the camera flew from it, from the scanner's layout.
+
+    One number for the whole building would be wrong here: the aisles taper
+    from 2.40 m to 0.50 m, so the camera stands 0.80 m off the shelves on the
+    wide aisles and only 0.25 m off them on the narrowest. Readability and
+    what fits in the frame both scale with that distance, and a report that
+    assumed 0.80 everywhere would call the narrow end far worse than it is on
+    resolution and far better than it is on framing.
+    """
+    layout = json.loads(Path(path).read_text())
+    fallback = layout.get("shelf_standoff", 0.80)
+    return {f["name"]: f.get("standoff", fallback)
+            for f in layout["aisle_faces"] if "name" in f}
+
+
+# Half the camera's vertical field in metres, measured at the 0.80 m standoff
+# of the wide aisles. Kept as the measured number rather than recomputed from
+# the lens, because it is what the missed-box tally has always been scored
+# against; the geometric value for 1280x720 at 60 degrees is 0.260 m, and the
+# gap is real vignetting and decode margin at the frame edge.
+HALF_FRAME_AT_M = (0.23, 0.80)
+
+
+def half_frame_m(standoff: float) -> float:
+    """
+    Half the camera's vertical field, in metres, at this distance.
+
+    A label further off the optical axis than this was never in shot. It is a
+    distance, so it scales with the aisle: 0.23 m at the 0.80 m standoff of
+    the wide aisles, 0.07 m at the 0.25 m of the narrowest, which is less than
+    a third of the 0.25 m label stack. That is the narrow end's real problem.
+    Resolution improves as the camera closes in; framing collapses.
+    """
+    measured, at = HALF_FRAME_AT_M
+    return standoff * measured / at
+
+
 def label_profile(code: dict, geometry: dict, flight_z: list[float],
-                  standoff: float = 0.80, frame_px: int = 1280,
+                  standoff: float | None = None, frame_px: int = 1280,
                   hfov_deg: float = 60.0) -> dict:
     """
     What a box looked like to the camera: size, and how far off the axis it sat.
@@ -276,12 +315,18 @@ def label_profile(code: dict, geometry: dict, flight_z: list[float],
     The vertical offset is the one that matters. Commanded altitudes put the
     optical axis at `flight_z` for the level, and a label sitting below that is
     the failure this warehouse has already produced once: the camera's vertical
-    half-frame is about 0.23 m at this standoff, and labels further down than
-    that leave the frame entirely.
+    half-frame is about 0.23 m at the 0.80 m standoff, and labels further down
+    than that leave the frame entirely.
 
     Readability is the other half. A QR needs roughly 3 pixels per module to
     decode, and the module size travels with the label in ground truth.
+
+    `standoff` defaults to the one the scanner actually flies for this code's
+    shelf face. The aisles taper, so it is not the same for every face, and
+    passing a single number for the building would misreport both halves.
     """
+    if standoff is None:
+        standoff = standoffs().get(code.get("row"), 0.80)
     x, y, z = code["label_pose_xyzrpy"][:3]
     level_z = flight_z[code["level"] - 1] if code["level"] - 1 < len(flight_z) else None
     px_per_module = (frame_px / 2) / math.tan(math.radians(hfov_deg) / 2) \
@@ -295,6 +340,10 @@ def label_profile(code: dict, geometry: dict, flight_z: list[float],
         # Negative means the label sat below the optical axis.
         "z_offset_m": round(z - level_z, 3) if level_z is not None else None,
         "px_per_module": round(px_per_module, 2),
+        "standoff_m": round(standoff, 3),
+        # Half the vertical field at that standoff; a label further off the
+        # axis than this was out of shot.
+        "half_frame_m": round(half_frame_m(standoff), 3),
         "label_size_m": code.get("label_size_m"),
         "position": [round(x, 3), round(y, 3), round(z, 3)],
     }
