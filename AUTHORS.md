@@ -17,8 +17,16 @@ the shelves while moving.
   exposes no estimator reset.
 - Reading both faces of an aisle in one pass, the forward hires camera ahead
   and the rear tracking camera behind, which halved the route from 48
-  waypoints to 24. 428 of 432 codes, 99.1 per cent, nothing on the wrong shelf
-  or the wrong level, position along the aisle out by 10 mm at the median.
+  waypoints to 24. 432 of 432 codes in a warehouse whose aisles taper from
+  2.40 m down to 0.50, nothing on the wrong shelf, level or bay, position
+  error 62 mm at the median and everything inside 25 cm.
+- Making the narrow aisles work, which took two faults that only appear once
+  an aisle is too tight to be forgiving: the camera aimed at a height taken
+  across the whole building rather than at the codes on the shelf in front of
+  it, and both cameras decoding on a single thread they did not know they
+  shared. Both were found by measuring the flight rather than reasoning about
+  it, and the measurements are kept in the navigation report so the next one
+  of their kind is visible.
 - Where the vehicle flies, chosen by measuring where each camera stops reading
   rather than by rule of thumb: `standoff_sweep.py`.
 - The vehicle model and its sensors, matched to the C27 configuration on the
