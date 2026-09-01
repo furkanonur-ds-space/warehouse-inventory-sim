@@ -18,47 +18,122 @@ scanner learns anything about a warehouse.
 
 ## Results
 
-Latest run, 2026-09-01, against `warehouse/ground_truth.json`:
+Latest run, 2026-09-02, against `warehouse/ground_truth.json`, in the tapered
+warehouse whose aisles run 2.40, 1.77, 1.13 and 0.50 m:
 
 | Metric | Value |
 |---|---|
-| Box QR codes decoded | 430 / 432 (99.5%) |
-| Filed correctly | 430 / 430 (100%) |
+| Box QR codes decoded | 432 / 432 (100%) |
+| Filed correctly | 432 / 432 (100%) |
 | Wrong shelf, level or bay | 0, 0, 0 |
 | Waypoints reached | 24 / 24 |
-| Position error, median | 0.052 m |
-| Position error, p95 | 0.060 m |
-| Position error, worst | 0.096 m |
-| Within 10 cm | 100% |
-| Marker fixes applied | 358 |
-| Flight time | 775 s |
+| Position error, median | 0.062 m |
+| Position error, p95 | 0.080 m |
+| Position error, worst | 0.140 m |
+| Within 10 cm | 99.1% |
+| Within 25 cm | 100% |
+| Frames decoded | 4945 |
+| Frames dropped for being too old | 0 |
+| Frame age, median | 0.008 s |
+| Marker fixes applied | 312 |
+| Flight time | 579 s |
 
 Both faces of an aisle are read in one pass, the forward hires camera ahead and
 the rear tracking camera behind, which is what halves the route to 24
-waypoints. The two cameras are not equally comfortable: the hires has read 216
-of 216 on every run for a fortnight, and every miss has been on a face the rear
-camera reads. Its two misses this run were on F and H.
+waypoints.
 
-### The frames arrive late, and it no longer matters
+Getting the last two codes took two separate faults, and they are worth
+reading in that order because the first one hid behind a check that was
+computing the wrong number.
 
-This run decoded frames a median of 0.268 s after they were taken, with 439
-dropped for being older than half a second. That congestion is real and it is
-new: freeing render budget let Gazebo produce 5.1 frames a second where it had
-managed 3.8, which is more than the decoder can swallow.
+### The frame is small in a narrow aisle
 
-The positions are the most accurate this project has recorded anyway, because
-a code is filed against the pose the frame was taken at rather than the pose
-the vehicle had reached by the time it was decoded. Before that changed, a
-median lag of 0.268 s would have displaced every code by about 16 cm, and a
-queue that deepened through a flight put them metres out: a machine fast
-enough to outrun the decoder produced 299 of 432 codes with two per cent on the
-right shelf and a median error of 6.86 m, while the same code on a slower
-machine looked perfect.
+The camera sees a rectangle whose height grows with its distance from the
+shelf. The hires stands 1.24 m off in the widest aisle and sees 1.07 m of
+shelf; it stands 0.21 m off in the narrowest and sees 0.18 m.
+
+`flight_z` was a median of the label heights over the whole building. Rows A
+to F carry boxes of several sizes, so their labels spread over 0.11 m and the
+median suits them. Rows G and H hold one size, all their codes sit at a single
+height, and that height is 0.049 m below the median. In a 1.07 m frame that is
+invisible. In a 0.18 m one it puts the code against the bottom edge.
+
+The recording says so directly. Every payload names its own row, so a
+detection attributes itself, and the QR centre as a fraction of frame height
+came out:
+
+    A  hires  0.494        B  rear  0.515
+    C  hires  0.502        D  rear  0.491
+    E  hires  0.575        F  rear  0.461
+    G  hires  0.759        H  rear  0.647
+
+G's worst surviving code had its bottom edge at 0.967 of frame height.
+Anything lower did not decode at all, so it cannot appear in that figure.
+
+Each face now declares `code_z`, the band of code heights it carries at each
+level, and a lane aims its optical axis at the middle of the band it has to
+read. One rule everywhere: it moves the wide lanes by 0.006 m and the
+narrowest by 0.049. After it, G sat at 0.504 of frame height.
+
+The same arithmetic answers a question this warehouse does not ask but the
+next one will. Below some aisle width a band of label heights does not fit the
+frame at all, whatever the axis:
+
+    aisle    band one pass can cover
+    0.40 m         0.048 m
+    0.50           0.090
+    0.60           0.131
+    0.80           0.214
+    1.13           0.351
+    2.40           0.878
+
+Rows A to F span 0.11 m. A 0.50 m aisle holding stock like theirs could not be
+read in one pass, and the scanner now says so before it flies rather than
+returning a shelf that looks half empty.
+
+### Both cameras used to decode on one thread
+
+gz transport calls every subscription's callback on a thread it owns and
+shares. Decoding ran inside those callbacks, so the two cameras were never
+decoding at the same time whatever else the code did. The navigation report
+now prints the thread ids, and before this they were the same one.
+
+Decoding a frame costs 107 ms on the hires and 115 ms in the narrowest aisle,
+not the 5.7 ms an earlier bench reported. That bench was not wrong, it was
+unrepresentative: an empty frame costs 4 ms and a frame with codes in it costs
+a hundred. Frames arrive every 154 and 198 ms of wall clock, so the two
+cameras together were asking for 128 per cent of one thread, and the age limit
+shed the excess: 27.8 per cent of frames in the narrowest aisle, against the
+28 the arithmetic asks for.
+
+It stayed hidden because it only costs codes where frames are scarce. A 2.40 m
+aisle offers a box fourteen frames and losing a quarter of them costs nothing.
+A 0.50 m aisle offers 2.4.
+
+Each camera now decodes on a thread of its own, behind a queue two frames
+deep. OpenCV releases the interpreter lock inside the detector, measured at a
+1.88x speedup on two threads rather than assumed. Frames dropped for age went
+from 1271 to none, frame age from 0.444 s to 0.008, and the callback itself
+from 108 ms to 0.10, with the flight taking the same 579 s.
+
+Position accuracy is what pays for it: the median went from 0.052 to 0.062 m
+and one box of 432 now sits outside 10 cm. The worst are in the wide aisles
+rather than the narrow one, so it reads as the price of decoding twenty per
+cent more frames, some caught at the edge of a frame. Everything is still on
+the right shelf, level and bay, and inside 25 cm.
+
+### Where a code is filed
+
+A code is filed against the pose the frame was taken at, not the pose the
+vehicle had reached by the time it was decoded. That is what makes handing a
+frame to another thread safe at all. Before it, a machine fast enough to
+outrun the decoder produced 299 of 432 codes with two per cent on the right
+shelf and a median error of 6.86 m, while the same code on a slower machine
+looked perfect.
 
 The pose history is fed by PX4's odometry, which carries a timestamp on the
 same clock as the image headers and arrives over UDP where the camera queue
-cannot delay it. `navigation_report.json` now reports frame age, so congestion
-is visible instead of being something the run has to be fast enough to avoid.
+cannot delay it.
 
 ## Localization: no GPS
 
@@ -90,7 +165,9 @@ Everything the scanner knows about a warehouse. Nothing here is baked into
 | `world` | Gazebo world name | the world `gen_world.py` writes |
 | `model` | vehicle model name | `scanner/build_c27_drone.py` |
 | `aisle_faces` | one entry per scannable shelf face: the x of the shelf surface, and the heading held to look at it | `racking.rows` (`y0`, `facing`) mapped through `world_yaw` |
-| `flight_z` | one altitude per shelf level | median z of the QR labels at each level, from `racking.level_heights` plus load height |
+| `flight_z` | one altitude per shelf level; the fallback for a face that does not say where its codes are | median z of the QR labels at each level, from `racking.level_heights` plus load height |
+| `code_z` | per face, the band of code centre heights at each level, lowest and highest | the QR label heights in `ground_truth.json`, which follow the box heights `racking` generates |
+| `code_size_m` | how tall a code is, so the question can be whether a whole one fits the frame | `codes.box_label`, through `gen_labels.box_label_geometry` |
 | `y_south`, `y_north` | the ends of each pass | `codes.aisle_marker.positions` |
 | `spawn_x`, `spawn_y` | where the vehicle starts; the NED origin | `spawn.pose` |
 | `shelf_standoff` | camera to shelf face | chosen for the camera, see below |
@@ -372,7 +449,7 @@ measurement, so it was not short of the eight processors WSL is given.
 ./scripts/run_tests.sh
 ```
 
-Three suites, seconds each, no simulator:
+Five suites, seconds each, no simulator:
 
 - `test_pose_history.py` - that a code is filed against the pose its frame was
   taken at. Includes the case the whole thing exists for: a frame handled two
@@ -381,10 +458,18 @@ Three suites, seconds each, no simulator:
   vehicle. The centre of a frame cannot show the second one, because the
   bearing is zero there, so a left for right swap in the rear camera would look
   perfect and still put every off-axis code on the wrong part of the shelf.
+  Also that a decoder handed more than it can hold sheds frames rather than
+  queueing them.
+- `test_strips.py` - reading a frame in strips: that it finds more codes, and
+  that a strip coordinate is mapped back to the frame. The second half fails
+  silently here and puts every box on the wrong part of the shelf in flight.
 - `test_drift_correction.py` - the marker correction geometry.
+- `test_framing.py` - the vertical half. That the axis lands on the codes,
+  that every code the layout describes fits the frame it is read from, and
+  that a band which cannot fit is named rather than passed over.
 
-A scan takes thirteen minutes and only tells you the total. These say which
-piece of the geometry is wrong.
+A scan takes ten minutes and only tells you the total. These say which piece
+of the geometry is wrong.
 
 ## Reports
 
@@ -606,15 +691,26 @@ if they keep repeating after `Ready for takeoff!`.
 
 ## Known issues
 
-**Gazebo memory growth.** `gz sim` grows with every rendered frame. A 48
-waypoint scan runs over 40 minutes of simulated time, and the stall that cost
-the six missed codes is the same failure in milder form. Camera update rates
-are already reduced for this (10 Hz on the scanning and downward cameras, 1 Hz
-on the front and rear tracking cameras, which nothing consumes). Restart the
-simulator between runs.
+**Gazebo memory growth.** `gz sim` grows with every rendered frame. A 24
+waypoint scan runs about ten minutes of wall clock and `gz sim` has reached
+26 GB of 27 by the end of one, and a simulator that size does not always die
+on the first signal. Run `./scripts/clean.sh` before every launch: starting a
+second simulator beside a surviving one leaves neither with enough memory, and
+the symptom is PX4 reporting "Accel Sensor 0 missing" with nothing on the
+terminal. Camera update rates are already reduced for this (10 Hz hires, 8 Hz
+rear, 5 Hz downward, and the two tracking cameras nothing reads are not
+rendered at all).
 
-**Readability margin is thin on the rear camera.** 1.63 px per module at the
-1.10 m it flies, against a
-threshold of 3. Enlarging the label QR from 70 mm to 100 mm would let the
-vehicle stand back at 0.95 m and give 3.73 px per module with far more room on
-both sides. That is a change on the warehouse side.
+**Readability margin is thin on the rear camera in the widest aisle.** 1.7 px
+per module at the 1.05 m it stands there, against a threshold of 3. It reads
+54 of 54 anyway, because WeChat's detector is what finds them and it goes down
+to 1.66. Enlarging the label QR from 70 mm to 100 mm would give the whole
+building far more room. That is a change on the warehouse side.
+
+**The narrowest aisle is still the thinnest budget in the building.** A box
+gets 2.4 frames there against fourteen in the widest, and 0.045 m of vertical
+room against 0.38. Both are now on the right side of the line and the run is
+complete, but neither has much to give back. The levers left, in the order
+they are worth pulling: more frames in that aisle, and moving the lane off the
+proportional split, which currently leaves 0.084 m between a propeller tip and
+face H while the TOF only watches the other side.
