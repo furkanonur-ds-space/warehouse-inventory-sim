@@ -163,7 +163,7 @@ def range_block(link_name, joint_name, x_off, y_off, z_off,
 # 10 Hz at 0.6 m/s cruise is a frame every 6 cm, far more than a box needs.
 hires_front = camera_block(
     "camera_hires_link", "camera_hires_joint",
-    0.10, 0.0, 0.0, 0, 0, 0,
+    0.06, 0.0, 0.0, 0, 0, 0,
     fov=1.0472, width=1024, height=768, update_rate=10)
 
 # --- AR0144 tracking cameras -------------------------------------------
@@ -180,7 +180,7 @@ hires_front = camera_block(
 # memory that the run cannot spare.
 tracking_front = camera_block(
     "camera_track_front_link", "camera_track_front_joint",
-    0.08, 0.0, -0.03, 0, 0, 0,
+    0.055, 0.0, -0.015, 0, 0, 0,
     fov=1.5708, width=1280, height=800, update_rate=1)
 
 # The rear camera is no longer decorative: it reads the shelf behind the
@@ -201,7 +201,7 @@ tracking_front = camera_block(
 # the budget to 15.1, still under the 20.2 that ran gz out of memory.
 tracking_rear = camera_block(
     "camera_track_rear_link", "camera_track_rear_joint",
-    -0.08, 0.0, -0.03, 0, 0, 3.14159,
+    -0.055, 0.0, -0.015, 0, 0, 3.14159,
     fov=1.5708, width=1280, height=800, update_rate=3)
 
 # The downward tracking camera doubles as the ArUco marker reader for drift
@@ -218,7 +218,7 @@ tracking_rear = camera_block(
 # was spending most of its frames on stretches where sightings are ignored.
 tracking_down = camera_block(
     "camera_track_down_link", "camera_track_down_joint",
-    0.0, 0.0, -0.05, 0, 1.5708, 0,
+    0.0, 0.0, -0.025, 0, 1.5708, 0,
     fov=1.5708, width=1280, height=800, update_rate=8)
 
 # --- Sensors required for GPS-free position estimation -----------------
@@ -315,7 +315,7 @@ vio_odometry = '''
 # is ours alone, read straight from Gazebo.
 tof_front = range_block(
     "tof_link", "tof_joint",
-    0.12, 0.0, 0.0, 0, 0, 0,
+    0.06, 0.0, 0.0, 0, 0, 0,
     max_range=5.0)
 
 sdf = f'''<?xml version="1.0" encoding="UTF-8"?>
@@ -323,7 +323,7 @@ sdf = f'''<?xml version="1.0" encoding="UTF-8"?>
   <model name='{model_name}'>
     <self_collide>false</self_collide>
     <include merge='true'>
-      <uri>x500</uri>
+      <uri>starling2</uri>
     </include>
 {hires_front}
 {tracking_front}

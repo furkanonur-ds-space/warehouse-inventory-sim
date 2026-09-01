@@ -76,7 +76,7 @@
     "Measure it rather than trust it. An earlier value of zero here cost",
     "272 of 432 codes and took five wrong explanations to find."
   ],
-  "ground_offset": 0.227,
+  "ground_offset": 0.060,
 
   "aruco_dictionary": "DICT_5X5_100",
   "marker_map": "../warehouse/generated/out/marker_map.json",

@@ -95,8 +95,8 @@ SHELF_STANDOFF = LAYOUT["shelf_standoff"]
 # the front face and the rear camera looks back from the rear one, so each is
 # nearer its own shelf than base_link is. Leaving these out scaled every
 # lateral offset by eight per cent.
-HIRES_MOUNT_X = 0.10
-REAR_MOUNT_X = -0.08
+HIRES_MOUNT_X = 0.06
+REAR_MOUNT_X = -0.055
 
 # --- SCAN PARAMETERS ---------------------------------------------------
 WAYPOINT_TOLERANCE = 0.4      # metres
@@ -171,13 +171,13 @@ last_correction_time = [0.0]
 #
 # The real vehicle is a ModalAI Starling 2, 283 mm across at the propeller
 # tips, and on that airframe this would be 0.20. See build_starling2.py.
-CLEARANCE_ALARM_M = 0.40
+CLEARANCE_ALARM_M = 0.20
 # Only rays this far from level count as looking ahead. The cone is 86 degrees
 # tall and its lower half always finds the floor; see nearest_ahead.
 TOF_BAND_DEG = 10.0
 # Anything nearer than this is the vehicle's own structure, measured at 0.101 m
 # on rotor arms with the sensor's minimum range at 0.1 m.
-TOF_SELF_M = 0.25
+TOF_SELF_M = 0.12
 clearance = {"min_m": float("inf"), "samples": 0, "alarms": 0,
              "in_alarm": False, "alarm_positions": []}
 

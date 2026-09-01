@@ -41,18 +41,23 @@ import re
 PX4_MODELS = os.path.expanduser(
     "~/PX4-Autopilot/Tools/simulation/gz/models")
 
-# --- THE VEHICLE, FROM THE DATASHEET -------------------------------------
-DIAGONAL_M = 0.230          # motor centre to motor centre, across
+# --- THE VEHICLE, FROM MODALAI'S OWN PARAMETERS ---------------------------
+# params/v1.18/D0014/D0014_Starling_2_base.params, which is the Starling 2.
+# The datasheet gives a diagonal and a mass; these are the numbers the flight
+# controller is actually configured with.
 PROP_DIAMETER_M = 0.120
 MASS_KG = 0.285             # take-off weight, 182 g of it without the battery
 ROTOR_MASS_KG = 0.008       # motor plus propeller, one arm
 
-# Motors sit on the diagonals, so each is DIAGONAL/2 from the centre and that
-# distance splits evenly between the two body axes.
-ARM_M = DIAGONAL_M / 2 / math.sqrt(2)          # 0.0813 m
+# CA_ROTOR0_PX and PY. The motors are not on a square: the frame is 170 mm
+# front to back and 125 mm across, so roll and pitch do not behave alike and
+# PX4's gains for them differ, 0.072 against 0.097.
+ARM_X = 0.085
+ARM_Y = 0.0625
+DIAGONAL_M = 2 * math.sqrt(ARM_X ** 2 + ARM_Y ** 2)      # 0.211 m
 
-# The body. Roughly square, so that roll and pitch behave alike.
-BODY_X, BODY_Y, BODY_Z = 0.120, 0.120, 0.045
+# The body, inside the motors.
+BODY_X, BODY_Y, BODY_Z = 0.110, 0.085, 0.045
 # How far base_link sits above the floor when landed. Everything the scanner
 # commands is measured from the spawn point and the world is not, so this
 # number has to match reality; measure it in the simulator rather than trust
@@ -60,19 +65,26 @@ BODY_X, BODY_Y, BODY_Z = 0.120, 0.120, 0.045
 REST_HEIGHT_M = 0.060
 
 # --- THE MOTORS -----------------------------------------------------------
-# 1504 3000 kv on 2S. Under load the propellers do not reach the no load
-# speed, so this is well short of 3000 x 7.4 volts.
+# 1504 3000 kv on 2S. Under load the propellers fall well short of the no load
+# speed of 3000 x 7.4 volts.
 MAX_ROT_VELOCITY = 1500.0
-THRUST_TO_WEIGHT = 1.74     # matched to the x500, on purpose; see above
+MIN_ROT_VELOCITY = 150.0        # SIM_GZ_EC_MIN, inherited from the x500
 
-MAX_THRUST_PER_ROTOR = THRUST_TO_WEIGHT * MASS_KG * 9.81 / 4
-MOTOR_CONSTANT = MAX_THRUST_PER_ROTOR / MAX_ROT_VELOCITY ** 2
+# The motor constant follows from the hover throttle rather than from a chosen
+# thrust ratio. PX4 maps its normalised demand onto rotor speed between MIN and
+# MAX, and thrust goes as the square of that, so MPC_THR_HOVER fixes it.
+HOVER_THROTTLE = 0.34           # MPC_THR_HOVER, from D0014
+HOVER_ROT_VELOCITY = MIN_ROT_VELOCITY + HOVER_THROTTLE * (
+    MAX_ROT_VELOCITY - MIN_ROT_VELOCITY)
+HOVER_THRUST_PER_ROTOR = MASS_KG * 9.81 / 4
+MOTOR_CONSTANT = HOVER_THRUST_PER_ROTOR / HOVER_ROT_VELOCITY ** 2
+MAX_THRUST_PER_ROTOR = MOTOR_CONSTANT * MAX_ROT_VELOCITY ** 2
 
-# Torque per unit thrust, which is a property of the propeller. Scaled from
-# the x500's 254 mm propellers by the ratio of the diameters.
-MOMENT_CONSTANT = 0.016 * PROP_DIAMETER_M / 0.254
-# Both of these are small corrections; scaled by mass for want of anything
-# better to scale them by.
+# Torque per unit thrust. PX4 is told CA_ROTOR_KM 0.05, the same as the x500,
+# so the model keeps the same relationship the x500 has between the two, which
+# is what flies.
+MOMENT_CONSTANT = 0.016
+# Small corrections, scaled by mass for want of anything better.
 ROTOR_DRAG = 8.06428e-05 * MASS_KG / 2.0
 ROLLING_MOMENT = 1e-06 * MASS_KG / 2.0
 
@@ -135,7 +147,7 @@ def rotor_link(index, x_sign, y_sign, direction):
     <link name="rotor_{index}">
       <gravity>true</gravity>
       <self_collide>false</self_collide>
-      <pose>{x_sign * ARM_M:.4f} {y_sign * ARM_M:.4f} {BODY_Z / 2:.4f} 0 0 0</pose>
+      <pose>{x_sign * ARM_X:.4f} {y_sign * ARM_Y:.4f} {BODY_Z / 2:.4f} 0 0 0</pose>
       <inertial>
         <mass>{mass}</mass>
         <inertia>
@@ -265,7 +277,7 @@ def main():
       </collision>
       <visual name="arms_visual">
         <geometry>
-          <box><size>{2 * ARM_M:.4f} {2 * ARM_M:.4f} 0.006</size></box>
+          <box><size>{2 * ARM_X:.4f} {2 * ARM_Y:.4f} 0.006</size></box>
         </geometry>
         <material>
           <ambient>0.05 0.05 0.05 1</ambient>
@@ -309,16 +321,22 @@ def main():
 </model>
 ''')
 
-    span = 2 * ARM_M + PROP_DIAMETER_M
+    span_x = 2 * ARM_X + PROP_DIAMETER_M
+    span_y = 2 * ARM_Y + PROP_DIAMETER_M
     print(f"{MODEL_NAME} generated, ModalAI Starling 2")
-    print(f"  motors            {ARM_M * 1000:.0f} mm from centre, "
-          f"{DIAGONAL_M * 1000:.0f} mm diagonal")
-    print(f"  widest extent     {span * 1000:.0f} mm, propeller tip to tip")
+    print(f"  motors            {ARM_X * 1000:.0f} mm fore and aft, "
+          f"{ARM_Y * 1000:.0f} mm across, {DIAGONAL_M * 1000:.0f} mm diagonal")
+    print(f"  widest extent     {span_x * 1000:.0f} by {span_y * 1000:.0f} mm, "
+          f"propeller tip to tip")
     print(f"  mass              {MASS_KG * 1000:.0f} g "
           f"({body_mass * 1000:.0f} g body, {ROTOR_MASS_KG * 1000:.0f} g per arm)")
     print(f"  inertia           ixx {ixx:.3e}  iyy {iyy:.3e}  izz {izz:.3e}")
+    print(f"  hover             {HOVER_THROTTLE:.2f} throttle, "
+          f"{HOVER_ROT_VELOCITY:.0f} rad/s, {HOVER_THRUST_PER_ROTOR:.3f} N per rotor")
     print(f"  max thrust        {MAX_THRUST_PER_ROTOR:.2f} N per rotor, "
-          f"{THRUST_TO_WEIGHT:.2f} thrust to weight")
+          f"{4 * MAX_THRUST_PER_ROTOR / (MASS_KG * 9.81):.1f} thrust to weight "
+          f"({4 * MOTOR_CONSTANT * (MIN_ROT_VELOCITY + 0.60 * (MAX_ROT_VELOCITY - MIN_ROT_VELOCITY)) ** 2 / (MASS_KG * 9.81):.1f} "
+          f"at the 0.60 throttle cap)")
     print(f"  rests at          {REST_HEIGHT_M * 1000:.0f} mm, "
           f"measure this before trusting ground_offset")
     print("  no downward camera; x500_base carries one at 9.2 Mpx/s")
