@@ -219,7 +219,7 @@ tracking_rear = camera_block(
 tracking_down = camera_block(
     "camera_track_down_link", "camera_track_down_joint",
     0.0, 0.0, -0.05, 0, 1.5708, 0,
-    fov=1.5708, width=1280, height=800, update_rate=3)
+    fov=1.5708, width=1280, height=800, update_rate=8)
 
 # --- Sensors required for GPS-free position estimation -----------------
 #

@@ -100,11 +100,27 @@ def borrow_sensors():
     path = os.path.join(PX4_MODELS, "x500_base", "model.sdf")
     with open(path, encoding="utf-8") as handle:
         text = handle.read()
-    start = text.index('<sensor name="air_pressure_sensor"')
-    end = text.index("<!-- DOWNWARD CAMERA -->")
+
+    # From the barometer to the end of the navsat sensor, which is the last
+    # one PX4 needs. Bounded by the tags themselves rather than by a comment:
+    # an earlier version looked for "<!-- DOWNWARD CAMERA -->" to find the end,
+    # and removing that camera, which the setup script now does, took the
+    # landmark with it and broke the build. A comment in a file this project
+    # does not own is not something to navigate by.
+    start = text.find('<sensor name="air_pressure_sensor"')
+    last = text.find('<sensor name="navsat_sensor"')
+    if start == -1 or last == -1:
+        raise SystemExit("x500_base does not carry the sensors PX4 needs")
+    end = text.find("</sensor>", last)
+    if end == -1:
+        raise SystemExit("x500_base navsat sensor is not closed")
+    end += len("</sensor>")
+
     block = text[start:end].rstrip()
-    if "navsat_sensor" not in block or "imu_sensor" not in block:
-        raise SystemExit("x500_base sensors not where they were expected")
+    for needed in ("air_pressure_sensor", "magnetometer_sensor",
+                   "imu_sensor", "navsat_sensor"):
+        if needed not in block:
+            raise SystemExit("x500_base is missing %s" % needed)
     return "\n".join("      " + line.lstrip() if line.strip() else ""
                      for line in block.splitlines())
 
