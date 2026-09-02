@@ -4,11 +4,14 @@
 #
 #   ./scripts/launch_sim.sh            render on whatever Mesa picks
 #   ./scripts/launch_sim.sh nvidia     render on the discrete GPU
+#   HEADLESS=0 ./scripts/launch_sim.sh watch the scene in a window
 #
-# It prints nothing while it runs. Output goes to a file, and HEADLESS is set,
-# so there is no window either: a Gazebo window costs frames the scan wants,
-# and piping the output through anything that cannot drain its protobuf
-# chatter blocks it on write and collapses the real time factor.
+# It prints nothing while it runs. Output goes to a file, and HEADLESS
+# defaults to 1, so there is no window either: a Gazebo window costs frames
+# the scan wants, and piping the output through anything that cannot drain its
+# protobuf chatter blocks it on write and collapses the real time factor. Set
+# HEADLESS=0 to watch a run anyway, which is worth doing once to see the route
+# rather than to fly a scan that will be scored.
 #
 # Watch it with:
 #
@@ -50,7 +53,7 @@ fi
 
 mkdir -p "$LOGDIR"
 export PX4_GZ_MODEL_POSE="$X,$Y,0.30,0,0,0"
-export HEADLESS=1
+export HEADLESS="${HEADLESS:-1}"
 
 if [ "${1:-}" = "nvidia" ]; then
     # Without this Mesa picks the integrated GPU and the simulation runs at
