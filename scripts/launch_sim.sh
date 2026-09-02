@@ -20,6 +20,14 @@ set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PX4="${PX4_DIR:-$HOME/PX4-Autopilot}"
 PY="${PY:-$HOME/autonomous_landing/venv/bin/python}"
+if [ ! -x "$PY" ]; then
+    PY="$HERE/.venv/bin/python"
+fi
+if [ ! -x "$PY" ]; then
+    echo "no interpreter; set PY, for example"
+    echo "  PY=~/autonomous_landing/venv/bin/python $0"
+    exit 1
+fi
 LOGDIR="${LOGDIR:-$HERE/out}"
 
 if [ ! -d "$PX4" ]; then
