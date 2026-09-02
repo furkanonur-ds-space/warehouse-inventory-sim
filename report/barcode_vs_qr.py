@@ -31,6 +31,7 @@ import json
 import os
 import sys
 from collections import Counter, defaultdict
+from datetime import datetime, timedelta
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -68,15 +69,68 @@ def camera_of(path):
     return stem
 
 
+def flight_window():
+    """
+    When the run being scored was in the air, as (start, end) ISO strings.
+
+    The inventory is written on landing and the navigation report says how
+    long the flight took, so the window follows from the two. Returns None if
+    either is missing, and nothing is then filtered by time.
+    """
+    try:
+        scan = json.load(open(os.path.join(OUT, "inventory_scanned.json"),
+                              encoding="utf-8"))
+        nav = json.load(open(os.path.join(OUT, "navigation_report.json"),
+                             encoding="utf-8"))
+        end = datetime.fromisoformat(scan["scan_date"])
+        return (end - timedelta(seconds=float(nav["mission_duration_s"])), end)
+    except Exception:
+        return None
+
+
+def newest_reading(path):
+    """The timestamp of the last reading in a file, or None."""
+    last = None
+    try:
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if line:
+                    last = json.loads(line).get("t") or last
+    except Exception:
+        return None
+    try:
+        return datetime.fromisoformat(last) if last else None
+    except ValueError:
+        return None
+
+
 def default_readings():
     """
-    Every readings file in out/, newest run first.
+    The readings files this run left in out/, one per camera.
 
     Globbed rather than named because how many there are is a property of the
     run: one reader or two, and the tags come from the cameras it was put on.
+
+    Files left by an earlier run are dropped, not merged. out/ is rewritten by
+    every run, but only under the names that run uses, so a file from an older
+    naming scheme survives and would otherwise be added to this run's totals -
+    which it was, silently doubling them. A file belongs to this run when it
+    has a reading from after the flight started.
     """
     found = sorted(glob.glob(os.path.join(OUT, "barcode_readings*.jsonl")))
-    return [os.path.basename(f) for f in found]
+    window = flight_window()
+    if window is None:
+        return [os.path.basename(f) for f in found]
+    start, _ = window
+    keep, stale = [], []
+    for path in found:
+        newest = newest_reading(path)
+        (keep if newest is not None and newest >= start else stale).append(path)
+    for path in stale:
+        print("  (ignoring %s: nothing in it from this flight)"
+              % os.path.basename(path))
+    return [os.path.basename(f) for f in (keep or found)]
 
 
 def load_readings(path):

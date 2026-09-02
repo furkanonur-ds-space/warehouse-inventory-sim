@@ -47,6 +47,11 @@ MODEL=$("$PY" -c "import json,sys; print(json.load(open(sys.argv[1]))['model'])"
 BASE="/world/$WORLD/model/${MODEL}_0/link"
 
 mkdir -p "$HERE/out"
+# Clear the last run's readings first. out/ is rewritten by every run, but
+# only under the names that run uses: a file from a run with a different set
+# of cameras survives and gets merged into this run's totals by anything that
+# reads them all.
+rm -f "$HERE"/out/barcode_readings*.jsonl "$HERE"/out/barcode_inventory*.json
 pids=()
 
 start_barcode() {
