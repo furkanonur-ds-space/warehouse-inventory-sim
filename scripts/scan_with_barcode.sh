@@ -75,9 +75,23 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "  scanning ..."
-cd "$HERE/scanner" && "$PY" scanner.py
-status=$?
+# GZ_IP for the same reason scan_logged.sh sets it: without it gz-transport
+# discovery is unreliable here and a camera publishing at 10 Hz can read as
+# dead, which has already sent one diagnosis down the wrong path. The barcode
+# reader sets it for itself; the scan was not getting it at all.
+export GZ_IP="${GZ_IP:-127.0.0.1}"
+
+mkdir -p "$HERE/out/logs"
+TS="$(date +%Y%m%d_%H%M%S)"
+LOG="$HERE/out/logs/scan_${TS}.log"
+: > "$LOG"
+ln -sf "scan_${TS}.log" "$HERE/out/logs/latest.log"
+
+echo "  scanning ...  console -> out/logs/latest.log"
+# -u keeps the console unbuffered. Without it a forty minute flight prints
+# nothing until it ends, which is also nothing to read if it dies first.
+(cd "$HERE/scanner" && "$PY" -u scanner.py) 2>&1 | tee "$LOG"
+status=${PIPESTATUS[0]}
 
 cleanup
 sleep 1
