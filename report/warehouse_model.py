@@ -35,6 +35,10 @@ CONFIG = REPO_ROOT / "warehouse" / "warehouse.yaml"
 # setup_px4.sh and gitignored, so it may not be there; everything that uses it
 # degrades to "unknown" rather than failing.
 WORLD_SDF = REPO_ROOT / "warehouse" / "generated" / "gz" / "worlds" / "warehouse.sdf"
+# The vehicle that flew, which carries the cameras' own resolution and field
+# of view. Installed into the PX4 tree by setup_px4.sh, so it may not be on
+# the machine reading a run; the C27 values below stand in when it is not.
+GZ_MODELS = Path.home() / "PX4-Autopilot" / "Tools" / "simulation" / "gz" / "models"
 LAYOUT = REPO_ROOT / "scanner" / "layout.json"
 GROUND_TRUTH = REPO_ROOT / "warehouse" / "ground_truth.json"
 INVENTORY = REPO_ROOT / "out" / "inventory_scanned.json"
@@ -267,48 +271,195 @@ def flight_altitudes(path: Path = LAYOUT) -> list[float]:
     return json.loads(Path(path).read_text())["flight_z"]
 
 
-def standoffs(path: Path = LAYOUT) -> dict[str, float]:
-    """
-    Shelf face -> how far the camera flew from it, from the scanner's layout.
+# The two cameras that read shelves, as the vehicle carries them. The route
+# flies one lane per aisle and reads both its faces from it, the hires ahead
+# and the rear tracking camera behind, so "how far was the camera" has two
+# answers per aisle and they are not the same camera: 1024 px across 60
+# degrees against 1280 across 90.
+#
+# Falls back to the C27 configuration when the model is not installed. These
+# are the values build_c27_drone.py writes; they are stated once, here, and
+# read from the model itself whenever it can be found.
+CAMERA_FALLBACK = {
+    "hires": {"link": "camera_hires_link", "frame_px": (1024, 768),
+              "hfov_deg": 60.0, "mount_x": 0.06},
+    "rear": {"link": "camera_track_rear_link", "frame_px": (1280, 800),
+             "hfov_deg": 90.0, "mount_x": 0.055},
+}
 
-    One number for the whole building would be wrong here: the aisles taper
-    from 2.40 m to 0.50 m, so the camera stands 0.80 m off the shelves on the
-    wide aisles and only 0.25 m off them on the narrowest. Readability and
-    what fits in the frame both scale with that distance, and a report that
-    assumed 0.80 everywhere would call the narrow end far worse than it is on
-    resolution and far better than it is on framing.
+_CAM_LINK = re.compile(
+    r'<link name="(camera_hires_link|camera_track_rear_link)">'
+    r'.*?<pose>([^<]*)</pose>'
+    r'.*?<horizontal_fov>([^<]*)</horizontal_fov>'
+    r'.*?<width>([^<]*)</width>\s*<height>([^<]*)</height>',
+    re.S)
+
+
+def cameras(model: str | None = None, models_dir: Path = GZ_MODELS) -> dict:
+    """
+    What each reading camera is, from the model that flew.
+
+    Read rather than copied, for the reason load_box_geometry is read: the
+    resolution and the field of view are decided in build_c27_drone.py, and a
+    second copy here would drift apart from it silently. The mount offset
+    matters too - the lens sits ahead of or behind the vehicle centre, and the
+    distance that decides what it resolves is the lens to the shelf, not the
+    airframe to the shelf.
+    """
+    out = {name: dict(spec) for name, spec in CAMERA_FALLBACK.items()}
+    if model is None:
+        try:
+            model = json.loads(Path(LAYOUT).read_text())["model"]
+        except Exception:
+            return out
+    path = Path(models_dir) / model / "model.sdf"
+    if not path.exists():
+        return out
+    by_link = {spec["link"]: name for name, spec in out.items()}
+    for link, pose, fov, width, height in _CAM_LINK.findall(path.read_text()):
+        name = by_link.get(link)
+        if name is None:
+            continue
+        out[name] = {
+            "link": link,
+            "frame_px": (int(float(width)), int(float(height))),
+            "hfov_deg": math.degrees(float(fov)),
+            # Either sign means the same thing: displaced towards the face it
+            # reads, so it stands that much closer than the airframe does.
+            "mount_x": abs(float(pose.split()[0])),
+        }
+    return out
+
+
+def _split_aisle(width: float, hires_max: float, rear_max: float):
+    """
+    How far the lane sits from each face of an aisle of this width.
+
+    The rule is the layout's own, stated in its `_camera_reach_note`: both
+    distances add up to the width and each stays inside its camera's reach, so
+    the width is split in proportion to the two reaches. Returns None for an
+    aisle wider than the two together, which is flown as one pass per face
+    with the hires alone.
+    """
+    total = hires_max + rear_max
+    if total <= 0:
+        return None
+    hires = width * hires_max / total
+    rear = width - hires
+    if rear > rear_max:
+        rear, hires = rear_max, width - rear_max
+    if hires > hires_max:
+        return None
+    return hires, rear
+
+
+def face_cameras(path: Path = LAYOUT, model_cameras: dict | None = None) -> dict:
+    """
+    Shelf face -> which camera read it and how far its lens stood off.
+
+    One number for the whole building would be wrong twice over. The aisles
+    taper from 2.40 m to 0.50 m, and since the rear camera started reading the
+    face behind, the two faces of one aisle are read from different distances
+    by different cameras. A report that assumed a single standoff and a single
+    camera overstated the resolution in the widest aisle by about two times,
+    which is where reading is hardest.
+
+    Faces are paired the way the route pairs them: a face is across the aisle
+    when it looks the other way and sits ahead of the vehicle, and the nearest
+    such face is the one the rear camera sees. The face reached first is the
+    one the hires reads, which is the order the route walks them in.
     """
     layout = json.loads(Path(path).read_text())
-    fallback = layout.get("shelf_standoff", 0.80)
-    return {f["name"]: f.get("standoff", fallback)
-            for f in layout["aisle_faces"] if "name" in f}
+    faces = [f for f in layout["aisle_faces"] if "name" in f]
+    cams = model_cameras if model_cameras is not None else cameras()
+    hires_max = layout.get("hires_max_standoff", 1.30)
+    rear_max = layout.get("rear_max_standoff", 1.10)
+    alone = min(layout.get("shelf_standoff", hires_max), hires_max)
+
+    def facing(face):
+        ahead = 1.0 if face["yaw_deg"] < 0 else -1.0
+        candidates = [o for o in faces
+                      if o is not face
+                      and o["yaw_deg"] * face["yaw_deg"] < 0
+                      and (o["face_x"] - face["face_x"]) * ahead > 0]
+        if not candidates:
+            return None
+        return min(candidates, key=lambda f: abs(f["face_x"] - face["face_x"]))
+
+    out = {}
+    done = set()
+    for face in faces:
+        if face["name"] in done:
+            continue
+        opposite = facing(face)
+        pairs = []
+        if opposite is None:
+            pairs = [(face, "hires", alone)]
+        else:
+            width = abs(opposite["face_x"] - face["face_x"])
+            split = _split_aisle(width, hires_max, rear_max)
+            if split is None:
+                pairs = [(face, "hires", alone), (opposite, "hires", alone)]
+            else:
+                pairs = [(face, "hires", split[0]),
+                         (opposite, "rear", split[1])]
+        for one, which, depth in pairs:
+            spec = cams[which]
+            out[one["name"]] = {
+                "camera": which,
+                # Lens to shelf, which is what decides both numbers below.
+                "distance_m": round(max(depth - spec["mount_x"], 0.01), 3),
+                "frame_px": spec["frame_px"],
+                "hfov_deg": spec["hfov_deg"],
+            }
+            done.add(one["name"])
+    return out
 
 
-# Half the camera's vertical field in metres, measured at the 0.80 m standoff
-# of the wide aisles. Kept as the measured number rather than recomputed from
-# the lens, because it is what the missed-box tally has always been scored
-# against; the geometric value for 1280x720 at 60 degrees is 0.260 m, and the
-# gap is real vignetting and decode margin at the frame edge.
+def standoffs(path: Path = LAYOUT) -> dict[str, float]:
+    """Shelf face -> how far the camera's lens flew from it."""
+    return {name: cam["distance_m"] for name, cam in face_cameras(path).items()}
+
+
+# Half the camera's vertical field in metres, measured on the hires camera at
+# the 0.80 m standoff the wide aisles were flown at before the rear camera
+# read the far face. Kept as the measured number rather than the geometric
+# one: the geometric half-frame there is 0.346 m, and the gap is real
+# vignetting and decode margin at the edge of the frame.
 HALF_FRAME_AT_M = (0.23, 0.80)
 
 
-def half_frame_m(standoff: float) -> float:
+def _frame_ratio(camera: dict) -> float:
+    """Half the vertical field per metre of distance, from the lens alone."""
+    width, height = camera["frame_px"]
+    return (height / width) * math.tan(math.radians(camera["hfov_deg"]) / 2)
+
+
+def half_frame_m(standoff: float, camera: dict | None = None) -> float:
     """
     Half the camera's vertical field, in metres, at this distance.
 
     A label further off the optical axis than this was never in shot. It is a
-    distance, so it scales with the aisle: 0.23 m at the 0.80 m standoff of
-    the wide aisles, 0.07 m at the 0.25 m of the narrowest, which is less than
-    a third of the 0.25 m label stack. That is the narrow end's real problem.
-    Resolution improves as the camera closes in; framing collapses.
+    distance, so it scales with the aisle: at the narrow end the camera closes
+    in and resolution improves while framing collapses, which is that end's
+    real problem.
+
+    The measured anchor is a hires number, so it is carried across to the rear
+    camera as the fraction of the geometric field it represents rather than as
+    a fraction of the distance. The two lenses do not see the same slice: 60
+    degrees over a 4:3 frame against 90 over 16:10.
     """
     measured, at = HALF_FRAME_AT_M
-    return standoff * measured / at
+    cams = CAMERA_FALLBACK
+    hires_ratio = _frame_ratio(cams["hires"])
+    usable = measured / (at * hires_ratio)
+    ratio = _frame_ratio(camera) if camera is not None else hires_ratio
+    return standoff * ratio * usable
 
 
 def label_profile(code: dict, geometry: dict, flight_z: list[float],
-                  standoff: float | None = None, frame_px: int = 1280,
-                  hfov_deg: float = 60.0) -> dict:
+                  standoff: float | None = None, frame_px: int | None = None,
+                  hfov_deg: float | None = None) -> dict:
     """
     What a box looked like to the camera: size, and how far off the axis it sat.
 
@@ -321,15 +472,25 @@ def label_profile(code: dict, geometry: dict, flight_z: list[float],
     Readability is the other half. A QR needs roughly 3 pixels per module to
     decode, and the module size travels with the label in ground truth.
 
-    `standoff` defaults to the one the scanner actually flies for this code's
-    shelf face. The aisles taper, so it is not the same for every face, and
-    passing a single number for the building would misreport both halves.
+    The camera, the distance and the frame all default to the ones that read
+    this code's shelf face. None of the three is a property of the building:
+    the aisles taper, and the two faces of one aisle are read from different
+    distances by different cameras. Assuming one standoff and one 1280 px
+    frame for all of them, which this did, overstated the resolution in the
+    widest aisle by about two times.
     """
+    face = face_cameras().get(code.get("row"))
+    if face is None:
+        face = {"camera": "hires", "distance_m": 0.80,
+                "frame_px": CAMERA_FALLBACK["hires"]["frame_px"],
+                "hfov_deg": CAMERA_FALLBACK["hires"]["hfov_deg"]}
     if standoff is None:
-        standoff = standoffs().get(code.get("row"), 0.80)
+        standoff = face["distance_m"]
+    width_px = frame_px if frame_px is not None else face["frame_px"][0]
+    fov = hfov_deg if hfov_deg is not None else face["hfov_deg"]
     x, y, z = code["label_pose_xyzrpy"][:3]
     level_z = flight_z[code["level"] - 1] if code["level"] - 1 < len(flight_z) else None
-    px_per_module = (frame_px / 2) / math.tan(math.radians(hfov_deg) / 2) \
+    px_per_module = (width_px / 2) / math.tan(math.radians(fov) / 2) \
         * code["module_size_m"] / standoff
     g = geometry.get(code["entity"].split("::")[-1], {})
     return {
@@ -341,9 +502,12 @@ def label_profile(code: dict, geometry: dict, flight_z: list[float],
         "z_offset_m": round(z - level_z, 3) if level_z is not None else None,
         "px_per_module": round(px_per_module, 2),
         "standoff_m": round(standoff, 3),
-        # Half the vertical field at that standoff; a label further off the
+        # Which of the two cameras read this face, since neither the distance
+        # nor the frame means anything without it.
+        "camera": face["camera"],
+        # Half the vertical field at that distance; a label further off the
         # axis than this was out of shot.
-        "half_frame_m": round(half_frame_m(standoff), 3),
+        "half_frame_m": round(half_frame_m(standoff, face), 3),
         "label_size_m": code.get("label_size_m"),
         "position": [round(x, 3), round(y, 3), round(z, 3)],
     }
