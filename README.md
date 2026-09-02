@@ -290,25 +290,49 @@ are deliberately distinct now, and `setup_px4.sh` touches nothing else.
 ## Setup
 
 Requires Ubuntu, PX4 Autopilot (SITL) built at `~/PX4-Autopilot`, and Gazebo
-Harmonic with its Python bindings (`python3-gz-transport13`,
-`python3-gz-msgs10`, from the Gazebo apt repository).
+Harmonic with its Python bindings:
+
+```sh
+sudo apt install python3-gz-transport13 python3-gz-msgs10
+```
+
+Those come from the Gazebo apt repository rather than from PyPI, which is why
+the virtualenv below has to be able to see the system packages.
+
+This is the same on a native Linux install and under WSL. The only difference
+anywhere is the `nvidia` argument to `launch_sim.sh`, which steers Mesa's D3D12
+layer and exists only under WSL; on native Linux leave it off. Nothing here
+needs a VOXL or any other hardware.
+
+Four steps, in order. The fourth says whether the first three worked, in
+seconds, without waiting ten minutes for a flight to tell you.
 
 ### 1. A virtualenv for the project
 
 ```sh
 python3 -m venv --system-site-packages .venv
-.venv/bin/pip install mavsdk opencv-python qrcode python-barcode PyYAML numpy pyzbar
+.venv/bin/pip install mavsdk opencv-contrib-python pillow qrcode python-barcode \
+                      PyYAML numpy pyzbar
 ```
 
 `--system-site-packages` is not optional. The Gazebo Python bindings are
 installed by apt and are not on PyPI, so a sealed virtualenv cannot see them
 and every tool that reads a camera or a pose fails at import.
 
-`opencv-python` is also not optional, even where apt has already put OpenCV on
-the machine. Ubuntu ships 4.6, which has neither `cv2.aruco.generateImageMarker`
-nor `cv2.aruco.ArucoDetector`: the world generator cannot draw the floor
-markers and the scanner cannot detect them. The pip build shadows the system
-one inside the virtualenv and leaves the rest of the machine alone.
+**`opencv-contrib-python`, not `opencv-python`.** The two most important pieces
+of the pipeline are both contrib modules and are absent from the plain build:
+`cv2.wechat_qrcode_WeChatQRCode`, which is the detector that finds the codes at
+all, and `cv2.aruco`, which draws the floor markers and reads them back. With
+the plain package the scanner raises `AttributeError` on its first frame.
+
+It is also not optional to skip it where apt has already put OpenCV on the
+machine. Ubuntu ships 4.6, which has neither `cv2.aruco.generateImageMarker`
+nor `cv2.aruco.ArucoDetector`. The pip build shadows the system one inside the
+virtualenv and leaves the rest of the machine alone.
+
+`pillow` draws the label textures. `qrcode` treats it as an optional extra, so
+installing it by name is what keeps `setup_px4.sh` from stopping at
+`No module named 'PIL'` on its first step.
 
 ### 2. Install into PX4
 
@@ -334,6 +358,18 @@ CMake configures, not when make runs. A newly registered airframe is invisible
 until something makes CMake configure again, and the symptom is
 `No rule to make target 'gz_x500_c27_warehouse'` after a build that otherwise
 succeeded.
+
+### 4. Check it before flying anything
+
+```sh
+./scripts/run_tests.sh
+```
+
+Five suites, seconds each, no simulator. They import the scanner, read the
+layout, and work through the geometry, so they fail loudly on a virtualenv
+missing a package or a `setup_px4.sh` that did not finish, which are the two
+ways a fresh install goes wrong. `all suites passed` means the next thing to
+do is fly.
 
 ## Running
 
