@@ -43,15 +43,30 @@ CAMERAS = [
 
 
 def texture_dir():
-    """Where the generated label textures ended up."""
-    for candidate in (
-            os.path.join(os.path.dirname(s.LAYOUT_PATH),
-                         "../warehouse/generated/out/textures"),
-            "/home/furk/PX4-Autopilot/Tools/simulation/gz/models/"
-            "warehouse_assets/materials/textures"):
+    """
+    Where the generated label textures ended up.
+
+    Three places, in order: a directory the layout names, the generator's own
+    output tree before it is installed, and the PX4 tree that setup_px4.sh
+    copies it into. The last one used to be a path under one developer's home
+    directory, which meant these tests only ran on that machine.  PX4_DIR is
+    the same override setup_px4.sh and launch_sim.sh take.
+    """
+    here = os.path.dirname(os.path.abspath(s.LAYOUT_PATH))
+    px4 = os.environ.get("PX4_DIR") or os.path.expanduser("~/PX4-Autopilot")
+    candidates = []
+    if s.LAYOUT.get("texture_dir"):
+        candidates.append(os.path.join(here, s.LAYOUT["texture_dir"]))
+    candidates += [
+        os.path.join(here, "..", "warehouse", "generated", "gz", "models",
+                     "warehouse_assets", "materials", "textures"),
+        os.path.join(px4, "Tools", "simulation", "gz", "models",
+                     "warehouse_assets", "materials", "textures"),
+    ]
+    for candidate in candidates:
         if os.path.isdir(candidate):
-            return candidate
-    raise SystemExit("no label textures found")
+            return os.path.normpath(candidate)
+    raise SystemExit("no label textures; run setup_px4.sh first")
 
 
 def render(label, width, height, hfov_deg, dist, bearing_deg, label_m,

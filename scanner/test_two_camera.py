@@ -27,11 +27,34 @@ import scanner as s
 # The generated label textures, which is where a real code of the real size
 # comes from. Taking one of these rather than drawing a fresh QR is what makes
 # the test measure the pipeline instead of a code it invented for itself.
-TEX = os.path.join(os.path.dirname(os.path.abspath(s.LAYOUT_PATH)),
-                   s.LAYOUT.get("texture_dir", "../warehouse/generated/out/textures"))
-if not os.path.isdir(TEX):
-    TEX = ("/home/furk/PX4-Autopilot/Tools/simulation/gz/models/"
-           "warehouse_assets/materials/textures")
+def texture_dir():
+    """
+    Where the generated label textures ended up.
+
+    Three places, in order: a directory the layout names, the generator's own
+    output tree before it is installed, and the PX4 tree that setup_px4.sh
+    copies it into. The last one used to be a path under one developer's home
+    directory, which meant these tests only ran on that machine.  PX4_DIR is
+    the same override setup_px4.sh and launch_sim.sh take.
+    """
+    here = os.path.dirname(os.path.abspath(s.LAYOUT_PATH))
+    px4 = os.environ.get("PX4_DIR") or os.path.expanduser("~/PX4-Autopilot")
+    candidates = []
+    if s.LAYOUT.get("texture_dir"):
+        candidates.append(os.path.join(here, s.LAYOUT["texture_dir"]))
+    candidates += [
+        os.path.join(here, "..", "warehouse", "generated", "gz", "models",
+                     "warehouse_assets", "materials", "textures"),
+        os.path.join(px4, "Tools", "simulation", "gz", "models",
+                     "warehouse_assets", "materials", "textures"),
+    ]
+    for candidate in candidates:
+        if os.path.isdir(candidate):
+            return os.path.normpath(candidate)
+    raise SystemExit("no label textures; run setup_px4.sh first")
+
+
+TEX = texture_dir()
 
 # The first leg of the route, whatever the layout makes it. Taking the lane,
 # the heading and the two camera distances from build_route rather than naming
