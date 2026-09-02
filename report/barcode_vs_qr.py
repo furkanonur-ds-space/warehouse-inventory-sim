@@ -17,9 +17,16 @@ So this asks two questions of a finished run:
      disagreement means one of the two is wrong about the shelf, and the
      inventory is only as good as that agreement.
 
-Reads out/inventory_scanned.json and out/barcode_readings.jsonl, and the
-ground truth, and writes nothing.
+Reads out/inventory_scanned.json, the ground truth, and every barcode readings
+file the run left in out/. It writes nothing.
+
+A run now carries a reader on each shelf-reading camera, so there are two
+files, one per camera, and the questions above are only answerable across
+both: the hires reads one face of an aisle and the rear camera the other, so
+either file on its own has nothing to say about half the warehouse. They are
+merged here, and each answer also says which camera saw it.
 """
+import glob
 import json
 import os
 import sys
@@ -46,19 +53,49 @@ def slot_of_qr(payload):
         return None
 
 
+def camera_of(path):
+    """
+    Which camera a readings file came from, from the name the run gave it.
+
+    barcode_readings_front.jsonl -> front. A file with no tag is from a run
+    that had a single reader and did not need one.
+    """
+    stem = os.path.basename(path)
+    for prefix in ("barcode_readings_", "barcode_readings"):
+        if stem.startswith(prefix):
+            tag = stem[len(prefix):].rsplit(".", 1)[0].strip("_")
+            return tag or "camera"
+    return stem
+
+
+def default_readings():
+    """
+    Every readings file in out/, newest run first.
+
+    Globbed rather than named because how many there are is a property of the
+    run: one reader or two, and the tags come from the cameras it was put on.
+    """
+    found = sorted(glob.glob(os.path.join(OUT, "barcode_readings*.jsonl")))
+    return [os.path.basename(f) for f in found]
+
+
 def load_readings(path):
+    """One file's readings, each tagged with the camera that produced it."""
     rows = []
     if not os.path.exists(path):
         return rows
+    camera = camera_of(path)
     with open(path, encoding="utf-8") as handle:
         for line in handle:
             line = line.strip()
             if line:
-                rows.append(json.loads(line))
+                row = json.loads(line)
+                row.setdefault("camera", camera)
+                rows.append(row)
     return rows
 
 
-def main(readings_name="barcode_readings.jsonl"):
+def main(readings_names=None):
     truth = json.load(open(TRUTH, encoding="utf-8"))["codes"]
     boxes = [c for c in truth if c.get("type") == "box_qr"]
     slots = defaultdict(list)
@@ -69,10 +106,22 @@ def main(readings_name="barcode_readings.jsonl"):
                           encoding="utf-8"))
     found = {item["id"] for item in scan["items"]}
 
-    readings = load_readings(os.path.join(OUT, readings_name))
+    names = readings_names or default_readings()
+    if not names:
+        raise SystemExit("no barcode readings in %s; fly with "
+                         "scripts/scan_with_barcode.sh" % OUT)
+    readings = []
+    per_camera = {}
+    for name in names:
+        rows = load_readings(os.path.join(OUT, name))
+        if not rows:
+            print("  (nothing in %s)" % name)
+            continue
+        readings.extend(rows)
+        per_camera.setdefault(camera_of(name), []).extend(rows)
     if not readings:
-        raise SystemExit("no barcode readings at %s"
-                         % os.path.join(OUT, readings_name))
+        raise SystemExit("no barcode readings in %s"
+                         % ", ".join(names))
 
     seen_slots = Counter(r["payload"] for r in readings
                          if r.get("symbology") == "CODE128")
@@ -86,6 +135,19 @@ def main(readings_name="barcode_readings.jsonl"):
     print("  distinct slots seen          %d of %d"
           % (len(seen_slots), len(slots)))
 
+    # Per camera, because the two read different faces and a total hides a
+    # reader that saw nothing at all.
+    if len(per_camera) > 1:
+        print("\n  by camera:")
+        for camera in sorted(per_camera):
+            rows = per_camera[camera]
+            camera_slots = {r["payload"] for r in rows
+                            if r.get("symbology") == "CODE128"}
+            print("    %-8s %6d readings, %4d linked, %3d slots"
+                  % (camera, len(rows),
+                     sum(1 for r in rows if r.get("linked_qr")),
+                     len(camera_slots)))
+
     # 1. Slots the barcode saw where the scan has nothing at all.
     print("\nslots the barcode saw with no box read from them:")
     empty = []
@@ -95,9 +157,13 @@ def main(readings_name="barcode_readings.jsonl"):
         if not any(box in found for box in slots[slot]):
             empty.append(slot)
     if empty:
+        by_slot = defaultdict(set)
+        for row in readings:
+            by_slot[row.get("payload")].add(row.get("camera", "camera"))
         for slot in empty:
-            print("    %-8s %d readings, %d boxes in that slot, none read"
-                  % (slot, seen_slots[slot], len(slots[slot])))
+            print("    %-8s %d readings, %d boxes in that slot, none read  (%s)"
+                  % (slot, seen_slots[slot], len(slots[slot]),
+                     ", ".join(sorted(by_slot[slot]))))
     else:
         print("    none; every slot the barcode saw has at least one box read")
 
@@ -143,7 +209,8 @@ if __name__ == "__main__":
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
-        "readings", nargs="?", default="barcode_readings.jsonl",
-        help="the readings file under out/, for when a run had a reader on "
-             "more than one camera and each wrote its own")
+        "readings", nargs="*",
+        help="readings files under out/. Defaults to every "
+             "barcode_readings*.jsonl the run left there, which is one per "
+             "camera it put a reader on")
     main(parser.parse_args().readings)
