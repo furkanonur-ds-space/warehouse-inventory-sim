@@ -13,6 +13,14 @@ set -e
 PX4="${PX4_DIR:-$HOME/PX4-Autopilot}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PY="${PYTHON:-$HOME/autonomous_landing/venv/bin/python}"
+if [ ! -x "$PY" ]; then
+    PY="$HERE/.venv/bin/python"
+fi
+if [ ! -x "$PY" ]; then
+    echo "no interpreter; set PYTHON, for example"
+    echo "  PYTHON=\"\$PWD/.venv/bin/python\" $0"
+    exit 1
+fi
 
 GEN="$HERE/warehouse/generated"
 PX4_MODELS="$PX4/Tools/simulation/gz/models"
