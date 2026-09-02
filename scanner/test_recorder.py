@@ -14,7 +14,7 @@ import time
 import cv2
 import numpy as np
 
-sys.path.insert(0, "/home/furk/starling/scanner")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import scanner as s
 
 failures = []
