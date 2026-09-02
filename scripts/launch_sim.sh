@@ -53,7 +53,13 @@ fi
 
 mkdir -p "$LOGDIR"
 export PX4_GZ_MODEL_POSE="$X,$Y,0.30,0,0,0"
-export HEADLESS="${HEADLESS:-1}"
+# PX4 starts the gui when HEADLESS is empty, not when it is zero: the test in
+# px4-rc.gzsim is [ -z "${HEADLESS}" ]. HEADLESS=0 is a non-empty string and
+# leaves the window shut, which reads as this script ignoring the request.
+case "${HEADLESS:-1}" in
+    0|no|false|off) unset HEADLESS ;;
+    *)              export HEADLESS=1 ;;
+esac
 
 if [ "${1:-}" = "nvidia" ]; then
     # Without this Mesa picks the integrated GPU and the simulation runs at
