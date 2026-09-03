@@ -246,6 +246,29 @@ print("\n6. each camera holds its own detector")
 check("wechat detectors differ", s.HIRES.detector is not s.REAR.detector, True)
 check("fallback detectors differ", s.HIRES.fallback is not s.REAR.fallback, True)
 
+print("\n6. every reading is counted, not only the first")
+# The margin figures rest entirely on this: a face whose thinnest code was
+# read once is a face that loses one on somebody else's machine, and the
+# coverage total cannot say so. If the counter silently stopped counting
+# repeats, every face would look like a coin toss and nobody would know.
+s.inventory.clear()
+s.sightings.clear()
+_pose = (0.0, 0.0, -0.7, 90.0)
+for _ in range(4):
+    s.record_detection("WH1|A|01|1|SKU00001", 512, 384, 1024, 768,
+                       _pose, s.CAMERA_HFOV_DEG, "camera_hires_link", 1.24)
+s.record_detection("WH1|A|02|1|SKU00002", 512, 384, 1024, 768,
+                   _pose, s.CAMERA_HFOV_DEG, "camera_hires_link", 1.24)
+check("a code read four times counts four", s.sightings["WH1|A|01|1|SKU00001"], 4)
+check("a code read once counts one", s.sightings["WH1|A|02|1|SKU00002"], 1)
+check("and is filed once either way", len(s.inventory), 2)
+_by_face = s._sightings_by_face()
+check("gathered by face, thinnest first",
+      sorted(next(iter(_by_face.values()))), [1, 4])
+check("nothing counted but unplaced", None in _by_face, False)
+s.inventory.clear()
+s.sightings.clear()
+
 for _cam in (s.HIRES, s.REAR):
     _cam.finish()
 
