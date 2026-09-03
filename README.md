@@ -18,8 +18,9 @@ scanner learns anything about a warehouse.
 
 ## Results
 
-Latest run, 2026-09-02, against `warehouse/ground_truth.json`, in the tapered
-warehouse whose aisles run 2.40, 1.77, 1.13 and 0.50 m:
+Latest run, 2026-09-03, against `warehouse/ground_truth.json`, in the tapered
+warehouse whose aisles run 2.40, 1.77, 1.13 and 0.50 m. Four consecutive runs
+have read all 432:
 
 | Metric | Value |
 |---|---|
@@ -27,16 +28,17 @@ warehouse whose aisles run 2.40, 1.77, 1.13 and 0.50 m:
 | Filed correctly | 432 / 432 (100%) |
 | Wrong shelf, level or bay | 0, 0, 0 |
 | Waypoints reached | 24 / 24 |
-| Position error, median | 0.062 m |
-| Position error, p95 | 0.080 m |
-| Position error, worst | 0.140 m |
-| Within 10 cm | 99.1% |
+| Position error, median | 0.022 m |
+| Position error, p95 | 0.061 m |
+| Position error, worst | 0.135 m |
+| Within 10 cm | 99.8% |
 | Within 25 cm | 100% |
-| Frames decoded | 4945 |
+| Frames decoded | 6157 |
 | Frames dropped for being too old | 0 |
-| Frame age, median | 0.008 s |
-| Marker fixes applied | 312 |
-| Flight time | 579 s |
+| Frames dropped with a decoder busy | 108 (1.8%) |
+| Frame age, median | 0.004 s |
+| Marker fixes applied | 318 |
+| Flight time | 587 s |
 
 Both faces of an aisle are read in one pass, the forward hires camera ahead and
 the rear tracking camera behind, which is what halves the route to 24
@@ -121,6 +123,64 @@ and one box of 432 now sits outside 10 cm. The worst are in the wide aisles
 rather than the narrow one, so it reads as the price of decoding twenty per
 cent more frames, some caught at the edge of a frame. Everything is still on
 the right shelf, level and bay, and inside 25 cm.
+
+### The total stops being a measurement at 432 of 432
+
+A run that reads everything cannot say whether it nearly did not, and a code
+read in one frame is a coin toss that happened to land: the same code on a
+machine that renders at a different rate goes the other way. So the run counts
+every reading of every code, not only the first, and reports the thinnest per
+face. That is the number that still moves at the ceiling.
+
+    face  codes  min  median  read once
+    A        54    4       8          0
+    B        54    8      10          0
+    C        54    5       6          0
+    D        54    6       8          0
+    E        54    3       4          0
+    F        54    3       4          0
+    G        54    1       1         38
+    H        54    1       2         18
+
+It also made two machines comparable. Ibrahim's run missed one code in the
+2.40 m aisle where ours missed none, and "he missed one and we did not" is an
+anecdote. His machine turned out to be the slower of the two, decoding a frame
+in 190 ms against our 120, and his 0.50 m lane was running at 96 per cent of
+one decoder thread.
+
+What made the widest aisle the thin one was a stride: on a lane offering more
+frames than a box was thought to need, one frame in N was decoded and the rest
+dropped untouched. It was rationing, worth having while both cameras shared
+one thread, and it only ever cut the 2.40 m aisle, which is where a code
+resolves to fewest pixels. Frames are not surplus there. Removing it took face
+B from six codes read once to none.
+
+### Where a code is reported
+
+A code's position is snapped to the layout, because the vehicle pitches to fly
+and a tilted camera reports a bearing and an elevation that are both slightly
+wrong. What it is snapped to used to be the whole of the reported error:
+
+    dx  0.016 m on every one of 432 codes, both signs
+    dz  up to 0.060 m, and exactly 0.060 on all 108 codes of G and H
+    dy  0.010 m, the only axis not snapped and the only real measurement
+
+dx was the shelf surface standing in for the plane the codes are on, which is
+`code_plane_offset_m` deeper into the shelf. dz was `flight_z`, which is the
+altitude the vehicle flies at and was never an estimate of anything on a shelf.
+
+The two axes are constrained differently and are treated differently now.
+There are eight shelf planes and a code is on one of them, so x is decided.
+Height is continuous within a level, so the measurement is kept and only
+bounded by the band of heights the layout says that face carries. Scored on a
+finished run, height error alone:
+
+    flight_z              median 0.0500   within 5 cm  32%
+    measured, unbounded   median 0.0243   within 5 cm  94%
+    measured, bounded     median 0.0149   within 5 cm  95%
+
+Median position error went from 0.062 m to 0.022, and within 10 cm from 98.8
+per cent to 99.8.
 
 ### Where a code is filed
 
@@ -743,10 +803,46 @@ per module at the 1.05 m it stands there, against a threshold of 3. It reads
 to 1.66. Enlarging the label QR from 70 mm to 100 mm would give the whole
 building far more room. That is a change on the warehouse side.
 
-**The narrowest aisle is still the thinnest budget in the building.** A box
-gets 2.4 frames there against fourteen in the widest, and 0.045 m of vertical
-room against 0.38. Both are now on the right side of the line and the run is
-complete, but neither has much to give back. The levers left, in the order
-they are worth pulling: more frames in that aisle, and moving the lane off the
-proportional split, which currently leaves 0.084 m between a propeller tip and
-face H while the TOF only watches the other side.
+**A code is wholly in frame 1.7 times in the narrowest aisle.** Every frame
+count in this project used to ask whether the middle of a code was in view,
+but a code half out of the side does not decode any more than one half out of
+the top. Subtracting the code's own 0.072 m from the span:
+
+    face  aisle    whole code in frame   codes read once
+    A     2.40 m                 13.6                 0
+    B     2.40                   16.1                 0
+    E     1.13                    5.7                 0
+    G     0.50                    1.7                38
+    H     0.50                    2.2                18
+
+That is the whole of why 38 of G's 54 codes were read exactly once, and the
+model agrees with the counts on all eight faces. It is close to bedrock: at
+1 m/s, through a 60 degree lens, from the 0.211 m the hires can stand at in a
+0.50 m aisle, 1.7 is what the geometry gives. Speed is fixed at 1 m/s by
+choice, and the lens is the one the real vehicle carries.
+
+Moving the lane was measured and is not worth it: splitting the aisle to make
+the weaker face as strong as possible takes G from 1.71 to 1.92 whole views
+and cuts the clearance between a propeller tip and face H from 0.084 m to
+0.066, on the side the TOF cannot see.
+
+The remaining lever is decode cost, which is what stops the cameras being run
+faster. Decoding only the rows a code can be in, which the layout knows before
+the frame arrives, was benched at 44 per cent faster through the real pipeline
+with no codes lost and slightly more read. It is not implemented: it buys
+robustness on a slow machine rather than coverage here, and the codes are
+about to stop being QR read by OpenCV.
+
+**Face B has 1.7 px per module, the thinnest reading in the building.** At the
+1.05 m the rear camera stands at in the widest aisle, against a threshold of
+3. It reads 54 of 54 because WeChat's detector goes down to 1.66. Enlarging
+the label QR from 70 mm to 100 mm would give the whole building far more room.
+That is a change on the warehouse side.
+
+**None of this is measured against a real detector.** The vehicle will not run
+OpenCV: torn, dirty and badly lit labels are a trained model's problem. The
+seam is already in the right place. `decode_qr(frame, cam)` returns
+`(value, cx, cy, frame_w, frame_h)` per reading and everything WeChat-specific
+lives inside it: the strips, the sizing of them, the crop-and-threshold second
+pass. Everything outside it is about geometry and timing and does not know
+what found the code.
