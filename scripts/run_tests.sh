@@ -23,12 +23,20 @@ fi
 cd "$HERE/scanner" || exit 1
 failed=0
 
+# Whether a suite passed is its exit status, not a phrase in its output. The
+# phrase was "all checks passed|8/8 passed", which stopped being true the day
+# a suite gained a ninth check, and would also have called a suite that
+# printed the phrase and then crashed a pass.
 run() {
     echo "== $1"
-    out=$("$PY" "$1" 2>&1 | grep -v libprotobuf | grep -v DynamicFactory)
-    echo "$out" | tail -2 | sed 's/^/   /'
-    echo "$out" | grep -qiE "all checks passed|8/8 passed" \
-        || { echo "   !! FAILED"; failed=$((failed + 1)); }
+    out=$("$PY" "$1" 2>&1)
+    status=$?
+    printf '%s\n' "$out" | grep -v libprotobuf | grep -v DynamicFactory \
+        | tail -2 | sed 's/^/   /'
+    if [ "$status" -ne 0 ]; then
+        echo "   !! FAILED (exit $status)"
+        failed=$((failed + 1))
+    fi
     echo
 }
 
