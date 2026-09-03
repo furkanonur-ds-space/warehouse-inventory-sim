@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
-Check that a barcode reading lands on the box it was read from.
+Check that a barcode reading lands on the label it was read from.
 
     .venv/bin/python report/test_barcode_inventory.py
 
 No simulator and no flight. A box is taken from ground truth, its barcode is
 projected into the frame the camera would have seen it in, and that synthetic
 reading is put through the same place() a real one goes through. The answer
-has to come back where the box is.
+has to come back where that barcode label is - not where the QR above it is,
+since the two are separate labels on the same box and each is scored against
+its own truth.
 
 This is worth having because the geometry is the scanner's, rewritten against
 a different pose convention: the scanner is given MAVSDK's yaw, measured from
@@ -83,11 +85,13 @@ def synthesise(codes, geometry, layout, row, bay, level, which, lane_x, index=0)
         # The rear camera is mounted backwards, so the vehicle's own heading is
         # the one this camera's view is turned 180 degrees from.
         "uav_yaw_deg": math.degrees(psi) - (180.0 if which == "rear" else 0.0),
+        # Recorded by the reader and carried through, but not used to place
+        # the barcode: it is what a tool comparing the two labels needs.
         "qr_drop_m": qr["label_pose_xyzrpy"][2] - bz,
         "camera_link": ("camera_track_rear_link" if which == "rear"
                         else "camera_hires_link"),
     }
-    return reading, qr
+    return reading, bar
 
 
 def main() -> int:
@@ -106,9 +110,9 @@ def main() -> int:
         for bay, level in ((2, 1), (4, 2), (6, 3)):
             for index in (0, 1, 2):
                 try:
-                    reading, qr = synthesise(codes, geometry, layout,
-                                             row, bay, level, which, lane_x,
-                                             index)
+                    reading, bar = synthesise(codes, geometry, layout,
+                                              row, bay, level, which,
+                                              lane_x, index)
                 except IndexError:
                     continue
                 spot = bi.place(reading, geometry)
@@ -117,7 +121,7 @@ def main() -> int:
                     print("%-5s %-6s %-6d  not placed at all" % (row, which, level))
                     failures += 1
                     continue
-                tx, ty, tz = qr["label_pose_xyzrpy"][:3]
+                tx, ty, tz = bar["label_pose_xyzrpy"][:3]
                 dx, dy, dz = spot["x"] - tx, spot["y"] - ty, spot["z"] - tz
                 worst = max(worst, abs(dx), abs(dy), abs(dz))
                 bad = (max(abs(dx), abs(dy), abs(dz)) > TOLERANCE_M

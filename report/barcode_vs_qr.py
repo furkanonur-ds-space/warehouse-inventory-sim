@@ -1,33 +1,27 @@
 """
-What did the barcodes add that the QR codes did not?
+Both labels on every box, side by side.
 
-Every box carries two labels: a QR naming the box, and a Code128 barcode
-carrying that box's own SKU digits. The two say the same thing by different
-routes - different symbology, different decoder, a different string - so
-reading both is evidence that either can be read on its own.
+A box carries two codes and they say different things: a QR that names the
+box, and a Code128 barcode carrying its own payload. Neither can be derived
+from the other, which is exactly why both are read on the same pass and both
+have to be reported. This is the report that holds them next to each other.
 
-That makes the barcode able to do what it could not when it named a shelf slot
-shared by three boxes: identify a box the QR scan came away without. A torn or
-unreadable QR is no longer a silent gap in the inventory but a box the other
-label recovered.
+For every box in the warehouse it asks two independent questions - was its QR
+read, and was its barcode read - and never answers one with the other. The
+pairing comes from ground truth, which knows the two labels sit on the same
+box; that is scoring both measurements, not deriving one from the other.
 
-So this asks three questions of a finished run:
+What it produces:
 
-  1. Which boxes did the barcode read that the QR scan missed? Those are
-     recovered, not merely suspected.
-  2. Where both read the same box, did they agree? A disagreement means one of
-     the two labels was misread, and the inventory is only as good as that
-     agreement.
-  3. Which boxes did neither read? Those are the ones worth flying back for.
+  1. How many boxes gave up both labels, one, or neither. A box read by only
+     one is a box whose record is half there, and which half matters.
+  2. Where a barcode was read in the same frame as a QR, whether the pair sits
+     on the same box. A mismatch means a misread or a bad link.
+  3. What each camera contributed, since the hires reads one face of an aisle
+     and the rear camera the other.
 
 Reads out/inventory_scanned.json, the ground truth, and every barcode readings
 file the run left in out/. It writes nothing.
-
-A run carries a reader on each shelf-reading camera, so there are two files,
-one per camera, and the questions above are only answerable across both: the
-hires reads one face of an aisle and the rear camera the other, so either file
-on its own has nothing to say about half the warehouse. They are merged here,
-and each answer also says which camera saw it.
 """
 import glob
 import json
@@ -43,13 +37,33 @@ OUT = os.path.join(ROOT, "out")
 TRUTH = os.path.join(ROOT, "warehouse", "ground_truth.json")
 
 
-def barcode_of_qr(payload):
-    """WH1|A|06|1|SKU59435 -> 59435, the barcode on that same box."""
-    parts = payload.split("|")
-    if len(parts) < 5:
-        return None
-    sku = parts[4]
-    return sku[3:] if sku.startswith("SKU") else sku
+def label_pairs(truth):
+    """
+    Box QR payload -> the barcode payload on that same box, from ground truth.
+
+    The world generator puts both labels on one box and records both, so the
+    pairing is a fact about the warehouse rather than a rule about payloads.
+    An earlier version derived the barcode from the QR's SKU, which only held
+    while the two carried the same fact; the moment they carry different ones
+    it reports a reading nobody made.
+    """
+    by_slot = {}
+    for code in truth:
+        if code.get("type") != "box_placard":
+            continue
+        key = (code["row"], int(code["bay"]), int(code["level"]),
+               round(code["label_pose_xyzrpy"][1], 3))
+        by_slot[key] = code["payload"]
+
+    pairs = {}
+    for code in truth:
+        if code.get("type") != "box_qr":
+            continue
+        key = (code["row"], int(code["bay"]), int(code["level"]),
+               round(code["label_pose_xyzrpy"][1], 3))
+        if key in by_slot:
+            pairs[code["payload"]] = by_slot[key]
+    return pairs
 
 
 def camera_of(path):
@@ -150,24 +164,18 @@ def load_readings(path):
 def main(readings_names=None):
     truth = json.load(open(TRUTH, encoding="utf-8"))["codes"]
     boxes = [c for c in truth if c.get("type") == "box_qr"]
-    # The barcode on a box, back to the box it is on. One to one now: the
-    # payload is that box's own SKU digits.
-    box_of = {}
-    for box in boxes:
-        code = barcode_of_qr(box["payload"])
-        if code is not None:
-            box_of[code] = box["payload"]
+    pairs = label_pairs(truth)            # QR payload -> barcode on that box
+    box_of_barcode = {bar: qr for qr, bar in pairs.items()}
 
     scan = json.load(open(os.path.join(OUT, "inventory_scanned.json"),
                           encoding="utf-8"))
-    found = {item["id"] for item in scan["items"]}
+    qr_read = {item["id"] for item in scan["items"]}
 
     names = readings_names or default_readings()
     if not names:
         raise SystemExit("no barcode readings in %s; fly with "
                          "scripts/scan_with_barcode.sh" % OUT)
-    readings = []
-    per_camera = {}
+    readings, per_camera = [], {}
     for name in names:
         rows = load_readings(os.path.join(OUT, name))
         if not rows:
@@ -179,88 +187,83 @@ def main(readings_names=None):
         raise SystemExit("no barcode readings in %s" % ", ".join(names))
 
     bars = [r for r in readings if r.get("symbology") == "CODE128"]
-    seen = Counter(r["payload"] for r in bars)
-    # Which camera read each barcode, for the answers that name a box.
-    cameras_of = defaultdict(set)
-    for row in bars:
-        cameras_of[row["payload"]].add(row.get("camera", "camera"))
+    seen_bar = Counter(r["payload"] for r in bars)
+    unknown = sorted(code for code in seen_bar if code not in box_of_barcode)
+    bar_read = {box_of_barcode[c] for c in seen_bar if c in box_of_barcode}
 
-    read_by_barcode = {box_of[code] for code in seen if code in box_of}
-    unknown = [code for code in seen if code not in box_of]
+    both = qr_read & bar_read
+    only_qr = qr_read - bar_read
+    only_bar = bar_read - qr_read
+    neither = {b["payload"] for b in boxes} - qr_read - bar_read
 
     print("run: %s" % scan.get("scan_date", "unknown"))
     print("  boxes in the warehouse       %d" % len(boxes))
-    print("  read by QR                   %d" % len(found))
-    print("  read by barcode              %d" % len(read_by_barcode))
-    print("  read by either               %d" % len(found | read_by_barcode))
+    print("  both labels read             %d" % len(both))
+    print("  QR only                      %d" % len(only_qr))
+    print("  barcode only                 %d" % len(only_bar))
+    print("  neither                      %d" % len(neither))
     print("  barcode readings             %d" % len(bars))
-    print("  of those, linked to a QR     %d"
-          % sum(1 for r in readings if r.get("linked_qr")))
     if unknown:
-        print("  payloads matching no box     %d  (%s)"
-              % (len(unknown), ", ".join(sorted(unknown)[:5])))
+        print("  payloads on no box           %d  (%s)"
+              % (len(unknown), ", ".join(unknown[:6])))
 
-    # Per camera, because the two read different faces and a total hides a
-    # reader that saw nothing at all.
     if len(per_camera) > 1:
         print("\n  by camera:")
         for camera in sorted(per_camera):
             rows = [r for r in per_camera[camera]
                     if r.get("symbology") == "CODE128"]
-            print("    %-8s %6d readings, %4d linked, %3d boxes"
+            print("    %-8s %6d readings, %4d linked, %3d barcodes"
                   % (camera, len(rows),
                      sum(1 for r in per_camera[camera] if r.get("linked_qr")),
                      len({r["payload"] for r in rows})))
 
-    # 1. What the barcode recovered: a box the QR scan does not have.
-    recovered = sorted(read_by_barcode - found)
-    print("\nboxes the barcode read that the QR scan missed:")
-    if recovered:
-        for payload in recovered:
-            code = barcode_of_qr(payload)
-            print("    %-22s barcode %-8s %d readings  (%s)"
-                  % (payload, code, seen[code],
-                     ", ".join(sorted(cameras_of[code]))))
-        print("    %d box%s recovered by the second label"
-              % (len(recovered), "" if len(recovered) == 1 else "es"))
-    else:
-        print("    none; the QR scan already had every box the barcode read")
+    # 1. A box whose record is half there, and which half.
+    def by_face(payloads):
+        return ", ".join("%s %d" % kv for kv in
+                         sorted(Counter(p.split("|")[1]
+                                        for p in payloads).items()))
 
-    # 2. Where both read the same box, did the two labels agree?
-    print("\nwhere a barcode was linked to a QR, did they agree?")
+    print("\nboxes that gave up only one of their two labels:")
+    if only_qr:
+        print("    QR but no barcode   %4d   by face: %s"
+              % (len(only_qr), by_face(only_qr)))
+    if only_bar:
+        print("    barcode but no QR   %4d   by face: %s"
+              % (len(only_bar), by_face(only_bar)))
+    if not only_qr and not only_bar:
+        print("    none; every box read gave up both")
+
+    print("\nboxes neither label read:")
+    if neither:
+        for payload in sorted(neither)[:10]:
+            print("    %s" % payload)
+        if len(neither) > 10:
+            print("    ... and %d more" % (len(neither) - 10))
+        print("    %d of %d, by face: %s"
+              % (len(neither), len(boxes), by_face(neither)))
+    else:
+        print("    none; every box was read by at least one label")
+
+    # 2. A barcode read in the same frame as a QR: same box or not?
+    print("\nwhere a barcode was read beside a QR, were they on the same box?")
     agree = disagree = 0
     for row in readings:
-        if not row.get("linked_qr"):
+        linked = row.get("linked_qr")
+        if not linked:
             continue
-        if barcode_of_qr(row["linked_qr"]) == row["payload"]:
+        if pairs.get(linked) == row["payload"]:
             agree += 1
         else:
             disagree += 1
             if disagree <= 5:
-                print("    %s read beside %s, whose barcode is %s"
-                      % (row["payload"], row["linked_qr"],
-                         barcode_of_qr(row["linked_qr"])))
+                print("    %s read beside %s, which carries %s"
+                      % (row["payload"], linked, pairs.get(linked)))
     total = agree + disagree
     if total:
-        print("    %d of %d agreed, %.1f per cent"
+        print("    %d of %d on the same box, %.1f per cent"
               % (agree, total, 100.0 * agree / total))
     else:
         print("    nothing was linked")
-
-    # 3. What neither label reached.
-    missed = sorted({b["payload"] for b in boxes} - found - read_by_barcode)
-    print("\nboxes neither label read:")
-    if missed:
-        by_face = Counter(p.split("|")[1] for p in missed)
-        for payload in missed[:10]:
-            print("    %s" % payload)
-        if len(missed) > 10:
-            print("    ... and %d more" % (len(missed) - 10))
-        print("    %d of %d, by face: %s"
-              % (len(missed), len(boxes),
-                 ", ".join("%s %d" % kv for kv in sorted(by_face.items()))))
-    else:
-        print("    none; every box was read by at least one label")
 
 
 if __name__ == "__main__":

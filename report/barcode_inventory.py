@@ -13,26 +13,32 @@ list of sightings, so the two could not be compared as inventories - only as
 counts. This produces the missing half, and because it writes the same schema,
 every scoring tool already takes it:
 
-    .venv/bin/python report/validate_inventory.py --inventory out/inventory_barcode.json
-    .venv/bin/python report/coverage_report.py   --inventory out/inventory_barcode.json
-    .venv/bin/python report/missed_log.py        --inventory out/inventory_barcode.json
+    report/validate_inventory.py --inventory out/inventory_barcode.json \
+                                --code-type box_placard
+    report/coverage_report.py   --inventory out/inventory_barcode.json \
+                                --code-type box_placard
 
-WHAT IS LOOKED UP AND WHAT IS MEASURED. The barcode carries a box's SKU
-digits, not the row and bay its QR spells out, so the payload is resolved
-against ground truth to name the box. That is a catalogue lookup and nothing
-more: which shelf, which level and where in the aisle all come from the
-geometry below and are never read from the truth. A wrong shelf stays wrong
-and is scored as wrong.
+NOTHING IS LOOKED UP. A box carries two codes that say different things, so
+neither can be derived from the other: what this files is the barcode that was
+read, at the position it was read from, and it is scored against the barcode
+labels in ground truth rather than against the QR ones. An earlier version
+resolved each payload to the box's QR through a catalogue, which quietly
+reported a QR reading that never happened - the whole point of carrying two
+labels is that they are two measurements, and a run has to be able to say that
+one was read and the other was not.
 
 THE GEOMETRY is the scanner's own, applied to the barcode reader's numbers:
 a bearing from where the bars sat in the frame, a known perpendicular distance
 to the face the camera was reading, and the along-aisle offset that follows.
 Two things differ from the QR case and both are corrected here:
 
-  * the bars sit qr_drop_m below the QR on the same box, and the box is filed
-    at its QR, so the drop is added back to the height;
   * the two cameras are not the same camera and do not fly the same distance
-    from their faces, which face_cameras() in warehouse_model already knows.
+    from their faces, which the vehicle model and the layout between them
+    already know;
+  * the bars are what was read and the barcode label is what is scored, so the
+    height is the bars' own. The drop to the QR above them is recorded with
+    every reading and left alone here; it is what a tool comparing the two
+    labels needs, not this one.
 
 A box read many times is filed once, from the reading with the smallest
 bearing: a code straight ahead is the one whose distance the perpendicular
@@ -53,24 +59,11 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from warehouse_model import (GROUND_TRUTH, LAYOUT, REPO_ROOT,   # noqa: E402
-                             cameras, face_cameras)
-from barcode_vs_qr import (barcode_of_qr, camera_of,            # noqa: E402
-                           default_readings, load_readings)
+                             cameras)
+from barcode_vs_qr import (camera_of, default_readings,         # noqa: E402
+                           load_readings)
 
 OUT = REPO_ROOT / "out"
-
-
-def catalogue(truth_path: Path) -> dict:
-    """Barcode payload -> the box's QR payload. Identity only, never place."""
-    codes = json.loads(Path(truth_path).read_text(encoding="utf-8"))["codes"]
-    out = {}
-    for code in codes:
-        if code.get("type") != "box_qr":
-            continue
-        bar = barcode_of_qr(code["payload"])
-        if bar is not None:
-            out[bar] = code["payload"]
-    return out
 
 
 def faces_by_name(path: Path = LAYOUT) -> dict:
@@ -138,9 +131,9 @@ def place(row, geometry) -> dict | None:
 
     box_x = code_plane_x(best, geometry["code_plane"])
     box_y = uav["y"] + forward_y * depth + right_y * lateral
-    # The bars are what was read; the box is filed at its QR, which sits this
-    # far above them on the same label stack.
-    box_z = uav["z"] + vertical + row.get("qr_drop_m", 0.0)
+    # The bars' own height. This files the barcode label, which is what the
+    # barcode truth records, so nothing is added to reach the QR above it.
+    box_z = uav["z"] + vertical
 
     flight_z = geometry["flight_z"]
     level = min(range(len(flight_z)), key=lambda i: abs(flight_z[i] - box_z))
@@ -166,16 +159,13 @@ def build(readings, truth_path=GROUND_TRUTH, layout_path=LAYOUT) -> dict:
         "code_plane": layout.get("code_plane_offset_m", 0.0),
         "flight_z": layout["flight_z"],
     }
-    known = catalogue(truth_path)
-
     best = {}
-    placed = skipped = unknown = 0
+    placed = skipped = 0
     for row in readings:
         if row.get("symbology") != "CODE128":
             continue
-        box = known.get(row.get("payload"))
-        if box is None:
-            unknown += 1
+        code = row.get("payload")
+        if not code:
             continue
         spot = place(row, geometry)
         if spot is None:
@@ -184,14 +174,14 @@ def build(readings, truth_path=GROUND_TRUTH, layout_path=LAYOUT) -> dict:
         placed += 1
         # Straightest on first: the perpendicular standoff describes the range
         # to a code dead ahead, and least well to one at the edge.
-        if box not in best or abs(spot["bearing"]) < abs(best[box]["bearing"]):
-            best[box] = spot
+        if code not in best or abs(spot["bearing"]) < abs(best[code]["bearing"]):
+            best[code] = spot
 
     items = []
-    for box in sorted(best):
-        s = best[box]
+    for code in sorted(best):
+        s = best[code]
         items.append({
-            "id": box,
+            "id": code,
             "estimated_x": round(s["x"], 3),
             "estimated_y": round(s["y"], 2),
             "estimated_z": round(s["z"], 3),
@@ -213,7 +203,6 @@ def build(readings, truth_path=GROUND_TRUTH, layout_path=LAYOUT) -> dict:
         "total_detected": len(items),
         "readings_placed": placed,
         "readings_without_a_pose": skipped,
-        "readings_matching_no_box": unknown,
         "items": items,
     }
 
@@ -252,12 +241,11 @@ def main() -> int:
     print("  placed                     %d" % inv["readings_placed"])
     if inv["readings_without_a_pose"]:
         print("  no pose, so not placed     %d" % inv["readings_without_a_pose"])
-    if inv["readings_matching_no_box"]:
-        print("  matching no box            %d" % inv["readings_matching_no_box"])
-    print("  boxes filed                %d" % inv["total_detected"])
+    print("  barcodes filed             %d" % inv["total_detected"])
     print("\nwritten to %s" % args.out)
     print("score it with:")
-    print("  report/validate_inventory.py --inventory %s" % args.out)
+    print("  report/validate_inventory.py --inventory %s --code-type box_placard"
+          % args.out)
     return 0
 
 

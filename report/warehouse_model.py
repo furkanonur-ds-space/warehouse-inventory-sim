@@ -140,10 +140,21 @@ def bounds(cfg: dict, margin: float = 2.0) -> list[float]:
 
 # ------------------------------------------------------------------- data
 
-def load_ground_truth(path: Path = GROUND_TRUTH) -> dict[str, dict]:
-    """The box QR labels, keyed by payload. Placards and markers are dropped."""
+def load_ground_truth(path: Path = GROUND_TRUTH,
+                      code_type: str = "box_qr") -> dict[str, dict]:
+    """
+    One symbology's labels, keyed by payload. Markers are always dropped.
+
+    A box carries two codes that say different things, and each is read by its
+    own decoder and scored against its own truth. Neither can stand in for the
+    other: the QR names the box, the barcode carries what the barcode carries,
+    and deriving one from the other would report a reading that never happened.
+
+    `box_qr` is the default because that is what scanner.py writes.
+    `box_placard` scores the barcode inventory the same way.
+    """
     codes = json.loads(Path(path).read_text())["codes"]
-    return {c["payload"]: c for c in codes if c["type"] == "box_qr"}
+    return {c["payload"]: c for c in codes if c["type"] == code_type}
 
 
 def load_markers(path: Path = GROUND_TRUTH) -> list[dict]:
