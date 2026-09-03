@@ -46,6 +46,11 @@ run report/drift_report.py --html out/drift.html
 # Appends this run to the one log that accumulates across flights. Safe to
 # repeat: a scan already in the log is not added twice.
 run report/missed_log.py
+# One line per flight in a spreadsheet. Everything it writes is already in
+# out/ and all of it is overwritten by the next scan, which is the wrong way
+# round: the console logs survive and the numbers do not. Same rule as the
+# miss log, a run is added once.
+run report/run_log.py
 
 echo
 if [ "$failed" -eq 0 ]; then
