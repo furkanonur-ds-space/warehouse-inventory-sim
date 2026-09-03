@@ -140,6 +140,11 @@ USABLE_FRAME = 0.885
 # not decode at all; there is no partial credit for most of a QR.
 CODE_SIZE_M = LAYOUT.get("code_size_m", 0.072)
 
+# How far the plane the codes sit in is from the shelf surface, into the
+# shelf. Reporting the surface instead put every one of 432 codes 0.016 m out
+# in x, with the sign following the face. Zero for a layout that does not say.
+CODE_PLANE_OFFSET_M = LAYOUT.get("code_plane_offset_m", 0.0)
+
 
 def half_frame_m(hfov_deg, frame_px, depth):
     """Half the camera's vertical field, in metres, at this distance."""
@@ -1233,22 +1238,55 @@ def record_detection(qr_id, cx_px, cy_px, frame_w, frame_h, pose,
     box_y = gy + forward_y * depth + right_y * lateral
     box_z = gz + vertical
 
-    # SNAP to grid to eliminate error from drone pitch during flight!
-    # Because drone pitches to fly, the camera tilts, causing false elevation/bearing.
-    # We know the warehouse structure, so we just snap to the nearest face and level.
-    box_x = min(SHELF_FACE_X, key=lambda f: abs(f - box_x))
-    box_z = min(FLIGHT_Z, key=lambda z: abs(z - box_z))
+    # Snapped to the layout, because the vehicle pitches to fly and a tilted
+    # camera reports a bearing and an elevation that are both slightly wrong.
+    # The building is known, so which face and which level a code is on is not
+    # something worth estimating.
+    #
+    # What is snapped to matters as much as whether. Scored against ground
+    # truth, the whole of the reported error used to be these two constants
+    # rather than anything measured:
+    #
+    #     dx   0.016 m on every one of 432 codes, both signs
+    #     dz   up to 0.060 m, and exactly 0.060 on all 108 codes of G and H
+    #     dy   0.010 m, the only axis not snapped and the only real measurement
+    #
+    # dx was the shelf surface standing in for the plane the codes are on,
+    # which sits code_plane_offset_m deeper into the shelf. dz was flight_z
+    # standing in for where the codes are: flight_z is where the vehicle flies
+    # and was never an estimate of anything on the shelf.
+    #
+    # The two axes want different treatment, because the building constrains
+    # them differently. There are eight shelf planes and a code is on one of
+    # them, so x is worth deciding rather than measuring. Height is continuous
+    # within a level, so the measurement is kept and only bounded.
+    raw_x, raw_z = box_x, box_z
+    face = face_at(box_x)
+    box_x = code_plane_x(face) if face else min(
+        SHELF_FACE_X, key=lambda f: abs(f - box_x))
+    level = min(range(len(FLIGHT_Z)),
+                key=lambda i: abs(FLIGHT_Z[i] - box_z))
+    box_z = code_height(face, level, raw_z)
 
     inventory[qr_id] = {
         "id": qr_id,
-        "estimated_x": round(box_x, 2),
+        "estimated_x": round(box_x, 3),
         "estimated_y": round(box_y, 2),
-        "estimated_z": round(box_z, 2),
+        "estimated_z": round(box_z, 3),
+        # What the geometry gave before it was snapped. Kept so that the
+        # snapping can be scored rather than assumed: it was added to cover
+        # for a tilted camera and has never been measured against the estimate
+        # it replaces.
+        "estimated_x_raw": round(raw_x, 3),
+        "estimated_z_raw": round(raw_z, 3),
         # Which face and which level, named rather than left as coordinates.
         # Scoring a scan asks "right shelf?" more often than "how many metres
         # out?", and the snap above has already decided both.
-        "shelf": shelf_name(box_x),
-        "level": FLIGHT_Z.index(box_z) + 1,
+        # Taken from the face and the level that were chosen above rather than
+        # looked up again from the reported coordinates, which no longer sit on
+        # the shelf surface or at flight_z and would not be found there.
+        "shelf": face.get("name") if face else shelf_name(raw_x),
+        "level": level + 1,
         # Which camera read it. Two cameras now scan two different faces on
         # the same pass, so a bare count no longer says which one is
         # earning its place.
@@ -1348,12 +1386,72 @@ def on_tof_scan(msg):
         pass
 
 
+def face_at(x):
+    """The shelf face nearest this x, or None if the layout has none at all."""
+    if not AISLE_FACES:
+        return None
+    return min(AISLE_FACES, key=lambda f: abs(f["face_x"] - x))
+
+
 def shelf_name(face_x):
     """The name of the shelf face at this x, or None if the layout has none."""
     for face in AISLE_FACES:
         if abs(face["face_x"] - face_x) < 0.01:
             return face.get("name")
     return None
+
+
+def code_plane_x(face):
+    """
+    The x of the plane the codes on this face actually sit in.
+
+    face_x is the shelf surface. A label is mounted on the box behind it, so
+    the code plane is code_plane_offset_m deeper into the shelf, away from the
+    aisle the vehicle flies. Which way that is comes from the heading the face
+    is read at: a face read at +90 is looked at along +x, so deeper is +x.
+
+    Measured, not assumed: scored against ground truth every one of 432 codes
+    came out 0.016 m from where it was reported, with the sign following the
+    face. It is a property of how the warehouse mounts its labels, so it lives
+    in the layout.
+    """
+    return face["face_x"] + (CODE_PLANE_OFFSET_M if face["yaw_deg"] > 0
+                             else -CODE_PLANE_OFFSET_M)
+
+
+def code_height(face, level_index, measured):
+    """
+    The height to report for a code, from what was measured and what can exist.
+
+    Keep the measurement, but not a height this shelf cannot hold. The layout
+    says the lowest and highest a code sits at on this face and level, so a
+    measurement outside that came from a tilted camera rather than from a box.
+
+    The four candidates, scored on a finished run against ground truth, as
+    height error alone:
+
+                      median     p95      max   within 5 cm
+        measured      0.0243  0.0524   0.2207        93.8%
+        flight_z      0.0500  0.0600   0.0600        32.4%
+        band median   0.0210  0.0710   0.0890        74.1%
+        clamped       0.0149  0.0499   0.1210        95.1%
+
+    flight_z is what this used to report, and it is the worst of the four by a
+    long way: it is the altitude the vehicle flew at, which was never an
+    estimate of anything on a shelf. It looks respectable only in its maximum,
+    and a constant always does.
+
+    The measurement on its own is good for nine codes in ten and then produces
+    a 0.22 m outlier. Clamping keeps the nine and bounds the tenth, and wins on
+    every figure except a maximum that a constant will always own.
+
+    Falls back to flight_z when the layout does not say where its codes are.
+    """
+    band = face.get("code_z") if face else None
+    if not band or level_index >= len(band):
+        return FLIGHT_Z[level_index]
+    low, high = band[level_index][0], band[level_index][-1]
+    return min(max(measured, low), high)
 
 
 def face_lane_x(face, standoff):
@@ -1465,11 +1563,15 @@ def lane_levels(reads):
             levels.append(fallback)
             continue
 
-        axis = (min(b[0] for b in bands) + max(b[1] for b in bands)) / 2.0
+        # The outer two of the three figures a face carries: the lowest
+        # code and the highest. What has to fit the frame is the whole
+        # spread, not where most of them sit.
+        axis = (min(b[0] for b in bands) + max(b[-1] for b in bands)) / 2.0
         levels.append(round(axis, 3))
 
         for face, hfov_deg, frame_px, depth in reads:
-            low, high = face["code_z"][index]
+            low, high = (face["code_z"][index][0],
+                         face["code_z"][index][-1])
             reach = max(abs(low - axis), abs(high - axis)) + CODE_SIZE_M / 2
             limit = half_frame_m(hfov_deg, frame_px, depth)
             if reach > limit:

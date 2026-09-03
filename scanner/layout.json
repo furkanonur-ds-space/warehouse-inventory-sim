@@ -43,14 +43,17 @@
       "code_z": [
         [
           0.701,
+          0.761,
           0.811
         ],
         [
           2.401,
+          2.461,
           2.511
         ],
         [
           4.101,
+          4.161,
           4.211
         ]
       ]
@@ -64,14 +67,17 @@
       "code_z": [
         [
           0.701,
+          0.711,
           0.811
         ],
         [
           2.401,
+          2.411,
           2.511
         ],
         [
           4.101,
+          4.161,
           4.211
         ]
       ]
@@ -85,14 +91,17 @@
       "code_z": [
         [
           0.701,
+          0.761,
           0.811
         ],
         [
           2.401,
+          2.461,
           2.511
         ],
         [
           4.111,
+          4.161,
           4.211
         ]
       ]
@@ -106,14 +115,17 @@
       "code_z": [
         [
           0.701,
+          0.761,
           0.811
         ],
         [
           2.401,
+          2.461,
           2.511
         ],
         [
           4.101,
+          4.111,
           4.211
         ]
       ]
@@ -127,14 +139,17 @@
       "code_z": [
         [
           0.701,
+          0.711,
           0.811
         ],
         [
           2.401,
+          2.461,
           2.511
         ],
         [
           4.101,
+          4.111,
           4.211
         ]
       ]
@@ -148,14 +163,17 @@
       "code_z": [
         [
           0.701,
+          0.711,
           0.811
         ],
         [
           2.401,
+          2.461,
           2.511
         ],
         [
           4.101,
+          4.161,
           4.211
         ]
       ]
@@ -169,13 +187,16 @@
       "code_z": [
         [
           0.701,
+          0.701,
           0.701
         ],
         [
           2.401,
+          2.401,
           2.401
         ],
         [
+          4.101,
           4.101,
           4.101
         ]
@@ -190,13 +211,16 @@
       "code_z": [
         [
           0.701,
+          0.701,
           0.701
         ],
         [
           2.401,
+          2.401,
           2.401
         ],
         [
+          4.101,
           4.101,
           4.101
         ]
@@ -293,10 +317,16 @@
   "rear_max_standoff": 1.1,
   "code_size_m": 0.072,
   "_code_z_note": [
-    "Per face, the band of code centre heights at each shelf level: the",
-    "lowest and the highest. A face whose boxes are all one size has a band",
-    "of zero width; mixed box heights spread it, because the label travels",
-    "with the front of the box it is on.",
+    "Per face, the code centre heights at each shelf level: the lowest,",
+    "the median and the highest. A face whose boxes are all one size has",
+    "all three the same; mixed box heights spread them, because the label",
+    "travels with the front of the box it is on.",
+    "",
+    "The outer two decide whether the whole band fits the camera frame.",
+    "The middle one is the height a code on this face is reported at, and",
+    "it is the median rather than the midpoint because the heights are not",
+    "spread evenly: reporting the midpoint scored worse than flight_z did",
+    "on the four faces with mixed stock, while the median beats both.",
     "",
     "The scanner aims the optical axis at the middle of the band it has to",
     "read on a lane, which is one rule applied everywhere. flight_z stays as",
@@ -313,5 +343,19 @@
     "Derived from warehouse/ground_truth.json, the same source and the same",
     "way as flight_z. code_size_m is the QR side from gen_labels, needed to",
     "ask whether a whole code fits the frame rather than just its centre."
+  ],
+  "code_plane_offset_m": 0.016,
+  "_code_plane_note": [
+    "How far the plane the codes sit in is from the shelf surface named by",
+    "face_x, measured into the shelf and away from the aisle. A label is",
+    "mounted on the box behind the surface, so the two are not the same",
+    "plane.",
+    "",
+    "Reporting the surface instead put every one of 432 codes exactly this",
+    "far out in x, with the sign following the face, which was a quarter of",
+    "the whole reported position error and none of it a measurement.",
+    "",
+    "Measured from warehouse/ground_truth.json: all eight faces agree to the",
+    "millimetre, which is what makes one number the right shape for it."
   ]
 }
