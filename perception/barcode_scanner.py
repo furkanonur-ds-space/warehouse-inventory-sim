@@ -13,12 +13,21 @@ notice. The only files it reads from the flight side are `scanner/layout.json`
 (for the world and model name) and `warehouse/warehouse.yaml` (for the label
 geometry), both read-only.
 
-WHY THE BARCODE NEEDS THE QR. The placard payload names a SLOT, not a box:
-`A0303` is carried by all three boxes in bay 3 of row A level 3. A barcode
-reading on its own therefore cannot say which box was seen. What it can do is
-confirm the slot the QR was filed under, and that is what this tool produces -
-each barcode reading is linked to the QR sitting directly above it in the same
-frame, and the two are compared.
+WHAT THE BARCODE SAYS. It names the box, as the QR does: the payload is the
+digits of that box's own SKU, `55414` where the QR reads
+`WH1|A|01|1|SKU55414`. The two are deliberately not the same string. They
+carry the same fact by different routes, in different symbologies, decoded by
+different libraries, so reading both is evidence that either can be read on
+its own rather than a copy of one measurement.
+
+It used to name the slot instead, which all three boxes of a bay level shared,
+and could then say only that a shelf was occupied. It now identifies the box,
+which means a barcode read where the QR failed is a box recovered rather than
+a hint.
+
+Each reading is still linked to the QR sitting directly above it in the same
+frame, and the two are compared: the link is what makes a disagreement
+visible.
 
 HOW THE LINK IS MADE. The world generator puts the placard immediately below
 the box label, on the same vertical centre line: the drop from the QR symbol to
@@ -54,8 +63,8 @@ OUTPUTS (both under `out/`, neither touched by anything else):
     barcode_readings.jsonl   every reading: payload, polygon, quality, the QR
                              it was linked to and how far off the prediction it
                              landed
-    barcode_inventory.json   one record per box whose placard was read, with
-                             whether the slot agreed with the QR
+    barcode_inventory.json   one record per box whose barcode was read, with
+                             whether it agreed with the QR beside it
 """
 
 from __future__ import annotations
@@ -170,18 +179,23 @@ class Linker:
         return best, round(best_d, 4)
 
 
-def slot_of_qr(payload: str):
+def barcode_of_qr(payload: str):
     """
-    The placard payload the box's own QR implies: `WH1|A|03|3|SKU...` -> `A0303`.
+    The barcode payload the box's own QR implies: `WH1|A|03|3|SKU55414` ->
+    `55414`.
 
     Built with the generator's own function so the two cannot disagree about
-    padding or field order.
+    how the one is derived from the other.
+
+    The barcode used to name the slot, which three boxes shared, so this could
+    only ever say which shelf the reading belonged to. It now names the box,
+    and a reading either matches the QR beside it or does not.
     """
     parts = payload.split("|")
-    if len(parts) < 4:
+    if len(parts) < 5:
         return None
     try:
-        return gl.placard_payload(parts[1], int(parts[2]), int(parts[3]))
+        return gl.placard_payload(parts[4])
     except (ValueError, TypeError):
         return None
 
@@ -276,8 +290,8 @@ def draw(frame: np.ndarray, qrs, bars, stats: dict) -> np.ndarray:
         f"decode {stats['decode_ms']:.1f} ms",
         f"QR {stats['qr_hits']}   barcode {stats['bar_hits']}   "
         f"linked {stats['linked']}",
-        f"boxes with a placard: {stats['boxes']}   "
-        f"slot agrees: {stats['agree']}   disagrees: {stats['disagree']}",
+        f"boxes with a barcode: {stats['boxes']}   "
+        f"agrees: {stats['agree']}   disagrees: {stats['disagree']}",
     ]
     for i, line in enumerate(lines):
         label(view, line, (12, 26 + 24 * i), COL_HUD, scale=0.62)
@@ -330,14 +344,14 @@ class Session:
         self.linked += 1
         rec = self.boxes.setdefault(linked, {
             "qr": linked, "barcode": payload, "readings": 0,
-            "best_quality": quality, "expected_slot": slot_of_qr(linked),
+            "best_quality": quality, "expected_barcode": barcode_of_qr(linked),
             "first_seen": now, "last_seen": now, "disagreements": [],
         })
         rec["readings"] += 1
         rec["last_seen"] = now
         rec["best_quality"] = max(rec["best_quality"], quality)
         if payload != rec["barcode"]:
-            # Two different slot codes linked to one box. Worth keeping rather
+            # Two different barcodes linked to one box. Worth keeping rather
             # than overwriting: it is either a misread or a bad link, and both
             # are invisible if the last one silently wins.
             rec["disagreements"].append(payload)
@@ -352,16 +366,16 @@ class Session:
             "qr_readings": self.qr_hits,
             "barcode_readings": self.bar_hits,
             "barcode_readings_linked": self.linked,
-            "boxes_with_placard": len(self.boxes),
-            "slot_agrees": agree,
-            "slot_disagrees": disagree,
+            "boxes_with_barcode": len(self.boxes),
+            "barcode_agrees": agree,
+            "barcode_disagrees": disagree,
             "unlinked_payloads": self.unlinked,
             "boxes": sorted(self.boxes.values(), key=lambda r: r["qr"]),
         }, indent=2, ensure_ascii=False))
 
     def tally(self) -> tuple[int, int]:
         agree = sum(1 for r in self.boxes.values()
-                    if r["expected_slot"] == r["barcode"])
+                    if r["expected_barcode"] == r["barcode"])
         return agree, len(self.boxes) - agree
 
     def close(self) -> None:
@@ -552,7 +566,7 @@ def main() -> int:
         agree, disagree = session.tally()
         print(f"\n{session.frames} frames · {session.bar_hits} barcode readings "
               f"({session.linked} linked) · {len(session.boxes)} boxes")
-        print(f"slot agrees {agree}, disagrees {disagree}")
+        print(f"barcode agrees {agree}, disagrees {disagree}")
         print(f"readings: {args.readings}")
         print(f"summary : {args.summary}")
     return rc

@@ -467,8 +467,8 @@ def inventory(cfg, rng, textures, manifest) -> str:
                     sku = f"SKU{rng.randint(10000, 99999)}"
                     payload = gl.box_payload(sku, rid, bi + 1, li + 1)
                     tex = f"box_{rid}{bi+1:02d}{li+1}{si}.png"
-                    pc_payload = gl.placard_payload(rid, bi + 1, li + 1)
-                    pc_caption = gl.placard_caption(rid, bi + 1, li + 1)
+                    pc_payload = gl.placard_payload(sku)
+                    pc_caption = gl.placard_caption(sku)
                     pc_tex = f"placard_{rid}{bi+1:02d}{li+1}{si}.png"
 
                     img, module_m = gl.make_box_label(payload, sku, spec, ppm, maxpx)

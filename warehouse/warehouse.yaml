@@ -216,10 +216,22 @@ codes:
     caption_height: 0.022     # altta okunabilir SKU metni şeridi
     # quiet zone kontrolü: 70 + 2*(4 modül * 2.8) = 92.4 mm <= 100 mm  [OK]
 
-  # Konum barkodu (Code128), kutunun ön yüzünde QR'ın altında.
-  # 300x90 mm: gerçek depo konum plakalarının ölçüsü (250-400 mm arası
-  # tipiktir; mesafeden okunsun diye zaten büyük basılırlar).
-  # Yük "A0302" biçiminde (sıra + göz + seviye) -> Code128 C modunda 79 modül.
+  # Kutu barkodu (Code128), kutunun ön yüzünde QR'ın altında.
+  # 300x90 mm: gerçek depo etiketlerinin ölçüsü (250-400 mm arası tipiktir;
+  # mesafeden okunsun diye zaten büyük basılırlar).
+  #
+  # Yük, kutunun kendi SKU'sunun rakamları: "SKU55414" -> "55414". Barkod
+  # kutuya özel, QR gibi. Önceden konumu taşıyordu ("A0302"), ki bir gözdeki
+  # üç kutuda da aynıydı; barkod o hâliyle kutuyu adlandıramıyordu.
+  #
+  # Yalnız rakam, bilerek: Code128'in C modu rakam çiftlerini tek sembolde
+  # kodlar, 5 haneli SKU 68-79 modül eder -- eski konum yüküyle aynı ya da
+  # ondan dar değil, yani kutuya özel hale gelirken okunabilirlikten hiçbir şey
+  # kaybedilmedi. "SKU55414" yazmak 123 modül ederdi, modülü 3.29'dan 2.11
+  # mm'ye düşürür ve en geniş koridorda barkodu okunmaz yapardı.
+  #
+  # QR'ın yükü "WH1|A|01|1|SKU55414". Barkod aynı kutuyu adlandırır ama aynı
+  # dizgeyi taşımaz: ikisini bağımsız okuyabildiğimizi gösteren şey bu.
   box_placard:
     label: [0.300, 0.090]
     bar_width: 0.260          # -> 79 modülde 3.29 mm/modül

@@ -211,15 +211,29 @@ def code128_modules(payload: str) -> str:
 # yük (payload) biçimleri -- gen_world.py da bunları kullanır
 # --------------------------------------------------------------------------
 
-def placard_payload(row_id: str, bay: int, level: int) -> str:
-    """Konum plakası yükü: sıra harfi + göz (2 hane) + seviye (2 hane).
-    Rakamları çift sayıda tutmak Code128'in C modunu tetikler ve sembolü
-    kısaltır; "A-03-2" gibi bir yazım %28 daha küçük modül verirdi."""
-    return f"{row_id}{bay:02d}{level:02d}"
+def placard_payload(sku: str) -> str:
+    """Kutu barkodu yükü: kutunun kendi SKU'sunun rakamları, "SKU55414" ->
+    "55414".
+
+    Barkod artık kutuya özel. Önceden konumu taşıyordu (sıra+göz+seviye), ki
+    bir gözdeki üç kutuda da aynıydı: barkod kutuyu adlandıramıyor, yalnız
+    "bu göz dolu" diyebiliyordu.
+
+    Yalnız rakamlar, iki sebeple. Code128'in C modu rakam çiftlerini tek
+    sembolde kodlar, dolayısıyla 5 haneli SKU 79 modül eder -- eski konum
+    yüküyle tam olarak aynı; barkod kutuya özel hale gelirken okunabilirlikten
+    hiçbir şey kaybetmiyor. "SKU55414" yazmak 123 modül ederdi, modül
+    genişliğini 3.29'dan 2.11 mm'ye düşürürdü ve en geniş koridorda barkodu
+    okunmaz yapardı.
+
+    İkinci sebep: QR'ın yükü "WH1|A|01|1|SKU55414". Barkod aynı kutuyu
+    adlandırır ama aynı dizgeyi taşımaz, yoksa ikisini bağımsız okuyabildiğimizi
+    gösteren bir şey kalmazdı."""
+    return sku[3:] if sku.startswith("SKU") else sku
 
 
-def placard_caption(row_id: str, bay: int, level: int) -> str:
-    return f"{row_id}-{bay:02d}-{level}"
+def placard_caption(sku: str) -> str:
+    return sku
 
 
 def box_payload(sku: str, row_id: str, bay: int, level: int) -> str:
@@ -232,7 +246,7 @@ def aruco_payload(marker_id: int, dict_name: str) -> str:
     return f"{dict_name}:{marker_id}"
 
 
-PLACARD_SAMPLE = placard_payload("A", 3, 2)
+PLACARD_SAMPLE = placard_payload("SKU48213")
 
 
 # --------------------------------------------------------------------------
@@ -557,7 +571,7 @@ def main() -> int:
                                 codes["box_label"], ppm, maxpx)
         img.save(out / "ornek_kutu_etiketi.png")
         print(f"kutu etiketi     {img.size[0]}x{img.size[1]} px, modül {m*1000:.2f} mm")
-        img, m = make_bay_placard(PLACARD_SAMPLE, placard_caption("A", 3, 2),
+        img, m = make_bay_placard(PLACARD_SAMPLE, placard_caption("SKU48213"),
                                   codes["box_placard"], ppm, maxpx)
         img.save(out / "ornek_kutu_barkodu.png")
         print(f"kutu barkodu     {img.size[0]}x{img.size[1]} px, modül {m*1000:.2f} mm")

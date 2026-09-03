@@ -42,6 +42,16 @@ rm -rf "$PX4_MODELS/warehouse_assets"
 cp -a "$GEN/gz/models/warehouse_assets" "$PX4_MODELS/"
 echo "   $PX4_WORLDS/warehouse.sdf"
 
+# The ground truth every score in this project is measured against describes
+# the world that was just generated, so it travels with it. It was not copied
+# before, which meant a world could be regenerated and installed while the
+# truth still described the previous one - and nothing says so out loud: the
+# reports keep working and quietly score against a warehouse that is no longer
+# there.
+cp "$GEN/out/ground_truth.json" "$HERE/warehouse/ground_truth.json"
+cp "$GEN/out/marker_map.json" "$HERE/warehouse/marker_map.json"
+echo "   warehouse/ground_truth.json, warehouse/marker_map.json"
+
 # x500_base carries a 640x480 camera at 30 Hz that nothing here reads. It is
 # 9.22 Mpx/s, 38 per cent of the render budget, and Gazebo's memory grows with
 # every pixel: 26.15 GB of 27 after one scan, and an earlier run was killed at
