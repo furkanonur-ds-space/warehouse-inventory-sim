@@ -209,12 +209,26 @@ codes:
   # (Verity, Corvus, Gather AI) rafları büyütülmüş kodlarla yeniden
   # etiketliyor, tam da bu yüzden.
   box_label:
-    label: [0.100, 0.150]     # 4" x 6" termal sevkiyat etiketi
+    # Etiket, QR'ın quiet zone'una göre boyutlandırılmış: 70 mm kod + her
+    # kenarda 4 modül (11.2 mm) -> 92.4 mm alt sınır, 95 mm seçildi.
+    #
+    # Önceden 100 x 150 mm'ydi (4" x 6" termal sevkiyat etiketi) ve altında
+    # okunabilir SKU şeridi vardı. İkisi de barkodu QR'dan uzaklaştırmak
+    # içindi: etiket ne kadar uzunsa, altına gelen barkod o kadar aşağıda
+    # kalıyor. En dar koridorda (G/H) kameranın dikey yarı-çerçevesi 6.5 cm,
+    # barkod ise QR'ın 12.9 cm altındaydı -- kadrajın tamamen dışında, ve
+    # 2026-09-03 koşusunda G yüzünün 54 kutusunun tamamı, H'nin 13'ü tam bu
+    # yüzden okunamadı. Etiketi kısaltmak ve caption'ı kaldırmak düşüşü
+    # 6.5 cm'ye indiriyor.
+    #
+    # QR'ın kutu üzerindeki YÜKSEKLİĞİ değişmiyor: gen_world QR sembolünü
+    # kutu merkezinin 61 mm üstünde tutuyor, ki scanner/layout.json'daki
+    # uçuş irtifaları oradan türetiliyor.
+    label: [0.100, 0.095]
     code: 0.070               # QR kenarı, quiet zone hariç -> 2.80 mm/modül
     qr_version: 2             # 25x25 modül
     qr_error_correction: "M"
-    caption_height: 0.022     # altta okunabilir SKU metni şeridi
-    # quiet zone kontrolü: 70 + 2*(4 modül * 2.8) = 92.4 mm <= 100 mm  [OK]
+    caption_height: 0.0       # okunabilir şerit yok; yeri barkoda gidiyor
 
   # Kutu barkodu (Code128), kutunun ön yüzünde QR'ın altında.
   # 300x90 mm: gerçek depo etiketlerinin ölçüsü (250-400 mm arası tipiktir;
@@ -233,10 +247,14 @@ codes:
   # QR'ın yükü "WH1|A|01|1|SKU55414". Barkod aynı kutuyu adlandırır ama aynı
   # dizgeyi taşımaz: ikisini bağımsız okuyabildiğimizi gösteren şey bu.
   box_placard:
-    label: [0.300, 0.090]
+    # Eni değişmedi ve değişmemeli: modül 3.29 mm ve en geniş koridorda
+    # barkod 2.32 px/modül ediyor, ki 1D için pratik eşik ~2. Daraltmak orayı
+    # bozar ve dar koridora hiçbir faydası olmaz -- orada zaten 12.85
+    # px/modül var. Kısalan boy: şerit QR'a yaklaşsın diye.
+    label: [0.300, 0.026]     # çubuklar + 1 mm kenar; her mm düşüşten düşüyor
     bar_width: 0.260          # -> 79 modülde 3.29 mm/modül
-    bar_height: 0.042
-    caption_height: 0.024
+    bar_height: 0.024
+    caption_height: 0.0
 
   # -------------------------------------------------------------------
   # Koridor başı ArUco markörleri -- Furkan'ın sapma düzeltmesi için.

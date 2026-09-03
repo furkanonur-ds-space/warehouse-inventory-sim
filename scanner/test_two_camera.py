@@ -13,6 +13,7 @@ Three things that a flight cannot separate cleanly:
      rather than queued.
 """
 import glob
+import json
 import math
 import os
 import sys
@@ -78,12 +79,37 @@ DRONE_Y = -5.0
 RENDER_M = 0.70
 
 
+def label_size_m():
+    """
+    The box label's real size, from the world that was generated.
+
+    Read rather than written down. These were two constants, 0.10 by 0.15,
+    which stopped being true the moment the label changed shape: the texture
+    still loaded, so the test drew a 95 mm label as though it were 150 mm and
+    every code in it came out squashed and unreadable. That looks like a
+    detector failure and is not one.
+    """
+    truth = os.path.join(os.path.dirname(os.path.abspath(s.LAYOUT_PATH)),
+                         "..", "warehouse", "ground_truth.json")
+    try:
+        with open(truth, encoding="utf-8") as handle:
+            for code in json.load(handle)["codes"]:
+                if code.get("type") == "box_qr":
+                    return tuple(code["label_size_m"])
+    except Exception:
+        pass
+    return (0.10, 0.095)
+
+
+LABEL_M = label_size_m()
+
+
 def frame_with_label(dist, width, height, hfov_deg, offset_frac=0.0):
     """One label at its true angular size, offset_frac of half a frame aside."""
     label = cv2.imread(sorted(glob.glob(os.path.join(TEX, "box_*.png")))[0])
     scale = width / (2 * dist * math.tan(math.radians(hfov_deg) / 2))
-    w = int(0.10 * scale)
-    h = int(0.15 * scale)
+    w = int(LABEL_M[0] * scale)
+    h = int(LABEL_M[1] * scale)
     small = cv2.resize(label, (w, h), interpolation=cv2.INTER_AREA)
     img = np.full((height, width, 3), 160, dtype=np.uint8)
     cx = int(width / 2 + offset_frac * width / 2)

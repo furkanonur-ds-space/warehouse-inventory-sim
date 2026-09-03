@@ -126,7 +126,11 @@ LABEL_STANDOFF = 0.004
 # küçük kutuda (XS, dz=0.28) bile taşmasın diye: 150 + 10 + 90 = 250 mm.
 # MODÜL DÜZEYİNDE: scan_boxes barkodu QR'a göre konumlandırırken bu değere
 # ihtiyaç duyuyor; iki yerde ayrı tutmak sessiz bir ROI kayması üretirdi.
-LABEL_GAP = 0.010
+LABEL_GAP = 0.002
+# QR sembolünün kutu merkezinin kaç metre üstünde durduğu. Etiket ölçüleri
+# değişirken bu değişmemeli: scanner/layout.json'daki code_z ve uçuş
+# irtifaları buradan türetiliyor.
+QR_SYMBOL_RISE_M = 0.0610
 
 
 # --------------------------------------------------------------------------
@@ -404,6 +408,9 @@ def inventory(cfg, rng, textures, manifest) -> str:
     ppm, maxpx = codes["texture_px_per_m"], codes["max_texture_px"]
     spec = codes["box_label"]
     lw, lh = spec["label"]
+    # QR'ın kendi etiketinin merkezine göre yüksekliği; caption şeridi
+    # kalkınca sıfır olur, ama hesap etiketten okunur, varsayılmaz.
+    _, qr_rise = gl.box_label_geometry(spec, ppm, maxpx)
     pc_spec = codes["box_placard"]
     pw, ph = pc_spec["label"]
     label_gap = LABEL_GAP
@@ -485,16 +492,27 @@ def inventory(cfg, rng, textures, manifest) -> str:
                     out.append(box_visual("body", (dx, dy, dz), (cx, cy, cz), cardboard, "      "))
                     out.append(box_collision("body_c", (dx, dy, dz), (cx, cy, cz), "      "))
 
-                    # QR + barkod tek dikey blok olarak kutunun ön yüzüne
-                    # ortalanır. dz - stack_h negatif çıkarsa (kutu bu iki
-                    # etiketi sığdıramayacak kadar alçaksa) margin sıfıra
-                    # kenetlenir ve etiketler kutu sınırının biraz dışına taşar
-                    # -- config'teki box boyutlarıyla box_placard/box_label
-                    # ölçüleri arasında bir tutarsızlık olduğunun işareti.
+                    # QR SEMBOLÜ kutu merkezinin sabit bir yüksekliğinde
+                    # durur, barkod da onun altına asılır.
+                    #
+                    # Önceden iki etiket tek blok olarak kutu ön yüzüne
+                    # ortalanıyordu, ki blok yüksekliği değiştiğinde QR da
+                    # yer değiştiriyordu. Artık değişmemesi gerekiyor:
+                    # scanner/layout.json'daki code_z ve uçuş irtifaları QR
+                    # yüksekliklerinden türetiliyor, ve bu düzenlemenin amacı
+                    # barkodu yukarı almak, QR'ı oynatmak değil. Sabit,
+                    # önceki yerleşimin verdiği değerdir -- 432 kutunun
+                    # hepsinde ölçüldü, hiçbirinde değişmiyordu.
                     stack_h = lh + label_gap + ph
-                    margin = max(0.0, (dz - stack_h) / 2)
-                    qr_z = cz + dz / 2 - margin - lh / 2
+                    qr_z = cz + QR_SYMBOL_RISE_M - qr_rise
                     pc_z = qr_z - lh / 2 - label_gap - ph / 2
+                    if qr_z + lh / 2 > cz + dz / 2 or pc_z - ph / 2 < cz - dz / 2:
+                        # Etiketler kutunun ön yüzüne sığmıyor. Sessizce
+                        # taşırmak yerine söylenir: config'teki kutu boyları
+                        # ile etiket ölçüleri arasında tutarsızlık var.
+                        raise SystemExit(
+                            f"etiket bloğu {stack_h*1000:.0f} mm, {rid} sırasında "
+                            f"{dz*1000:.0f} mm yüksek kutuya sığmıyor")
 
                     off = LABEL_STANDOFF * (1 if facing > 0 else -1)
                     rpy = facing_rpy(facing)
