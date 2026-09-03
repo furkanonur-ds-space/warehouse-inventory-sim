@@ -182,6 +182,78 @@ finished run, height error alone:
 Median position error went from 0.062 m to 0.022, and within 10 cm from 98.8
 per cent to 99.8.
 
+### The drift correction, made falsifiable
+
+The floor markers exist to cancel the error a real visual odometry accumulates.
+In simulation there is no such error: Gazebo's OdometryPublisher reports the
+model's true pose, so the correction has nothing to correct and "it works" is
+a claim that cannot be checked either way. Testing a lane keeping assist on a
+straight road in still air says nothing about the assist.
+
+So the error is injected. `scanner/inject_drift.py` sits between the simulator
+and PX4 and makes the estimate wrong on purpose:
+
+    OdometryPublisher -> .../odometry_with_covariance_true
+                              |
+                          inject_drift.py, adds an accumulating error
+                              |
+                         .../odometry_with_covariance -> PX4
+
+PX4's gz bridge subscribes to exactly `/model/<model>/odometry_with_covariance`,
+so moving the plugin off that topic is what makes room. Build the model with
+`python3 scanner/build_c27_drone.py --drift` and nothing flies until the relay
+is running, because PX4 then has no position source at all. That is
+deliberate: a harness the vehicle depends on should be impossible to forget.
+Rebuild without the flag to get the ordinary vehicle back.
+
+The error goes here and not into the scanner because on the aircraft it is the
+estimator that is wrong, and every setpoint lands displaced because of it.
+Biasing what the scanner reads does move the vehicle, through the lateral
+check in the settle loop, but only as far as that check's tolerance and
+timeout allow, and it leaves EKF2 being fed the truth.
+
+Three flights, same warehouse, same seed:
+
+| | no drift | 0.5% drift, markers on | 0.5% drift, markers off |
+|---|---|---|---|
+| Codes | 432 / 432 | 428 / 432 | 320 / 432 |
+| Position error, median | 0.019 m | 0.051 m | 0.151 m |
+| Within 10 cm | 99.3% | 90.4% | 32.5% |
+| Wrong shelf | 0 | 0 | 15 |
+| Clearance alarms | 0 | 0 | 84 |
+| Nearest obstacle | 0.206 m | 0.226 m | 0.12 m |
+
+The correction is worth 108 codes and 84 near collisions. The last column is
+the one that makes the other two mean anything: without it, a run that scores
+well with the markers on proves only that the markers were not needed.
+
+The correction also measures the right thing. Against 0.318 m of injected
+error it settled on an offset of 0.333 m.
+
+### How far apart the markers can be
+
+The error between two fixes has to stay inside the clearance the narrowest
+aisle leaves, which here is 0.084 m between a propeller tip and face H:
+
+    maximum marker spacing = clearance / drift rate
+
+        1.0%     8.4 m
+        0.5%    16.8 m
+        0.25%   33.6 m
+
+The markers in this warehouse are 18 m apart, at the aisle ends. At 0.5% the
+formula allows 16.8 m and the run lost 4 codes without colliding, which is
+what being slightly over the line looks like. At 0.25% it allows 33.6 m and
+the run read all 432. That prediction was made before the flight.
+
+This is the part that travels. Measure what `voxl-qvio-server` actually drifts
+over a known path, measure the clearance in the real aisles, and the marker
+spacing follows, before anybody marks a floor.
+
+What it does not cover: the drift here is smooth and continuous. Real VIO also
+fails suddenly and completely in a featureless corridor, and that is a
+different scenario.
+
 ### Where a code is filed
 
 A code is filed against the pose the frame was taken at, not the pose the
@@ -559,13 +631,41 @@ Five suites, seconds each, no simulator:
 - `test_strips.py` - reading a frame in strips: that it finds more codes, and
   that a strip coordinate is mapped back to the frame. The second half fails
   silently here and puts every box on the wrong part of the shelf in flight.
-- `test_drift_correction.py` - the marker correction geometry.
+- `test_drift_correction.py` - the marker correction geometry, and the shape
+  of the error inject_drift.py adds. The second half is there because the
+  first version of that error was wrong by a factor of a hundred: it drew a
+  fresh direction for every odometry message, and at 50 Hz the steps cancelled
+  out. Nothing but a check would have said so, and a whole test flight would
+  have run against an error too small to see.
 - `test_framing.py` - the vertical half. That the axis lands on the codes,
   that every code the layout describes fits the frame it is read from, and
   that a band which cannot fit is named rather than passed over.
 
 A scan takes ten minutes and only tells you the total. These say which piece
 of the geometry is wrong.
+
+## One line per flight
+
+```sh
+python3 report/run_log.py --show
+```
+
+`make_reports.sh` adds a row to `out/runs.csv` after every scan: coverage,
+where the codes were put, the clearances, the margin, whether the decoders
+kept up, and what drift was injected if any. Open it in a spreadsheet and the
+history is a table.
+
+It exists because everything else was the wrong way round. The console logs
+accumulate, one per flight, and the numbers are overwritten by the next one:
+an afternoon of scanning left twelve logs of scrolling text and the figures of
+exactly one run. No raw data is kept here. The recordings are 150 MB a flight
+and PX4's own logs reached six gigabytes across seventy eight of them, and
+neither answers a question anybody asks twice.
+
+Read `codes_read_once` beside `codes`. It counts the codes a run read in
+exactly one frame, which is the margin, but it can only count codes that were
+read at all: the run that lost 94 to uncorrected drift has the lowest count in
+the table and the worst flight in it.
 
 ## Reports
 
@@ -838,6 +938,12 @@ about to stop being QR read by OpenCV.
 3. It reads 54 of 54 because WeChat's detector goes down to 1.66. Enlarging
 the label QR from 70 mm to 100 mm would give the whole building far more room.
 That is a change on the warehouse side.
+
+**The drift injected is smooth, and real VIO is not.** It grows with distance
+along a heading that turns slowly, which is how a scale or heading error in an
+estimator behaves. It does not model the other failure: losing tracking
+suddenly and completely in a featureless corridor. That belongs with the
+obstacle and failsafe work.
 
 **None of this is measured against a real detector.** The vehicle will not run
 OpenCV: torn, dirty and badly lit labels are a trained model's problem. The
