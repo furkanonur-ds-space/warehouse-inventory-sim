@@ -140,6 +140,11 @@ USABLE_FRAME = 0.885
 # not decode at all; there is no partial credit for most of a QR.
 CODE_SIZE_M = LAYOUT.get("code_size_m", 0.072)
 
+# How far the plane the codes sit in is from the shelf surface, into the
+# shelf. Reporting the surface instead put every one of 432 codes 0.016 m out
+# in x, with the sign following the face. Zero for a layout that does not say.
+CODE_PLANE_OFFSET_M = LAYOUT.get("code_plane_offset_m", 0.0)
+
 
 def half_frame_m(hfov_deg, frame_px, depth):
     """Half the camera's vertical field, in metres, at this distance."""
@@ -211,6 +216,20 @@ is_settled = False
 pending = deque()          # hits waiting to be recorded, each with its own pose
 inventory = {}
 
+# How many frames each code was read in, whether or not it was already filed.
+#
+# A run can reach 432 of 432 with codes that were read exactly once, and a code
+# read once is a coin toss that happened to land: the same code on a machine
+# that renders at a different rate, or holds a different half of the frames,
+# goes the other way. The total cannot show that, because it is at its ceiling
+# either way. The thinnest count on a face can.
+#
+# It is what makes two machines comparable. Ibrahim's run missed one in the
+# 2.40 m aisle where ours missed none, and "he missed one, we did not" is an
+# anecdote; "his face B was read once where ours was read eight times" is a
+# measurement.
+sightings = {}
+
 # Drift correction state.
 #
 # PX4 does not expose a way to reset the estimator through MAVSDK, so the
@@ -281,22 +300,34 @@ pose_history = []
 # move.
 MAX_FRAME_AGE_S = 0.50
 
-# What the cameras are rendered at, from build_c27_drone.py. Needed to work
-# out how many frames a box gets, which decides how many are worth decoding.
+# What the cameras are rendered at, from build_c27_drone.py.
 HIRES_HZ = 10.0
 REAR_HZ = 8.0
 
-# How many frames of a box are enough to read it.
+# Nothing rations frames any more.
 #
-# Seven, which is what the runs support rather than what sounds tidy. The
-# 1.13 m aisle gives a box 7.1 looks and has come back complete every time;
-# the 0.50 m aisle gives 3.1 and has lost one or two on every run.
+# There used to be a stride here: on a lane offering a box more frames than it
+# was thought to need, one frame in N was decoded and the rest were dropped
+# before they were touched. It was rationing, and it was worth having while
+# both cameras decoded on the one thread gz transport calls callbacks on, with
+# the pair asking for 128 per cent of it.
 #
-# This was five for one run, and the widest aisle lost a code for the first
-# time: fifteen looks cut to five was not enough, on the aisle where nothing
-# had ever been missed. Five contradicted the note written beside it, which
-# already said seven was the figure that held.
-TARGET_FRAMES_PER_BOX = 7.0
+# They have a thread each now, and the measurements from the 2026-09-02 run say
+# the rationing had stopped buying anything: at one frame in one, the busiest
+# decoder on the busiest lane would sit at 75 per cent.
+#
+# It was also rationing in the wrong place. It only ever cut the 2.40 m aisle,
+# which is the aisle where a code resolves to fewest pixels: 1.71 a module on
+# face B against the 1.66 WeChat has been measured down to, and 2.00 on face
+# A. Frames are not surplus there, they are the only thing making up for a
+# reading that is marginal in every single one of them, and half of them were
+# going in the bin. Read out of that run's recording, six codes on face B were
+# read in exactly one frame and sixteen in two or fewer, against none at all
+# on C, D or E.
+#
+# The history agrees. Cutting the target from seven to five, which took the
+# widest aisle from one frame in two to one in three, lost a code there
+# immediately, on the aisle that had never lost one.
 
 # Whether to write what the scanning cameras saw to mp4 alongside the scan.
 #
@@ -513,11 +544,6 @@ class CameraDecoder:
         self.frames = 0
         self.dropped = 0
         self.stale = 0
-        # Take one frame in this many. Set per lane, because how many frames
-        # a box gets depends on how much shelf the camera sees from it.
-        self.stride = 1
-        self.arrived = 0
-        self.skipped = 0
         # The handover to this camera's decoder thread. Bounded, so a worker
         # that cannot keep up sheds the oldest frame rather than growing a
         # queue for the whole flight and dragging every later code with it.
@@ -860,22 +886,6 @@ class Recorder:
 RECORDERS = {}
 
 
-def frame_stride(standoff, hfov_deg, camera_hz):
-    """
-    Take one frame in this many, on a lane at this standoff.
-
-    A box is in frame for as long as it takes to cross the width of view, and
-    the camera offers that many frames of it. Five is enough to read one, so
-    anything beyond that is spent on a box that is already found while the
-    decoder has none to spare for the aisle that only gets three.
-    """
-    if not standoff or standoff <= 0:
-        return 1
-    span = 2 * standoff * math.tan(math.radians(hfov_deg) / 2)
-    offered = span / CRUISE_SPEED * camera_hz
-    return max(1, int(offered / TARGET_FRAMES_PER_BOX))
-
-
 def strips_for(frame_width, hfov_deg, depth):
     """
     How many strips to read a frame in, given how far away the shelf is.
@@ -1048,10 +1058,10 @@ def on_rear_image(msg):
 
 def handle_frame(msg, cam):
     """Decode one frame from one camera and queue what it found."""
-    # Delivery is measured first, before the stride check, so that a lane
-    # which skips most of its frames still says how they arrived. That is the
-    # comparison the whole question rests on: the wide aisles skip and are
-    # healthy, the narrow ones do not skip and are late.
+    # Delivery is measured before anything can return early, so that a frame
+    # this drops for age or for having no face to read still says when it
+    # arrived. How often frames come and how far apart they were rendered are
+    # facts about the camera and the transport, not about what we did next.
     entered = time.perf_counter()
     row = timing_row(cam)
     previous = last_entry.get(cam.name)
@@ -1066,15 +1076,6 @@ def handle_frame(msg, cam):
         row["stamp_gap"].append(taken_at - previous_stamp)
 
     callback_threads.setdefault(cam.name, set()).add(threading.get_ident())
-
-    cam.arrived += 1
-    if cam.stride > 1 and cam.arrived % cam.stride:
-        # Not this one. Skipped here, before the frame is touched, so the
-        # callback returns at once and gz transport has less reason to
-        # discard the next one.
-        cam.skipped += 1
-        lane_frames("skipped")
-        return
 
     age = sim_now["s"] - taken_at
     if sim_now["s"]:
@@ -1197,6 +1198,10 @@ def record_detection(qr_id, cx_px, cy_px, frame_w, frame_h, pose,
          the bearing.
       3. The vertical offset gives the height difference in the same way.
     """
+    # Counted before the code is filed, so that every reading is counted and
+    # not only the first. How close a run came to missing something is a
+    # question about all of them.
+    sightings[qr_id] = sightings.get(qr_id, 0) + 1
     if qr_id in inventory:
         return False
 
@@ -1233,22 +1238,55 @@ def record_detection(qr_id, cx_px, cy_px, frame_w, frame_h, pose,
     box_y = gy + forward_y * depth + right_y * lateral
     box_z = gz + vertical
 
-    # SNAP to grid to eliminate error from drone pitch during flight!
-    # Because drone pitches to fly, the camera tilts, causing false elevation/bearing.
-    # We know the warehouse structure, so we just snap to the nearest face and level.
-    box_x = min(SHELF_FACE_X, key=lambda f: abs(f - box_x))
-    box_z = min(FLIGHT_Z, key=lambda z: abs(z - box_z))
+    # Snapped to the layout, because the vehicle pitches to fly and a tilted
+    # camera reports a bearing and an elevation that are both slightly wrong.
+    # The building is known, so which face and which level a code is on is not
+    # something worth estimating.
+    #
+    # What is snapped to matters as much as whether. Scored against ground
+    # truth, the whole of the reported error used to be these two constants
+    # rather than anything measured:
+    #
+    #     dx   0.016 m on every one of 432 codes, both signs
+    #     dz   up to 0.060 m, and exactly 0.060 on all 108 codes of G and H
+    #     dy   0.010 m, the only axis not snapped and the only real measurement
+    #
+    # dx was the shelf surface standing in for the plane the codes are on,
+    # which sits code_plane_offset_m deeper into the shelf. dz was flight_z
+    # standing in for where the codes are: flight_z is where the vehicle flies
+    # and was never an estimate of anything on the shelf.
+    #
+    # The two axes want different treatment, because the building constrains
+    # them differently. There are eight shelf planes and a code is on one of
+    # them, so x is worth deciding rather than measuring. Height is continuous
+    # within a level, so the measurement is kept and only bounded.
+    raw_x, raw_z = box_x, box_z
+    face = face_at(box_x)
+    box_x = code_plane_x(face) if face else min(
+        SHELF_FACE_X, key=lambda f: abs(f - box_x))
+    level = min(range(len(FLIGHT_Z)),
+                key=lambda i: abs(FLIGHT_Z[i] - box_z))
+    box_z = code_height(face, level, raw_z)
 
     inventory[qr_id] = {
         "id": qr_id,
-        "estimated_x": round(box_x, 2),
+        "estimated_x": round(box_x, 3),
         "estimated_y": round(box_y, 2),
-        "estimated_z": round(box_z, 2),
+        "estimated_z": round(box_z, 3),
+        # What the geometry gave before it was snapped. Kept so that the
+        # snapping can be scored rather than assumed: it was added to cover
+        # for a tilted camera and has never been measured against the estimate
+        # it replaces.
+        "estimated_x_raw": round(raw_x, 3),
+        "estimated_z_raw": round(raw_z, 3),
         # Which face and which level, named rather than left as coordinates.
         # Scoring a scan asks "right shelf?" more often than "how many metres
         # out?", and the snap above has already decided both.
-        "shelf": shelf_name(box_x),
-        "level": FLIGHT_Z.index(box_z) + 1,
+        # Taken from the face and the level that were chosen above rather than
+        # looked up again from the reported coordinates, which no longer sit on
+        # the shelf surface or at flight_z and would not be found there.
+        "shelf": face.get("name") if face else shelf_name(raw_x),
+        "level": level + 1,
         # Which camera read it. Two cameras now scan two different faces on
         # the same pass, so a bare count no longer says which one is
         # earning its place.
@@ -1348,12 +1386,72 @@ def on_tof_scan(msg):
         pass
 
 
+def face_at(x):
+    """The shelf face nearest this x, or None if the layout has none at all."""
+    if not AISLE_FACES:
+        return None
+    return min(AISLE_FACES, key=lambda f: abs(f["face_x"] - x))
+
+
 def shelf_name(face_x):
     """The name of the shelf face at this x, or None if the layout has none."""
     for face in AISLE_FACES:
         if abs(face["face_x"] - face_x) < 0.01:
             return face.get("name")
     return None
+
+
+def code_plane_x(face):
+    """
+    The x of the plane the codes on this face actually sit in.
+
+    face_x is the shelf surface. A label is mounted on the box behind it, so
+    the code plane is code_plane_offset_m deeper into the shelf, away from the
+    aisle the vehicle flies. Which way that is comes from the heading the face
+    is read at: a face read at +90 is looked at along +x, so deeper is +x.
+
+    Measured, not assumed: scored against ground truth every one of 432 codes
+    came out 0.016 m from where it was reported, with the sign following the
+    face. It is a property of how the warehouse mounts its labels, so it lives
+    in the layout.
+    """
+    return face["face_x"] + (CODE_PLANE_OFFSET_M if face["yaw_deg"] > 0
+                             else -CODE_PLANE_OFFSET_M)
+
+
+def code_height(face, level_index, measured):
+    """
+    The height to report for a code, from what was measured and what can exist.
+
+    Keep the measurement, but not a height this shelf cannot hold. The layout
+    says the lowest and highest a code sits at on this face and level, so a
+    measurement outside that came from a tilted camera rather than from a box.
+
+    The four candidates, scored on a finished run against ground truth, as
+    height error alone:
+
+                      median     p95      max   within 5 cm
+        measured      0.0243  0.0524   0.2207        93.8%
+        flight_z      0.0500  0.0600   0.0600        32.4%
+        band median   0.0210  0.0710   0.0890        74.1%
+        clamped       0.0149  0.0499   0.1210        95.1%
+
+    flight_z is what this used to report, and it is the worst of the four by a
+    long way: it is the altitude the vehicle flew at, which was never an
+    estimate of anything on a shelf. It looks respectable only in its maximum,
+    and a constant always does.
+
+    The measurement on its own is good for nine codes in ten and then produces
+    a 0.22 m outlier. Clamping keeps the nine and bounds the tenth, and wins on
+    every figure except a maximum that a constant will always own.
+
+    Falls back to flight_z when the layout does not say where its codes are.
+    """
+    band = face.get("code_z") if face else None
+    if not band or level_index >= len(band):
+        return FLIGHT_Z[level_index]
+    low, high = band[level_index][0], band[level_index][-1]
+    return min(max(measured, low), high)
 
 
 def face_lane_x(face, standoff):
@@ -1465,11 +1563,15 @@ def lane_levels(reads):
             levels.append(fallback)
             continue
 
-        axis = (min(b[0] for b in bands) + max(b[1] for b in bands)) / 2.0
+        # The outer two of the three figures a face carries: the lowest
+        # code and the highest. What has to fit the frame is the whole
+        # spread, not where most of them sit.
+        axis = (min(b[0] for b in bands) + max(b[-1] for b in bands)) / 2.0
         levels.append(round(axis, 3))
 
         for face, hfov_deg, frame_px, depth in reads:
-            low, high = face["code_z"][index]
+            low, high = (face["code_z"][index][0],
+                         face["code_z"][index][-1])
             reach = max(abs(low - axis), abs(high - axis)) + CODE_SIZE_M / 2
             limit = half_frame_m(hfov_deg, frame_px, depth)
             if reach > limit:
@@ -1830,6 +1932,22 @@ def save_inventory(reached, planned):
     os.replace(tmp, OUTPUT_JSON)
 
 
+def _sightings_by_face():
+    """
+    The per-code reading counts, gathered by the shelf face they were filed on.
+
+    The face comes from the inventory rather than from the payload, so this
+    stays true of a warehouse that names its rows differently. A code counted
+    but never filed has no face and is gathered under None, which would mean
+    something was read and then failed to be placed.
+    """
+    by_face = {}
+    for code, count in sightings.items():
+        face = inventory.get(code, {}).get("shelf")
+        by_face.setdefault(face, []).append(count)
+    return by_face
+
+
 def write_navigation_report(reached, planned, duration_s):
     """
     Write the navigation side of the run: how well it flew, not what it read.
@@ -1902,6 +2020,25 @@ def write_navigation_report(reached, planned, duration_s):
                     if row["arrival_gap"] else None),
             }
             for (lane, name), row in timing.items()
+        },
+        # How many frames each code was read in, gathered by the shelf face it
+        # was filed against. This is the margin, and it is the only figure here
+        # that still moves once coverage reaches 432 of 432: a face whose
+        # thinnest code was read once is a face that will lose one somewhere
+        # else, and the total will not say so until it does.
+        "sightings_per_code": {
+            str(face): {
+                "codes": len(counts),
+                "min": counts[0],
+                "median": counts[len(counts) // 2],
+                "max": counts[-1],
+                "read_once": sum(1 for n in counts if n <= 1),
+                "read_twice_or_fewer": sum(1 for n in counts if n <= 2),
+            }
+            for face, counts in sorted(
+                ((face, sorted(counts))
+                 for face, counts in _sightings_by_face().items()),
+                key=lambda item: str(item[0]))
         },
         # One thread per camera means the callbacks on it are serialised and
         # cam.busy can never fire, which would explain why every run so far
@@ -2065,6 +2202,11 @@ async def run():
         await asyncio.sleep(0.1)
     pending.clear()
     inventory.clear()
+    # The reading counts go with the inventory. Anything read while the
+    # vehicle was standing still waiting for the cameras belongs to that wait
+    # and not to a lane, and counting it would make a face look safer than the
+    # flight made it.
+    sightings.clear()
 
     if RECORD_VIDEO:
         for cam, fps in ((HIRES, 10), (REAR, 8)):
@@ -2086,11 +2228,6 @@ async def run():
         HIRES.depth = hires_depth - HIRES_MOUNT_X
         REAR.depth = (rear_depth + REAR_MOUNT_X) if rear_depth else None
 
-        # How many frames a box gets on this lane, and therefore how many are
-        # worth decoding. A wide aisle offers fifteen and needs five.
-        HIRES.stride = frame_stride(hires_depth, CAMERA_HFOV_DEG, HIRES_HZ)
-        REAR.stride = (frame_stride(rear_depth, TRACKING_HFOV_DEG, REAR_HZ)
-                       if rear_depth else 1)
         current_lane["name"] = "aisle %.2f m" % (
             hires_depth + (rear_depth or 0))
         if yaw != last_yaw:

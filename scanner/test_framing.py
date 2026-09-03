@@ -59,7 +59,7 @@ check("single height band puts the axis on the codes",
 # Rows A and B carry mixed box heights, so their codes are spread and the best
 # the axis can do is the middle of the spread.
 levels = s.lane_levels(reads_for(faces["A"], faces["B"], 1.30, 1.10))
-low, high = faces["A"]["code_z"][0]
+low, high = faces["A"]["code_z"][0][0], faces["A"]["code_z"][0][-1]
 check("spread band puts the axis in the middle of the spread",
       abs(levels[0] - (low + high) / 2) < 1e-3,
       "(flying %.3f, band %.3f to %.3f)" % (levels[0], low, high))
@@ -99,7 +99,8 @@ for face in s.AISLE_FACES:
         limit = s.half_frame_m(hfov, frame_px, depth)
         worst = max(
             max(abs(low - axis), abs(high - axis)) + s.CODE_SIZE_M / 2
-            for axis, (low, high) in zip(levels, one["code_z"]))
+            for axis, band in zip(levels, one["code_z"])
+            for low, high in [(band[0], band[-1])])
         check("face %s at %.3f m, worst code reaches %.4f of %.4f m"
               % (one["name"], depth, worst, limit), worst < limit,
               "(margin %+.4f m)" % (limit - worst))
@@ -111,7 +112,7 @@ print("\nand it complains when a band genuinely does not fit")
 # narrowest aisle held its ordinary stock.
 crowded = dict(faces["G"], name="crowded", code_z=faces["A"]["code_z"])
 axis = s.lane_levels(reads_for(crowded, faces["H"], 0.2708, 0.2292))
-low, high = crowded["code_z"][0]
+low, high = crowded["code_z"][0][0], crowded["code_z"][0][-1]
 limit = s.half_frame_m(s.CAMERA_HFOV_DEG, s.HIRES_FRAME_PX,
                        0.2708 - s.HIRES_MOUNT_X)
 reach = max(abs(low - axis[0]), abs(high - axis[0])) + s.CODE_SIZE_M / 2
@@ -119,6 +120,43 @@ check("a 0.11 m band does not fit the 0.50 m aisle", reach > limit,
       "(needs %.4f m, frame gives %.4f m)" % (reach, limit))
 check("  and the shortfall is worth naming", reach - limit > 0.005,
       "(short by %.4f m)" % (reach - limit))
+
+print("\nwhere a code is reported, once it has been read")
+# The two axes are constrained differently by the building and are treated
+# differently because of it. There are eight shelf planes and a code is on one
+# of them, so x is decided. Height is continuous within a level, so the
+# measurement is kept and only bounded by what the shelf can hold.
+#
+# Both used to be snapped to a constant, and the constants were the whole of
+# the reported position error: 0.016 m in x on every one of 432 codes, and up
+# to 0.060 m in z, against 0.010 m on the one axis that was measured.
+for name in ("A", "G"):
+    face = faces[name]
+    expected = (face["face_x"] + s.CODE_PLANE_OFFSET_M if face["yaw_deg"] > 0
+                else face["face_x"] - s.CODE_PLANE_OFFSET_M)
+    check("face %s reports the code plane, not the shelf surface" % name,
+          abs(s.code_plane_x(face) - expected) < 1e-9,
+          "(%.4f, surface at %.4f)" % (s.code_plane_x(face), face["face_x"]))
+
+low, mid, high = faces["A"]["code_z"][0]
+check("a height inside the band is kept as measured",
+      abs(s.code_height(faces["A"], 0, mid) - mid) < 1e-9)
+check("a height above the band is pulled back to it",
+      abs(s.code_height(faces["A"], 0, high + 0.5) - high) < 1e-9,
+      "(measured %.3f, band tops out at %.3f)" % (high + 0.5, high))
+check("a height below the band is pulled back to it",
+      abs(s.code_height(faces["A"], 0, low - 0.5) - low) < 1e-9)
+
+# G carries one box size, so its band has no width and the clamp is exact
+# whatever the camera thought it saw.
+gl = faces["G"]["code_z"][0][0]
+check("a band with no width admits one height only",
+      abs(s.code_height(faces["G"], 0, gl + 0.4) - gl) < 1e-9,
+      "(codes all at %.3f)" % gl)
+
+check("a face that does not say falls back to flight_z",
+      abs(s.code_height(bare, 0, 99.0) - s.FLIGHT_Z[0]) < 1e-9,
+      "(got %.3f)" % s.code_height(bare, 0, 99.0))
 
 print("\n%s" % ("all checks passed" if not failures
                 else "%d FAILED: %s" % (len(failures), ", ".join(failures))))
