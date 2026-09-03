@@ -234,25 +234,28 @@ codes:
   # 300x90 mm: gerçek depo etiketlerinin ölçüsü (250-400 mm arası tipiktir;
   # mesafeden okunsun diye zaten büyük basılırlar).
   #
-  # Yük, kutunun kendi SKU'sunun rakamları: "SKU55414" -> "55414". Barkod
-  # kutuya özel, QR gibi. Önceden konumu taşıyordu ("A0302"), ki bir gözdeki
-  # üç kutuda da aynıydı; barkod o hâliyle kutuyu adlandıramıyordu.
+  # Yük, kutunun 4 haneli sıra numarası: "0001".."0432". Kutuya özel, QR gibi,
+  # ama QR'ın taşıdığı hiçbir alanı tekrar etmiyor -- QR adresi ve SKU'yu
+  # söyler, barkod kutunun kendi numarasını. İkisi farklı şeyler taşır ve biri
+  # diğerinden türetilemez; bir koşunun "QR okundu, barkod okunmadı"
+  # diyebilmesinin sebebi bu.
   #
-  # Yalnız rakam, bilerek: Code128'in C modu rakam çiftlerini tek sembolde
-  # kodlar, 5 haneli SKU 68-79 modül eder -- eski konum yüküyle aynı ya da
-  # ondan dar değil, yani kutuya özel hale gelirken okunabilirlikten hiçbir şey
-  # kaybedilmedi. "SKU55414" yazmak 123 modül ederdi, modülü 3.29'dan 2.11
-  # mm'ye düşürür ve en geniş koridorda barkodu okunmaz yapardı.
-  #
-  # QR'ın yükü "WH1|A|01|1|SKU55414". Barkod aynı kutuyu adlandırır ama aynı
-  # dizgeyi taşımaz: ikisini bağımsız okuyabildiğimizi gösteren şey bu.
+  # 4 hane, 3'ten ucuz olduğu için: Code128'in C modu rakam ÇİFTLERİNİ tek
+  # sembolde kodlar, dolayısıyla 4 hane 57 modül eder, 3 hane 68, 5 hane 79.
+  # SKU'nun rakamları kullanılamazdı: ne ilk ne son 4 hanesi 432 kutuda tekil.
   box_placard:
-    # Eni değişmedi ve değişmemeli: modül 3.29 mm ve en geniş koridorda
-    # barkod 2.32 px/modül ediyor, ki 1D için pratik eşik ~2. Daraltmak orayı
-    # bozar ve dar koridora hiçbir faydası olmaz -- orada zaten 12.85
-    # px/modül var. Kısalan boy: şerit QR'a yaklaşsın diye.
-    label: [0.300, 0.026]     # çubuklar + 1 mm kenar; her mm düşüşten düşüyor
-    bar_width: 0.260          # -> 79 modülde 3.29 mm/modül
+    # En, dar koridorun kadrajına göre seçildi. Orada kamera raftan 0.227 m
+    # uzakta ve gördüğü alanın TAMAMI 0.262 m: 263 mm'lik çubuklar karenin
+    # genişliği kadardı, yani 1D kod hiçbir zaman tamamen kadraja girmiyordu.
+    # 2026-09-03 koşusunda G yüzünün 54 kutusundan 3'ü okundu; H'de barkod
+    # kadrajın %69'unu kaplıyordu ve 54'ün 35'i okundu.
+    #
+    # 190 mm, 4 haneli yükün 57 modülüyle birlikte modülü 3.33 mm'de
+    # bırakıyor -- eski 5 haneli / 263 mm'lik düzenle aynı. Okunabilirlik hiç
+    # değişmeden barkod %28 daralıyor ve G kadrajının %100'ü yerine %73'ünü
+    # kaplıyor.
+    label: [0.240, 0.026]     # çubuklar + 25 mm sessiz alan, 1 mm alt/üst
+    bar_width: 0.190          # -> 57 modülde 3.33 mm/modül
     bar_height: 0.024
     caption_height: 0.0
 

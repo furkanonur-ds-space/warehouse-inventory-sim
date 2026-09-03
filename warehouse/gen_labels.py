@@ -211,29 +211,31 @@ def code128_modules(payload: str) -> str:
 # yük (payload) biçimleri -- gen_world.py da bunları kullanır
 # --------------------------------------------------------------------------
 
-def placard_payload(sku: str) -> str:
-    """Kutu barkodu yükü: kutunun kendi SKU'sunun rakamları, "SKU55414" ->
-    "55414".
+def placard_payload(index: int) -> str:
+    """Kutu barkodu yükü: kutunun sıra numarası, 4 hane -- "0001".."0432".
 
-    Barkod artık kutuya özel. Önceden konumu taşıyordu (sıra+göz+seviye), ki
-    bir gözdeki üç kutuda da aynıydı: barkod kutuyu adlandıramıyor, yalnız
-    "bu göz dolu" diyebiliyordu.
+    Kutuya özel, QR gibi, ama QR'ın taşıdığı hiçbir alanı tekrar etmiyor: QR
+    kutunun adresini ve SKU'sunu söylüyor, barkod kutunun kendi numarasını.
 
-    Yalnız rakamlar, iki sebeple. Code128'in C modu rakam çiftlerini tek
-    sembolde kodlar, dolayısıyla 5 haneli SKU 79 modül eder -- eski konum
-    yüküyle tam olarak aynı; barkod kutuya özel hale gelirken okunabilirlikten
-    hiçbir şey kaybetmiyor. "SKU55414" yazmak 123 modül ederdi, modül
-    genişliğini 3.29'dan 2.11 mm'ye düşürürdü ve en geniş koridorda barkodu
-    okunmaz yapardı.
+    Neden 4 hane. Code128'in C modu rakam ÇİFTLERİNİ tek sembolde kodluyor,
+    yani çift sayıda rakam tek sayıdan ucuz: 4 hane 57 modül, 3 hane 68, 5
+    hane 79. 432 kutu 4 haneye rahat sığıyor.
 
-    İkinci sebep: QR'ın yükü "WH1|A|01|1|SKU55414". Barkod aynı kutuyu
-    adlandırır ama aynı dizgeyi taşımaz, yoksa ikisini bağımsız okuyabildiğimizi
-    gösteren bir şey kalmazdı."""
-    return sku[3:] if sku.startswith("SKU") else sku
+    Bu, çubukların 190 mm'ye inmesini sağlayan şey. Sebep en dar koridor:
+    orada kamera raftan 0.227 m uzakta ve gördüğü alanın tamamı 0.262 m.
+    Eski 5 haneli yük 263 mm ediyordu -- karenin tam genişliği kadar, yani
+    1D kod hiçbir zaman tamamen kadraja girmiyordu ve 2026-09-03 koşusunda G
+    yüzünün 54 kutusundan 3'ü okundu. 57 modül 190 mm'ye sığdığında modül
+    genişliği 3.33 mm'de kalıyor: okunabilirlik hiç değişmiyor, barkod %28
+    daralıyor.
+
+    SKU'nun rakamları kullanılamazdı: ne ilk ne son 4 hanesi 432 kutuda
+    tekil (421 ve 428 farklı değer)."""
+    return "%04d" % index
 
 
-def placard_caption(sku: str) -> str:
-    return sku
+def placard_caption(index: int) -> str:
+    return "%04d" % index
 
 
 def box_payload(sku: str, row_id: str, bay: int, level: int) -> str:
@@ -246,7 +248,7 @@ def aruco_payload(marker_id: int, dict_name: str) -> str:
     return f"{dict_name}:{marker_id}"
 
 
-PLACARD_SAMPLE = placard_payload("SKU48213")
+PLACARD_SAMPLE = placard_payload(432)
 
 
 # --------------------------------------------------------------------------
@@ -571,7 +573,7 @@ def main() -> int:
                                 codes["box_label"], ppm, maxpx)
         img.save(out / "ornek_kutu_etiketi.png")
         print(f"kutu etiketi     {img.size[0]}x{img.size[1]} px, modül {m*1000:.2f} mm")
-        img, m = make_bay_placard(PLACARD_SAMPLE, placard_caption("SKU48213"),
+        img, m = make_bay_placard(PLACARD_SAMPLE, placard_caption(432),
                                   codes["box_placard"], ppm, maxpx)
         img.save(out / "ornek_kutu_barkodu.png")
         print(f"kutu barkodu     {img.size[0]}x{img.size[1]} px, modül {m*1000:.2f} mm")

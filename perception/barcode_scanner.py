@@ -181,23 +181,18 @@ class Linker:
 
 def barcode_of_qr(payload: str):
     """
-    The barcode payload the box's own QR implies: `WH1|A|03|3|SKU55414` ->
-    `55414`.
+    Gone on purpose, and kept as a note so it is not put back.
 
-    Built with the generator's own function so the two cannot disagree about
-    how the one is derived from the other.
-
-    The barcode used to name the slot, which three boxes shared, so this could
-    only ever say which shelf the reading belonged to. It now names the box,
-    and a reading either matches the QR beside it or does not.
+    This used to return the barcode a box's QR implied, back when the barcode
+    carried that box's SKU digits. The two labels now carry different facts -
+    the QR the address and the SKU, the barcode the box's own number - so
+    there is nothing to derive: which barcode belongs to which box is a fact
+    about the warehouse, recorded in ground truth, and report/barcode_vs_qr.py
+    reads it there. Deriving it here would have this process report a reading
+    nobody made.
     """
-    parts = payload.split("|")
-    if len(parts) < 5:
-        return None
-    try:
-        return gl.placard_payload(parts[4])
-    except (ValueError, TypeError):
-        return None
+    raise NotImplementedError(
+        "the two labels carry different facts; pair them through ground truth")
 
 
 # ---------------------------------------------------------------- decode
@@ -291,7 +286,7 @@ def draw(frame: np.ndarray, qrs, bars, stats: dict) -> np.ndarray:
         f"QR {stats['qr_hits']}   barcode {stats['bar_hits']}   "
         f"linked {stats['linked']}",
         f"boxes with a barcode: {stats['boxes']}   "
-        f"agrees: {stats['agree']}   disagrees: {stats['disagree']}",
+        f"consistent: {stats['agree']}   conflicting: {stats['disagree']}",
     ]
     for i, line in enumerate(lines):
         label(view, line, (12, 26 + 24 * i), COL_HUD, scale=0.62)
@@ -369,7 +364,7 @@ class Session:
         self.linked += 1
         rec = self.boxes.setdefault(linked, {
             "qr": linked, "barcode": payload, "readings": 0,
-            "best_quality": quality, "expected_barcode": barcode_of_qr(linked),
+            "best_quality": quality,
             "first_seen": now, "last_seen": now, "disagreements": [],
         })
         rec["readings"] += 1
@@ -392,16 +387,25 @@ class Session:
             "barcode_readings": self.bar_hits,
             "barcode_readings_linked": self.linked,
             "boxes_with_barcode": len(self.boxes),
-            "barcode_agrees": agree,
-            "barcode_disagrees": disagree,
+            "boxes_consistent": agree,
+            "boxes_conflicting": disagree,
             "unlinked_payloads": self.unlinked,
             "boxes": sorted(self.boxes.values(), key=lambda r: r["qr"]),
         }, indent=2, ensure_ascii=False))
 
     def tally(self) -> tuple[int, int]:
-        agree = sum(1 for r in self.boxes.values()
-                    if r["expected_barcode"] == r["barcode"])
-        return agree, len(self.boxes) - agree
+        """
+        Boxes whose linked readings all agreed with each other, and those that
+        did not.
+
+        Whether a barcode is the RIGHT one for its box is not a question this
+        process can answer any more: the two labels carry different facts and
+        the pairing lives in ground truth, which this deliberately does not
+        read. What it can still see is one box picking up two different
+        barcodes, which is a misread or a bad link either way.
+        """
+        clean = sum(1 for r in self.boxes.values() if not r["disagreements"])
+        return clean, len(self.boxes) - clean
 
     def close(self) -> None:
         self.flush()
@@ -636,7 +640,7 @@ def main() -> int:
         agree, disagree = session.tally()
         print(f"\n{session.frames} frames · {session.bar_hits} barcode readings "
               f"({session.linked} linked) · {len(session.boxes)} boxes")
-        print(f"barcode agrees {agree}, disagrees {disagree}")
+        print(f"boxes consistent {agree}, conflicting {disagree}")
         print(f"readings: {args.readings}")
         print(f"summary : {args.summary}")
     return rc
