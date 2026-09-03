@@ -355,7 +355,8 @@ def _split_aisle(width: float, hires_max: float, rear_max: float):
 
 def face_cameras(path: Path = LAYOUT, model_cameras: dict | None = None) -> dict:
     """
-    Shelf face -> which camera read it and how far its lens stood off.
+    Shelf face -> which camera read it and how far its lens stood from the
+    codes on it.
 
     One number for the whole building would be wrong twice over. The aisles
     taper from 2.40 m to 0.50 m, and since the rear camera started reading the
@@ -375,6 +376,11 @@ def face_cameras(path: Path = LAYOUT, model_cameras: dict | None = None) -> dict
     hires_max = layout.get("hires_max_standoff", 1.30)
     rear_max = layout.get("rear_max_standoff", 1.10)
     alone = min(layout.get("shelf_standoff", hires_max), hires_max)
+    # The lane is placed relative to face_x, which names the shelf surface.
+    # The codes are not on it: a label is mounted on a box standing behind
+    # that surface, so the plane they sit in is this much further from the
+    # aisle, and that much further from the lens than the standoff says.
+    code_plane = layout.get("code_plane_offset_m", 0.0)
 
     def facing(face):
         ahead = 1.0 if face["yaw_deg"] < 0 else -1.0
@@ -407,8 +413,11 @@ def face_cameras(path: Path = LAYOUT, model_cameras: dict | None = None) -> dict
             spec = cams[which]
             out[one["name"]] = {
                 "camera": which,
-                # Lens to shelf, which is what decides both numbers below.
-                "distance_m": round(max(depth - spec["mount_x"], 0.01), 3),
+                # Lens to the plane the codes are on, which is what decides
+                # both numbers below. Neither the airframe nor the shelf
+                # surface is the right end of that measurement.
+                "distance_m": round(
+                    max(depth - spec["mount_x"] + code_plane, 0.01), 3),
                 "frame_px": spec["frame_px"],
                 "hfov_deg": spec["hfov_deg"],
             }
@@ -417,7 +426,7 @@ def face_cameras(path: Path = LAYOUT, model_cameras: dict | None = None) -> dict
 
 
 def standoffs(path: Path = LAYOUT) -> dict[str, float]:
-    """Shelf face -> how far the camera's lens flew from it."""
+    """Shelf face -> how far the camera's lens flew from the codes on it."""
     return {name: cam["distance_m"] for name, cam in face_cameras(path).items()}
 
 
