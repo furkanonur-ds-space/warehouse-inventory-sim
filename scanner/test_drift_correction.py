@@ -182,6 +182,8 @@ def main():
     results.append(run_case("3.0 m error is implausible, must be rejected",
                             3.0, 0.0, expect_rejected=True))
 
+    results.extend(check_drift_model())
+
     passed = sum(1 for r in results if r)
     print()
     print("=" * 68)
@@ -189,6 +191,80 @@ def main():
     print("=" * 68)
     if passed != len(results):
         sys.exit(1)
+
+
+def check_drift_model():
+    """
+    The error inject_drift.py adds has to behave the way VIO drift is quoted.
+
+    This is here because the first version of that model was wrong by a factor
+    of a hundred and nothing but a check would have said so. It drew a fresh
+    direction for every odometry message, and at 50 Hz the vehicle moves 0.02 m
+    between messages, so the steps cancelled: one per cent of distance came out
+    as 0.018 m over a 216 m scan instead of about two metres. A whole test
+    flight would have run against an error too small to see and reported that
+    the correction was not needed.
+
+    Two properties. Over a short stretch the error is about rate times
+    distance, which is what a percentage of path length means and is the
+    regime between two floor markers. And the answer does not depend on how
+    finely the path is sampled, because odometry arrives at 50 Hz here and at
+    some other rate elsewhere.
+    """
+    import math
+    import statistics
+
+    from inject_drift import Drift
+
+    def fly(rate, seed, distance, step):
+        drift = Drift(rate, seed)
+        travelled = 0.0
+        while travelled < distance:
+            travelled += step
+            drift.step(travelled, 0.0, 0.0)
+        return math.hypot(drift.error[0], drift.error[1])
+
+    print()
+    print("-" * 68)
+    print("  the injected drift model")
+    print("-" * 68)
+    out = []
+
+    spacing = 18.0          # metres between one floor marker and the next
+    wanted = 0.01 * spacing
+    got = statistics.median(fly(0.01, s, spacing, 0.02) for s in range(120))
+    ok = abs(got - wanted) < 0.3 * wanted
+    print("  one per cent over %.0f m is %.3f m, model gives %.3f m ... %s"
+          % (spacing, wanted, got, "ok" if ok else "FAILED"))
+    out.append(ok)
+
+    # A seed has to name one error, not one error per machine. The walk
+    # advances in fixed steps of distance for this reason: the first version
+    # drew once per odometry message, and four runs over the same 256 m path
+    # logged 2870, 1872, 2000 and 1978 of those. Same seed, four different
+    # errors, and no way to fly a drift twice and change one other thing.
+    coarse = fly(0.01, 4, spacing, 0.31)
+    fine = fly(0.01, 4, spacing, 0.017)
+    ok = abs(coarse - fine) < 0.01 * max(fine, 1e-9)
+    print("  one seed, sampled every 0.310 m: %.4f m, every 0.017 m: %.4f m "
+          "... %s" % (coarse, fine, "ok" if ok else "FAILED"))
+    out.append(ok)
+
+    still = Drift(0.01, 1)
+    for _ in range(500):
+        still.step(1.0, 2.0, 3.0)
+    ok = math.hypot(still.error[0], still.error[1]) == 0.0
+    print("  a vehicle that does not move accumulates nothing ... %s"
+          % ("ok" if ok else "FAILED"))
+    out.append(ok)
+
+    none = statistics.median(fly(0.0, s, spacing, 0.02) for s in range(20))
+    ok = none == 0.0
+    print("  rate 0 is a pass through, the control for the relay ... %s"
+          % ("ok" if ok else "FAILED"))
+    out.append(ok)
+
+    return out
 
 
 if __name__ == "__main__":

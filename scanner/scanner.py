@@ -37,6 +37,29 @@ import gz.transport13 as trans
 from gz.msgs10.image_pb2 import Image
 from gz.msgs10.laserscan_pb2 import LaserScan
 
+# We do our own threading, so OpenCV should not do any of its own.
+#
+# Three of our threads call into it: a decoder for each camera, and the ArUco
+# pass on the thread gz transport calls callbacks from. OpenCV then opens a
+# pool inside each call, eight wide on this machine, so three threads of ours
+# become two dozen of its on eight cores.
+#
+# A scan aborted at waypoint 3 with "corrupted double-linked list", a heap
+# corruption from inside the library, after nine scans that did not. Nothing
+# in this file changed between them; what changed earlier was that decoding
+# moved off the single transport thread, which is what introduced concurrent
+# use of OpenCV at all. Before that the two decoders and the ArUco pass were
+# serialised and none of this could arise.
+#
+# This is a mitigation and not a proof. One failure in ten runs cannot be
+# shown to be fixed by a run that works, and the navigation report records the
+# thread count so a future crash can be attributed rather than guessed at.
+#
+# It is close to free: benched on real frames, two decoders at once went from
+# 124 and 109 ms a frame to 130 and 110, and the wall clock for the pair from
+# 2.86 s to 2.91. WeChat's detector barely uses the pool it was given.
+cv2.setNumThreads(1)
+
 # --- WAREHOUSE FLOOR PLAN ----------------------------------------------
 #
 # Read from layout.json rather than written here, so that flying a different
@@ -337,6 +360,16 @@ REAR_HZ = 8.0
 # at the moment means the narrowest aisle, where two codes go missing and
 # every test of why has been synthetic.
 RECORD_VIDEO = os.environ.get("RECORD_VIDEO", "") not in ("", "0")
+
+# Whether to ignore the floor markers entirely.
+#
+# For one run only, and it is the run that makes the correction falsifiable.
+# With the simulated odometry exact there is nothing to correct and a flight
+# cannot tell whether the correction helps; with an error injected there is,
+# and the honest test is to fly the same error twice, once with the markers
+# and once without. If the run without them comes back just as good, whatever
+# carried it was not the correction.
+NO_DRIFT_CORRECTION = os.environ.get("NO_DRIFT_CORRECTION", "") not in ("", "0")
 frames_stale = {"n": 0}
 
 # What happened to the frames on each lane. The flight totals never said where
@@ -652,6 +685,15 @@ def load_marker_map():
     sighting ambiguous and defeated the point of using them as references.
     """
     global marker_map
+    if NO_DRIFT_CORRECTION:
+        # Turned off on purpose, for the run that says whether the correction
+        # is doing anything. A run with drift injected and the correction on
+        # proves nothing by itself: if the same run with it off comes back
+        # just as good, whatever carried it was not the markers.
+        print("[INFO] NO_DRIFT_CORRECTION=1: floor markers ignored, no "
+              "correction will be applied")
+        marker_map = {}
+        return
     try:
         with open(MARKER_MAP_PATH, encoding="utf-8") as handle:
             marker_map = json.load(handle)
@@ -1966,6 +2008,20 @@ def write_navigation_report(reached, planned, duration_s):
     report = {
         "report_date": datetime.now().isoformat(timespec="seconds"),
         "world": WORLD,
+        # What this run was, so that four reports from an afternoon can be
+        # told apart afterwards without remembering which terminal was which.
+        # The drift itself is injected outside this process and writes its own
+        # out/drift_injected.csv; what belongs here is what the scanner was
+        # asked to do about it.
+        "configuration": {
+            "drift_correction": not NO_DRIFT_CORRECTION,
+            "recording": RECORD_VIDEO,
+            "marker_map_loaded": len(marker_map),
+            # How many threads OpenCV was allowed inside each of ours. Here
+            # because a scan once aborted on a heap corruption and the first
+            # question was how much concurrency the library had been given.
+            "opencv_threads": cv2.getNumThreads(),
+        },
         "mission_duration_s": round(duration_s, 1),
         "waypoints": {
             "planned": planned,

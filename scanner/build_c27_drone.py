@@ -22,6 +22,19 @@ the same failure. The plain x500 already provides optical flow and a range
 sensor.
 """
 import os
+import sys
+
+# Build a model whose odometry does not go straight to PX4.
+#
+#   python3 build_c27_drone.py            the vehicle that flies every day
+#   python3 build_c27_drone.py --drift    the same vehicle, wired for a test
+#
+# With --drift the odometry publisher writes to a private topic and PX4 is
+# left with nothing on the one it reads, so inject_drift.py has to sit in
+# between and is obviously required rather than quietly optional. That is the
+# point of doing it this way: the model that flies normally is not carrying a
+# test harness it could fail without.
+INJECT_DRIFT = "--drift" in sys.argv
 
 GZ_MODELS = os.path.expanduser('~/PX4-Autopilot/Tools/simulation/gz/models')
 model_name = "x500_c27"
@@ -305,12 +318,29 @@ tracking_down = camera_block(
 # test_drift_correction.py, which drives it with synthetic frames and a known
 # injected error. That test found a real defect the simulator could never have
 # surfaced: the correction summed its measurement instead of converging on it.
+#
+# What --drift changes. PX4's gz bridge subscribes to exactly
+# /model/<model>/odometry_with_covariance, built from the model name in
+# GZBridge.cpp, so the way to put something in front of PX4 is to move the
+# plugin off that topic. It then publishes the true pose on a private name and
+# inject_drift.py reads it, adds an accumulating error and publishes the
+# result on the name PX4 is waiting for.
+#
+# That puts the error where a real one is. Corrupting what the scanner reads
+# instead does displace the vehicle, through the lateral check in the settle
+# loop, but only as far as that check's own tolerance and timeout allow, and
+# it leaves PX4's estimator being fed the truth. On the vehicle it is the
+# estimator that is wrong, and every setpoint lands displaced because of it.
+DRIFT_TOPIC = "/model/%s/odometry_with_covariance_true" % model_name
+
 vio_odometry = '''
     <plugin
       filename="gz-sim-odometry-publisher-system"
       name="gz::sim::systems::OdometryPublisher">
-      <dimensions>3</dimensions>
-    </plugin>'''
+      <dimensions>3</dimensions>%s
+    </plugin>''' % (
+    "\n      <odom_covariance_topic>%s</odom_covariance_topic>" % DRIFT_TOPIC
+    if INJECT_DRIFT else "")
 
 # --- PMD TOF, front facing, obstacle distance --------------------------
 #
@@ -351,6 +381,13 @@ print("  camera_track_front_link  1280x800  front, 90 deg   odometry")
 print("  camera_track_rear_link   1280x800  rear,  90 deg   odometry")
 print("  camera_track_down_link   1280x800  down,  90 deg   odometry and ArUco")
 print("  OdometryPublisher         plugin   VIO simulation")
+if INJECT_DRIFT:
+    print()
+    print("  WIRED FOR A DRIFT TEST. The odometry goes to")
+    print("    %s" % DRIFT_TOPIC)
+    print("  and not to PX4. Nothing will fly until inject_drift.py is")
+    print("  relaying it, because PX4 has no position source without it.")
+    print("  Rebuild without --drift to get the vehicle back.")
 print("  tof_link                  PMD TOF, 106x86 deg, 5 m, 32x8 rays")
 print()
 print("  Note: scanning now requires the vehicle to face the shelf, so each")
