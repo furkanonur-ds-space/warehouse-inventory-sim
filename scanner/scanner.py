@@ -211,6 +211,20 @@ is_settled = False
 pending = deque()          # hits waiting to be recorded, each with its own pose
 inventory = {}
 
+# How many frames each code was read in, whether or not it was already filed.
+#
+# A run can reach 432 of 432 with codes that were read exactly once, and a code
+# read once is a coin toss that happened to land: the same code on a machine
+# that renders at a different rate, or holds a different half of the frames,
+# goes the other way. The total cannot show that, because it is at its ceiling
+# either way. The thinnest count on a face can.
+#
+# It is what makes two machines comparable. Ibrahim's run missed one in the
+# 2.40 m aisle where ours missed none, and "he missed one, we did not" is an
+# anecdote; "his face B was read once where ours was read eight times" is a
+# measurement.
+sightings = {}
+
 # Drift correction state.
 #
 # PX4 does not expose a way to reset the estimator through MAVSDK, so the
@@ -281,22 +295,34 @@ pose_history = []
 # move.
 MAX_FRAME_AGE_S = 0.50
 
-# What the cameras are rendered at, from build_c27_drone.py. Needed to work
-# out how many frames a box gets, which decides how many are worth decoding.
+# What the cameras are rendered at, from build_c27_drone.py.
 HIRES_HZ = 10.0
 REAR_HZ = 8.0
 
-# How many frames of a box are enough to read it.
+# Nothing rations frames any more.
 #
-# Seven, which is what the runs support rather than what sounds tidy. The
-# 1.13 m aisle gives a box 7.1 looks and has come back complete every time;
-# the 0.50 m aisle gives 3.1 and has lost one or two on every run.
+# There used to be a stride here: on a lane offering a box more frames than it
+# was thought to need, one frame in N was decoded and the rest were dropped
+# before they were touched. It was rationing, and it was worth having while
+# both cameras decoded on the one thread gz transport calls callbacks on, with
+# the pair asking for 128 per cent of it.
 #
-# This was five for one run, and the widest aisle lost a code for the first
-# time: fifteen looks cut to five was not enough, on the aisle where nothing
-# had ever been missed. Five contradicted the note written beside it, which
-# already said seven was the figure that held.
-TARGET_FRAMES_PER_BOX = 7.0
+# They have a thread each now, and the measurements from the 2026-09-02 run say
+# the rationing had stopped buying anything: at one frame in one, the busiest
+# decoder on the busiest lane would sit at 75 per cent.
+#
+# It was also rationing in the wrong place. It only ever cut the 2.40 m aisle,
+# which is the aisle where a code resolves to fewest pixels: 1.71 a module on
+# face B against the 1.66 WeChat has been measured down to, and 2.00 on face
+# A. Frames are not surplus there, they are the only thing making up for a
+# reading that is marginal in every single one of them, and half of them were
+# going in the bin. Read out of that run's recording, six codes on face B were
+# read in exactly one frame and sixteen in two or fewer, against none at all
+# on C, D or E.
+#
+# The history agrees. Cutting the target from seven to five, which took the
+# widest aisle from one frame in two to one in three, lost a code there
+# immediately, on the aisle that had never lost one.
 
 # Whether to write what the scanning cameras saw to mp4 alongside the scan.
 #
@@ -513,11 +539,6 @@ class CameraDecoder:
         self.frames = 0
         self.dropped = 0
         self.stale = 0
-        # Take one frame in this many. Set per lane, because how many frames
-        # a box gets depends on how much shelf the camera sees from it.
-        self.stride = 1
-        self.arrived = 0
-        self.skipped = 0
         # The handover to this camera's decoder thread. Bounded, so a worker
         # that cannot keep up sheds the oldest frame rather than growing a
         # queue for the whole flight and dragging every later code with it.
@@ -860,22 +881,6 @@ class Recorder:
 RECORDERS = {}
 
 
-def frame_stride(standoff, hfov_deg, camera_hz):
-    """
-    Take one frame in this many, on a lane at this standoff.
-
-    A box is in frame for as long as it takes to cross the width of view, and
-    the camera offers that many frames of it. Five is enough to read one, so
-    anything beyond that is spent on a box that is already found while the
-    decoder has none to spare for the aisle that only gets three.
-    """
-    if not standoff or standoff <= 0:
-        return 1
-    span = 2 * standoff * math.tan(math.radians(hfov_deg) / 2)
-    offered = span / CRUISE_SPEED * camera_hz
-    return max(1, int(offered / TARGET_FRAMES_PER_BOX))
-
-
 def strips_for(frame_width, hfov_deg, depth):
     """
     How many strips to read a frame in, given how far away the shelf is.
@@ -1048,10 +1053,10 @@ def on_rear_image(msg):
 
 def handle_frame(msg, cam):
     """Decode one frame from one camera and queue what it found."""
-    # Delivery is measured first, before the stride check, so that a lane
-    # which skips most of its frames still says how they arrived. That is the
-    # comparison the whole question rests on: the wide aisles skip and are
-    # healthy, the narrow ones do not skip and are late.
+    # Delivery is measured before anything can return early, so that a frame
+    # this drops for age or for having no face to read still says when it
+    # arrived. How often frames come and how far apart they were rendered are
+    # facts about the camera and the transport, not about what we did next.
     entered = time.perf_counter()
     row = timing_row(cam)
     previous = last_entry.get(cam.name)
@@ -1066,15 +1071,6 @@ def handle_frame(msg, cam):
         row["stamp_gap"].append(taken_at - previous_stamp)
 
     callback_threads.setdefault(cam.name, set()).add(threading.get_ident())
-
-    cam.arrived += 1
-    if cam.stride > 1 and cam.arrived % cam.stride:
-        # Not this one. Skipped here, before the frame is touched, so the
-        # callback returns at once and gz transport has less reason to
-        # discard the next one.
-        cam.skipped += 1
-        lane_frames("skipped")
-        return
 
     age = sim_now["s"] - taken_at
     if sim_now["s"]:
@@ -1197,6 +1193,10 @@ def record_detection(qr_id, cx_px, cy_px, frame_w, frame_h, pose,
          the bearing.
       3. The vertical offset gives the height difference in the same way.
     """
+    # Counted before the code is filed, so that every reading is counted and
+    # not only the first. How close a run came to missing something is a
+    # question about all of them.
+    sightings[qr_id] = sightings.get(qr_id, 0) + 1
     if qr_id in inventory:
         return False
 
@@ -1830,6 +1830,22 @@ def save_inventory(reached, planned):
     os.replace(tmp, OUTPUT_JSON)
 
 
+def _sightings_by_face():
+    """
+    The per-code reading counts, gathered by the shelf face they were filed on.
+
+    The face comes from the inventory rather than from the payload, so this
+    stays true of a warehouse that names its rows differently. A code counted
+    but never filed has no face and is gathered under None, which would mean
+    something was read and then failed to be placed.
+    """
+    by_face = {}
+    for code, count in sightings.items():
+        face = inventory.get(code, {}).get("shelf")
+        by_face.setdefault(face, []).append(count)
+    return by_face
+
+
 def write_navigation_report(reached, planned, duration_s):
     """
     Write the navigation side of the run: how well it flew, not what it read.
@@ -1902,6 +1918,25 @@ def write_navigation_report(reached, planned, duration_s):
                     if row["arrival_gap"] else None),
             }
             for (lane, name), row in timing.items()
+        },
+        # How many frames each code was read in, gathered by the shelf face it
+        # was filed against. This is the margin, and it is the only figure here
+        # that still moves once coverage reaches 432 of 432: a face whose
+        # thinnest code was read once is a face that will lose one somewhere
+        # else, and the total will not say so until it does.
+        "sightings_per_code": {
+            str(face): {
+                "codes": len(counts),
+                "min": counts[0],
+                "median": counts[len(counts) // 2],
+                "max": counts[-1],
+                "read_once": sum(1 for n in counts if n <= 1),
+                "read_twice_or_fewer": sum(1 for n in counts if n <= 2),
+            }
+            for face, counts in sorted(
+                ((face, sorted(counts))
+                 for face, counts in _sightings_by_face().items()),
+                key=lambda item: str(item[0]))
         },
         # One thread per camera means the callbacks on it are serialised and
         # cam.busy can never fire, which would explain why every run so far
@@ -2065,6 +2100,11 @@ async def run():
         await asyncio.sleep(0.1)
     pending.clear()
     inventory.clear()
+    # The reading counts go with the inventory. Anything read while the
+    # vehicle was standing still waiting for the cameras belongs to that wait
+    # and not to a lane, and counting it would make a face look safer than the
+    # flight made it.
+    sightings.clear()
 
     if RECORD_VIDEO:
         for cam, fps in ((HIRES, 10), (REAR, 8)):
@@ -2086,11 +2126,6 @@ async def run():
         HIRES.depth = hires_depth - HIRES_MOUNT_X
         REAR.depth = (rear_depth + REAR_MOUNT_X) if rear_depth else None
 
-        # How many frames a box gets on this lane, and therefore how many are
-        # worth decoding. A wide aisle offers fifteen and needs five.
-        HIRES.stride = frame_stride(hires_depth, CAMERA_HFOV_DEG, HIRES_HZ)
-        REAR.stride = (frame_stride(rear_depth, TRACKING_HFOV_DEG, REAR_HZ)
-                       if rear_depth else 1)
         current_lane["name"] = "aisle %.2f m" % (
             hires_depth + (rear_depth or 0))
         if yaw != last_yaw:
