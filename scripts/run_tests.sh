@@ -56,6 +56,13 @@ run test_drift_correction.py
 # codes sat 0.049 m below the axis.
 run test_framing.py
 
+# The report layer has geometry of its own now: a barcode reading carries a
+# pose and a pixel position, and turning those into a box is the scanner's
+# arithmetic written against a different yaw convention. A sign error there
+# puts every code on the wrong side of the aisle, and the shelf snap hides it.
+cd "$HERE/report" || exit 1
+run test_barcode_inventory.py
+
 if [ "$failed" -eq 0 ]; then
     echo "all suites passed"
 else

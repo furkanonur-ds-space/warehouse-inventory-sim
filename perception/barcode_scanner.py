@@ -315,6 +315,11 @@ class Session:
         self.readings_path = readings
         self.summary_path = summary
         self.source = source
+        # The link name out of the topic, which is what says whether these
+        # readings came from the forward camera or the one looking back.
+        self.camera_link = next(
+            (part for part in str(source).split("/") if part.startswith("camera_")),
+            "camera")
         self.boxes: dict[str, dict] = {}
         self.unlinked: dict[str, int] = {}
         self.frames = 0
@@ -329,15 +334,35 @@ class Session:
         readings.parent.mkdir(parents=True, exist_ok=True)
         self._fh = readings.open("a")
 
-    def record(self, payload, poly, quality, linked, dist, frame_no) -> None:
+    def record(self, payload, poly, quality, linked, dist, frame_no,
+               pose=None, frame_size=None, drop_m=None) -> None:
         self.bar_hits += 1
         now = datetime.now().isoformat(timespec="seconds")
-        self._fh.write(json.dumps({
+        poly = np.asarray(poly, dtype=float)
+        row = {
             "t": now, "frame": frame_no, "symbology": "CODE128",
             "payload": payload, "quality": quality,
             "polygon": [[round(float(x), 1), round(float(y), 1)] for x, y in poly],
             "linked_qr": linked, "link_error_m": dist,
-        }, ensure_ascii=False) + "\n")
+        }
+        # Where the bars sat in the frame and where the vehicle was when the
+        # frame arrived. Everything a position needs, and nothing that decides
+        # one: the geometry is done in report/barcode_inventory.py, which is
+        # the half of this that can be run again on a finished flight.
+        row["centre"] = [round(float(poly[:, 0].mean()), 1),
+                         round(float(poly[:, 1].mean()), 1)]
+        if frame_size is not None:
+            row["frame_px"] = [int(frame_size[0]), int(frame_size[1])]
+        if drop_m is not None:
+            # QR centre to bar centre, in metres. The bars are what was read;
+            # the box is filed at its QR, so a height needs this added back.
+            row["qr_drop_m"] = round(float(drop_m), 4)
+        if pose is not None:
+            row["uav"] = {"x": round(pose[0], 3), "y": round(pose[1], 3),
+                          "z": round(pose[2], 3)}
+            row["uav_yaw_deg"] = round(pose[3], 2)
+        row["camera_link"] = self.camera_link
+        self._fh.write(json.dumps(row, ensure_ascii=False) + "\n")
         if not linked:
             self.unlinked[payload] = self.unlinked.get(payload, 0) + 1
             return
@@ -390,14 +415,22 @@ def topic_from_layout(path: Path) -> str:
             f"/link/camera_hires_link/sensor/camera/image")
 
 
+def yaw_from_quaternion(q) -> float:
+    """Heading about world +Z, degrees counter-clockwise from +X."""
+    siny = 2.0 * (q.w * q.z + q.x * q.y)
+    cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+    return math.degrees(math.atan2(siny, cosy))
+
+
 def live(args, decoder, linker, session) -> int:
     """Subscribe to the camera and work on the newest frame there is."""
     os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
     os.environ.setdefault("GZ_IP", "127.0.0.1")
     import gz.transport13 as trans
     from gz.msgs10.image_pb2 import Image
+    from gz.msgs10.pose_v_pb2 import Pose_V
 
-    latest = {"frame": None}
+    latest = {"frame": None, "pose": None}
 
     def on_image(msg):
         # Keep the callback to a copy and nothing else. Decoding here would
@@ -409,11 +442,29 @@ def live(args, decoder, linker, session) -> int:
         except Exception:
             pass
 
+    # Where the vehicle is, read the way report/flight_log.py reads it: one
+    # Gazebo topic, nothing sent anywhere. A barcode reading with no pose
+    # cannot be placed, and this process has no other way to know one - it
+    # speaks no MAVLink on purpose, since PX4 counts a second connection as a
+    # ground station and one appearing mid-flight is a real disturbance.
+    def on_pose(msg):
+        for entry in msg.pose:
+            if entry.name == args.model:
+                latest["pose"] = (entry.position.x, entry.position.y,
+                                  entry.position.z,
+                                  yaw_from_quaternion(entry.orientation))
+                return
+
     node = trans.Node()
     if not node.subscribe(Image, args.topic, on_image):
         print(f"could not subscribe to {args.topic}")
         return 1
+    pose_node = trans.Node()
+    if not pose_node.subscribe(Pose_V, args.pose_topic, on_pose):
+        print(f"could not subscribe to {args.pose_topic}; readings will carry "
+              f"no position")
     print(f"listening on {args.topic}")
+    print(f"pose from   {args.pose_topic}")
     print("waiting for the first frame; is the simulator running?")
 
     seen_first = False
@@ -428,7 +479,11 @@ def live(args, decoder, linker, session) -> int:
                 print(f"first frame: {frame.shape[1]}x{frame.shape[0]}")
                 seen_first = True
             latest["frame"] = None
-            if not step(frame, decoder, linker, session, args):
+            # The pose as the frame was taken up, which is the closest this
+            # process can get: it holds only the newest frame, so the two are
+            # never more than one camera period apart.
+            if not step(frame, decoder, linker, session, args,
+                        pose=latest["pose"]):
                 break
             # Nothing to do until the next frame arrives; the camera runs at
             # 10 Hz and spinning here would burn a core the simulator wants.
@@ -458,7 +513,8 @@ def replay(args, decoder, linker, session) -> int:
     return 0
 
 
-def step(frame, decoder, linker, session, args, wait: int = 1) -> bool:
+def step(frame, decoder, linker, session, args, wait: int = 1,
+         pose=None) -> bool:
     """One frame: decode, link, record, draw. False means the user asked to stop."""
     t0 = time.perf_counter()
     qrs, bars = decoder(frame)
@@ -470,7 +526,10 @@ def step(frame, decoder, linker, session, args, wait: int = 1) -> bool:
     drawn_bars = []
     for payload, poly, quality in bars:
         linked, dist = linker.link(qr_polys, poly)
-        session.record(payload, poly, quality, linked, dist, session.frames)
+        session.record(payload, poly, quality, linked, dist, session.frames,
+                       pose=pose,
+                       frame_size=(frame.shape[1], frame.shape[0]),
+                       drop_m=linker.drop_m)
         drawn_bars.append((payload, poly, quality, linked, dist))
 
     now = time.perf_counter()
@@ -531,6 +590,12 @@ def main() -> int:
     ap.add_argument("--tolerance", type=float, default=LINK_TOL_M,
                     help="how far a barcode may sit from its predicted place "
                          "and still be linked, in metres")
+    ap.add_argument("--pose-topic",
+                    help="where the vehicle pose comes from; defaults to the "
+                         "world's dynamic_pose feed")
+    ap.add_argument("--model",
+                    help="gz model name whose pose to follow; defaults to the "
+                         "one in layout.json")
     ap.add_argument("--readings", type=Path, default=READINGS)
     ap.add_argument("--summary", type=Path, default=SUMMARY)
     ap.add_argument("--flush-every", type=int, default=50,
@@ -553,6 +618,11 @@ def main() -> int:
 
     if not args.topic:
         args.topic = topic_from_layout(LAYOUT)
+    layout = json.loads(LAYOUT.read_text())
+    if not args.model:
+        args.model = f"{layout['model']}_0"
+    if not args.pose_topic:
+        args.pose_topic = f"/world/{layout['world']}/dynamic_pose/info"
     source = str(args.replay) if args.replay else args.topic
     session = Session(args.readings, args.summary, source)
 

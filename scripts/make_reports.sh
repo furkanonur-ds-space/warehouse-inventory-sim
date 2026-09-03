@@ -47,6 +47,27 @@ run report/drift_report.py --html out/drift.html
 # repeat: a scan already in the log is not added twice.
 run report/missed_log.py
 
+# The barcode half, when the run flew with a reader. Every box carries two
+# labels that name it, so a run produces two inventories, and they are scored
+# by the same tool against the same ground truth - that is the whole point of
+# writing the barcode one in the QR one's schema.
+#
+# missed_log is deliberately not run over it. That log accumulates across
+# flights to tell a box that fails every run from one that failed once, and
+# feeding it a second inventory per flight would count every run twice.
+if ls out/barcode_readings*.jsonl >/dev/null 2>&1; then
+  echo
+  echo "-- barcode --"
+  run report/barcode_inventory.py
+  run report/validate_inventory.py --inventory out/inventory_barcode.json \
+      --out out/validation_report_barcode.json \
+      --offsets out/position_offsets_barcode.csv --list-missed
+  run report/coverage_report.py --inventory out/inventory_barcode.json \
+      --json out/coverage_report_barcode.json \
+      --html out/coverage_barcode.html
+  run report/barcode_vs_qr.py
+fi
+
 echo
 if [ "$failed" -eq 0 ]; then
   echo "== all reports written to out/ =="
