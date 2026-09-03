@@ -73,6 +73,7 @@ import argparse
 import json
 import math
 import os
+import re
 import sys
 import time
 from collections import deque
@@ -229,9 +230,19 @@ class Decoder:
         for r in results:
             poly = polygon_of(r)
             payload = r.data.decode("utf-8", "replace")
-            (qrs if r.type == "QRCODE" else bars).append(
-                (payload, poly, int(r.quality)))
+            if r.type == "QRCODE":
+                qrs.append((payload, poly, int(r.quality)))
+            elif BARCODE_PAYLOAD.match(payload):
+                bars.append((payload, poly, int(r.quality)))
         return qrs, bars
+
+
+# Every box barcode in this world is four digits. A Code128 symbol read at the
+# edge of the frame can decode short - a run has produced 229, 324, 421, 823
+# and one empty string, all of them a real code with its start cut off - and a
+# short read is not a box that does not exist, it is a misread. The shape is
+# fixed by the generator, so checking it costs nothing and keeps them out.
+BARCODE_PAYLOAD = re.compile(r"^\d{4}$")
 
 
 def polygon_of(result) -> np.ndarray:
@@ -434,7 +445,20 @@ def live(args, decoder, linker, session) -> int:
     from gz.msgs10.image_pb2 import Image
     from gz.msgs10.pose_v_pb2 import Pose_V
 
-    latest = {"frame": None, "pose": None}
+    # A short queue rather than one slot. A frame that arrived while the last
+    # one was being decoded used to be overwritten and lost, which cost about
+    # two frames in five. In the widest aisle that is invisible - a box is in
+    # shot for a dozen frames - but in the narrowest the barcode is fully in
+    # frame for one, so a frame dropped there is a box never read.
+    frames = deque(maxlen=4)
+    # Poses, kept with the simulation time they carry. The newest pose is not
+    # the pose the frame was taken at: at 0.6 m/s a second of lag is 0.6 m,
+    # and one reading in this run landed 0.76 m out with the code dead ahead,
+    # which is a stale pose and not a bearing error.
+    poses = deque(maxlen=600)
+
+    def stamp_of(msg):
+        return msg.header.stamp.sec + msg.header.stamp.nsec * 1e-9
 
     def on_image(msg):
         # Keep the callback to a copy and nothing else. Decoding here would
@@ -442,7 +466,7 @@ def live(args, decoder, linker, session) -> int:
         try:
             img = np.frombuffer(msg.data, dtype=np.uint8).reshape(
                 (msg.height, msg.width, 3))
-            latest["frame"] = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            frames.append((stamp_of(msg), cv2.cvtColor(img, cv2.COLOR_RGB2BGR)))
         except Exception:
             pass
 
@@ -454,10 +478,18 @@ def live(args, decoder, linker, session) -> int:
     def on_pose(msg):
         for entry in msg.pose:
             if entry.name == args.model:
-                latest["pose"] = (entry.position.x, entry.position.y,
-                                  entry.position.z,
-                                  yaw_from_quaternion(entry.orientation))
+                poses.append((stamp_of(msg),
+                              (entry.position.x, entry.position.y,
+                               entry.position.z,
+                               yaw_from_quaternion(entry.orientation))))
                 return
+
+    def pose_at(when, tolerance=0.20):
+        """The pose closest in simulation time to when the frame was taken."""
+        if not poses:
+            return None
+        stamp, pose = min(poses, key=lambda row: abs(row[0] - when))
+        return pose if abs(stamp - when) <= tolerance else None
 
     node = trans.Node()
     if not node.subscribe(Image, args.topic, on_image):
@@ -475,19 +507,18 @@ def live(args, decoder, linker, session) -> int:
     last = time.time()
     try:
         while True:
-            frame = latest["frame"]
-            if frame is None:
-                time.sleep(0.05)
+            if not frames:
+                time.sleep(0.01)
                 continue
+            taken_at, frame = frames.popleft()
             if not seen_first:
                 print(f"first frame: {frame.shape[1]}x{frame.shape[0]}")
                 seen_first = True
-            latest["frame"] = None
-            # The pose as the frame was taken up, which is the closest this
-            # process can get: it holds only the newest frame, so the two are
-            # never more than one camera period apart.
+            # The pose the frame was taken at, matched on the simulation time
+            # both messages carry, rather than whichever pose happens to be
+            # newest by the time the frame is decoded.
             if not step(frame, decoder, linker, session, args,
-                        pose=latest["pose"]):
+                        pose=pose_at(taken_at)):
                 break
             # Nothing to do until the next frame arrives; the camera runs at
             # 10 Hz and spinning here would burn a core the simulator wants.
