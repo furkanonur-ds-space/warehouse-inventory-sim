@@ -67,6 +67,8 @@ if ls out/barcode_readings*.jsonl >/dev/null 2>&1; then
       --code-type box_placard \
       --json out/coverage_report_barcode.json \
       --html out/coverage_barcode.html
+  run report/view_inventory.py --inventory out/inventory_barcode.json \
+      --code-type box_placard --out out/inventory_3d_barcode.html
   run report/barcode_vs_qr.py
 fi
 
