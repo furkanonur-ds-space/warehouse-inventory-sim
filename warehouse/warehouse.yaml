@@ -254,8 +254,28 @@ codes:
     # bırakıyor -- eski 5 haneli / 263 mm'lik düzenle aynı. Okunabilirlik hiç
     # değişmeden barkod %28 daralıyor ve G kadrajının %100'ü yerine %73'ünü
     # kaplıyor.
-    label: [0.240, 0.026]     # çubuklar + 25 mm sessiz alan, 1 mm alt/üst
-    bar_width: 0.190          # -> 57 modülde 3.33 mm/modül
+    # 2026-09-04: 190 -> 166 mm. Ölçüm, koşunun kendi okumalarından:
+    #
+    #   * zbar'ın GÖRÜNEN sessiz alan ihtiyacı ~2 modül, 7.5 değil. A yüzünde
+    #     çubuklarla kadraj kenarı arasında 4 px beyaz kalmışken bile çözdü.
+    #     Yani etiketin tamamının kadraja girmesi gerekmiyor; kadrajın taşıması
+    #     gereken şey çubuklar + iki yanda ~2 modül.
+    #   * G'nin sorunu çözünürlük değil. G depodaki en yüksek çözünürlüğe sahip
+    #     yüz -- 11.03 px/modül -- ve en kötü sonucu veriyor: 31/54. En düşük
+    #     çözünürlüklü B (1.94 px/modül) 54/54 okuyor. Fark kadraj: G'de kamera
+    #     262 mm görüyor, 190 mm çubuk + 13 mm sessiz alan 203 mm yer istiyor,
+    #     geriye 59 mm'lik bir pencere kalıyor ve araç kareler arasında 148 mm
+    #     ilerliyor. Kare başına %40.
+    #
+    # 166 mm o pencereyi 84 mm'ye çıkarıyor, kare başına %57. Bedeli her yüzde
+    # çözünürlük ve bağlayıcı olan B: 1.94 -> 1.70 px/modül. Elimizdeki tek
+    # sert veri 1.94'ün rahat çalıştığı; altı ölçülmedi. B bozulursa bu satır
+    # geri alınır.
+    #
+    # Beyaz alan 240 mm'de KALIYOR. Sessiz alan 37 mm'ye çıkıyor ve bu bedava:
+    # kadraja girmesi gereken kısım zaten ~2 modül, gerisi sadece marj.
+    label: [0.240, 0.026]     # çubuklar + 37 mm sessiz alan, 1 mm alt/üst
+    bar_width: 0.166          # -> 57 modülde 2.92 mm/modül
     bar_height: 0.024
     caption_height: 0.0
 
