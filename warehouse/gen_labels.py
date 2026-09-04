@@ -384,7 +384,10 @@ def placard_geometry(spec: dict, px_per_m_tex: float,
     """
     _, scale = _canvas(spec["label"], px_per_m_tex, max_px)
     h_px = max(8, int(round(spec["label"][1] * scale)))
-    n = len(code128_modules("A0101"))          # yük uzunluğu sabit (sıra+göz+seviye)
+    # Modül sayısı yükün UZUNLUĞUNDAN gelir ve yük artık kutunun 4 haneli
+    # sıra numarası: "A0101" (göz adresi) 79 modül ederken "0432" 57 ediyor.
+    # Sabit bırakılınca burası 190 mm'lik çubukları 197.5 mm sanıyordu.
+    n = len(code128_modules(PLACARD_SAMPLE))
     module_px = max(1, int(round(spec["bar_width"] * scale / n)))
     bars_px = module_px * n
     bar_h = int(round(spec["bar_height"] * scale))
