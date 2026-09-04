@@ -25,9 +25,28 @@
 # codes out of 432. Paying it on both cameras is the point of the mode, but
 # "rear" and "front" are still there for a run that cannot spare the frames.
 #
-# The barcode names a slot and not a box, so it can never fill a hole in the
-# inventory. What it can say is that a slot holds a box whose QR did not read,
-# which is what a torn or missing label looks like from the air.
+# The barcode names the BOX, not the slot it stands in, and has since it
+# started carrying the box's own four-digit number. So it can fill a hole in
+# the inventory: a barcode read where the QR failed is a box recovered, and
+# report/barcode_inventory.py files those as an inventory of their own, scored
+# against the barcode labels in ground truth rather than against the QR ones.
+#
+# SAVE_FRAMES=1 keeps the frames where a QR read and the barcode beside it did
+# not, lossless, in out/barcode_frames. That is the only way to ask a question
+# about the LABEL on real pixels, and it is a few hundred frames rather than a
+# recording of the whole flight:
+#
+#   SAVE_FRAMES=1 ./scripts/scan_with_barcode.sh
+#   .venv/bin/python perception/barcode_scanner.py --headless \
+#       --replay out/barcode_frames \
+#       --readings out/replay_readings.jsonl --summary out/replay.json
+#
+# NOT RECORD_VIDEO=1. That is the scanner's own switch and it records both
+# cameras through two cv2.VideoWriter threads; on 2026-09-04 it took the scan
+# down with `corrupted double-linked list` at waypoint 11 of 24, half way up
+# the second aisle. It is in scanner/ and not ours to fix. The videos it had
+# written to that point were intact, so it is the writing that is unsafe and
+# not the files, but a run that dies half way is a run.
 set -u
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 PY="${PY:-$HOME/autonomous_landing/venv/bin/python}"
@@ -54,12 +73,26 @@ mkdir -p "$HERE/out"
 rm -f "$HERE"/out/barcode_readings*.jsonl "$HERE"/out/barcode_inventory*.json
 pids=()
 
+SAVE_FRAMES="${SAVE_FRAMES:-0}"
+SHOTS="$HERE/out/barcode_frames"
+if [ "$SAVE_FRAMES" != "0" ]; then
+    # Same reason the readings are cleared: frames from an older run would be
+    # replayed as if they belonged to this one.
+    rm -rf "$SHOTS"
+    echo "  keeping unread-barcode frames in out/barcode_frames"
+fi
+
 start_barcode() {
     local link="$1" tag="$2"
+    local shots=()
+    if [ "$SAVE_FRAMES" != "0" ]; then
+        shots=(--save-frames "$SHOTS")
+    fi
     "$PY" "$HERE/perception/barcode_scanner.py" --headless \
         --topic "$BASE/$link/sensor/camera/image" \
         --readings "$HERE/out/barcode_readings_$tag.jsonl" \
         --summary  "$HERE/out/barcode_inventory_$tag.json" \
+        ${shots+"${shots[@]}"} \
         > "$HERE/out/barcode_$tag.log" 2>&1 &
     pids+=($!)
     echo "  barcode on $tag -> out/barcode_readings_$tag.jsonl (pid ${pids[-1]})"
