@@ -65,6 +65,11 @@ from barcode_vs_qr import (camera_of, default_readings,         # noqa: E402
 
 OUT = REPO_ROOT / "out"
 
+# How far below the lowest flight level still counts as being on it. The lanes
+# are 1.7 m apart and the vehicle holds its level to a few centimetres, so this
+# only has to clear the ground: it separates 0.75 m from the 0.30 m spawn.
+LANE_MARGIN_M = 0.25
+
 
 def faces_by_name(path: Path = LAYOUT) -> dict:
     layout = json.loads(Path(path).read_text())
@@ -159,13 +164,30 @@ def build(readings, truth_path=GROUND_TRUTH, layout_path=LAYOUT) -> dict:
         "code_plane": layout.get("code_plane_offset_m", 0.0),
         "flight_z": layout["flight_z"],
     }
+    # Below this the vehicle is not on a scanning lane: it is on the ground
+    # before takeoff, or on its way down. The scanner drops its own sightings
+    # from that wait for the same reason - `sightings.clear()` once the scan
+    # starts - and this had no equivalent. A code read from the spawn point is
+    # read from metres away and off to one side, where the perpendicular
+    # standoff this geometry assumes describes nothing, and because such a
+    # reading can still be dead ahead it WINS the smallest-bearing test below
+    # and replaces the good one. On the 2026-09-04 15:26 run that was the
+    # whole of the position error's tail: four readings of box 0102 taken at
+    # z=0.30, bearing 0.1 deg, filed 0.739 m from the label. Every other box
+    # on that run was inside 0.13 m.
+    ground = min(geometry["flight_z"]) - LANE_MARGIN_M
+
     best = {}
-    placed = skipped = 0
+    placed = skipped = off_lane = 0
     for row in readings:
         if row.get("symbology") != "CODE128":
             continue
         code = row.get("payload")
         if not code:
+            continue
+        uav = row.get("uav")
+        if uav and uav.get("z", 0.0) < ground:
+            off_lane += 1
             continue
         spot = place(row, geometry)
         if spot is None:
@@ -203,6 +225,7 @@ def build(readings, truth_path=GROUND_TRUTH, layout_path=LAYOUT) -> dict:
         "total_detected": len(items),
         "readings_placed": placed,
         "readings_without_a_pose": skipped,
+        "readings_off_lane": off_lane,
         "items": items,
     }
 
