@@ -13,12 +13,21 @@ notice. The only files it reads from the flight side are `scanner/layout.json`
 (for the world and model name) and `warehouse/warehouse.yaml` (for the label
 geometry), both read-only.
 
-WHY THE BARCODE NEEDS THE QR. The placard payload names a SLOT, not a box:
-`A0303` is carried by all three boxes in bay 3 of row A level 3. A barcode
-reading on its own therefore cannot say which box was seen. What it can do is
-confirm the slot the QR was filed under, and that is what this tool produces -
-each barcode reading is linked to the QR sitting directly above it in the same
-frame, and the two are compared.
+WHAT THE BARCODE SAYS. It names the box, as the QR does: the payload is the
+digits of that box's own SKU, `55414` where the QR reads
+`WH1|A|01|1|SKU55414`. The two are deliberately not the same string. They
+carry the same fact by different routes, in different symbologies, decoded by
+different libraries, so reading both is evidence that either can be read on
+its own rather than a copy of one measurement.
+
+It used to name the slot instead, which all three boxes of a bay level shared,
+and could then say only that a shelf was occupied. It now identifies the box,
+which means a barcode read where the QR failed is a box recovered rather than
+a hint.
+
+Each reading is still linked to the QR sitting directly above it in the same
+frame, and the two are compared: the link is what makes a disagreement
+visible.
 
 HOW THE LINK IS MADE. The world generator puts the placard immediately below
 the box label, on the same vertical centre line: the drop from the QR symbol to
@@ -54,8 +63,8 @@ OUTPUTS (both under `out/`, neither touched by anything else):
     barcode_readings.jsonl   every reading: payload, polygon, quality, the QR
                              it was linked to and how far off the prediction it
                              landed
-    barcode_inventory.json   one record per box whose placard was read, with
-                             whether the slot agreed with the QR
+    barcode_inventory.json   one record per box whose barcode was read, with
+                             whether it agreed with the QR beside it
 """
 
 from __future__ import annotations
@@ -64,6 +73,7 @@ import argparse
 import json
 import math
 import os
+import re
 import sys
 import time
 from collections import deque
@@ -93,6 +103,11 @@ LINK_TOL_M = 0.12
 # A QR smaller than this in the frame gives a pixels-per-metre scale too noisy
 # to predict anything from.
 MIN_QR_SIDE_PX = 12.0
+
+# The closest two poses this process bothers to keep, in simulation seconds.
+# The pose topic carries every entity in the world at a rate nothing here
+# needs; see on_pose.
+POSE_MIN_GAP_S = 0.02
 
 
 # --------------------------------------------------------------- geometry
@@ -170,20 +185,20 @@ class Linker:
         return best, round(best_d, 4)
 
 
-def slot_of_qr(payload: str):
+def barcode_of_qr(payload: str):
     """
-    The placard payload the box's own QR implies: `WH1|A|03|3|SKU...` -> `A0303`.
+    Gone on purpose, and kept as a note so it is not put back.
 
-    Built with the generator's own function so the two cannot disagree about
-    padding or field order.
+    This used to return the barcode a box's QR implied, back when the barcode
+    carried that box's SKU digits. The two labels now carry different facts -
+    the QR the address and the SKU, the barcode the box's own number - so
+    there is nothing to derive: which barcode belongs to which box is a fact
+    about the warehouse, recorded in ground truth, and report/barcode_vs_qr.py
+    reads it there. Deriving it here would have this process report a reading
+    nobody made.
     """
-    parts = payload.split("|")
-    if len(parts) < 4:
-        return None
-    try:
-        return gl.placard_payload(parts[1], int(parts[2]), int(parts[3]))
-    except (ValueError, TypeError):
-        return None
+    raise NotImplementedError(
+        "the two labels carry different facts; pair them through ground truth")
 
 
 # ---------------------------------------------------------------- decode
@@ -220,9 +235,19 @@ class Decoder:
         for r in results:
             poly = polygon_of(r)
             payload = r.data.decode("utf-8", "replace")
-            (qrs if r.type == "QRCODE" else bars).append(
-                (payload, poly, int(r.quality)))
+            if r.type == "QRCODE":
+                qrs.append((payload, poly, int(r.quality)))
+            elif BARCODE_PAYLOAD.match(payload):
+                bars.append((payload, poly, int(r.quality)))
         return qrs, bars
+
+
+# Every box barcode in this world is four digits. A Code128 symbol read at the
+# edge of the frame can decode short - a run has produced 229, 324, 421, 823
+# and one empty string, all of them a real code with its start cut off - and a
+# short read is not a box that does not exist, it is a misread. The shape is
+# fixed by the generator, so checking it costs nothing and keeps them out.
+BARCODE_PAYLOAD = re.compile(r"^\d{4}$")
 
 
 def polygon_of(result) -> np.ndarray:
@@ -276,8 +301,8 @@ def draw(frame: np.ndarray, qrs, bars, stats: dict) -> np.ndarray:
         f"decode {stats['decode_ms']:.1f} ms",
         f"QR {stats['qr_hits']}   barcode {stats['bar_hits']}   "
         f"linked {stats['linked']}",
-        f"boxes with a placard: {stats['boxes']}   "
-        f"slot agrees: {stats['agree']}   disagrees: {stats['disagree']}",
+        f"boxes with a barcode: {stats['boxes']}   "
+        f"consistent: {stats['agree']}   conflicting: {stats['disagree']}",
     ]
     for i, line in enumerate(lines):
         label(view, line, (12, 26 + 24 * i), COL_HUD, scale=0.62)
@@ -301,6 +326,11 @@ class Session:
         self.readings_path = readings
         self.summary_path = summary
         self.source = source
+        # The link name out of the topic, which is what says whether these
+        # readings came from the forward camera or the one looking back.
+        self.camera_link = next(
+            (part for part in str(source).split("/") if part.startswith("camera_")),
+            "camera")
         self.boxes: dict[str, dict] = {}
         self.unlinked: dict[str, int] = {}
         self.frames = 0
@@ -312,32 +342,63 @@ class Session:
         self.qr_hits = 0
         self.bar_hits = 0
         self.linked = 0
+        # Set by live(); a replay has no camera to account for.
+        self.frame_book = None
+        self.saved = 0
         readings.parent.mkdir(parents=True, exist_ok=True)
         self._fh = readings.open("a")
 
-    def record(self, payload, poly, quality, linked, dist, frame_no) -> None:
+    def record(self, payload, poly, quality, linked, dist, frame_no,
+               pose=None, frame_size=None, drop_m=None, taken_at=None) -> None:
         self.bar_hits += 1
         now = datetime.now().isoformat(timespec="seconds")
-        self._fh.write(json.dumps({
+        poly = np.asarray(poly, dtype=float)
+        row = {
             "t": now, "frame": frame_no, "symbology": "CODE128",
             "payload": payload, "quality": quality,
             "polygon": [[round(float(x), 1), round(float(y), 1)] for x, y in poly],
             "linked_qr": linked, "link_error_m": dist,
-        }, ensure_ascii=False) + "\n")
+        }
+        # Where the bars sat in the frame and where the vehicle was when the
+        # frame arrived. Everything a position needs, and nothing that decides
+        # one: the geometry is done in report/barcode_inventory.py, which is
+        # the half of this that can be run again on a finished flight.
+        row["centre"] = [round(float(poly[:, 0].mean()), 1),
+                         round(float(poly[:, 1].mean()), 1)]
+        if frame_size is not None:
+            row["frame_px"] = [int(frame_size[0]), int(frame_size[1])]
+        if drop_m is not None:
+            # QR centre to bar centre, in metres. The bars are what was read;
+            # the box is filed at its QR, so a height needs this added back.
+            row["qr_drop_m"] = round(float(drop_m), 4)
+        if taken_at is not None:
+            # The simulation time the frame was taken at. Without it the only
+            # clock on a reading is `t`, which is the wall clock to the second,
+            # and the distance between two readings cannot be turned into a
+            # speed or a frame rate. Two readings 0.148 m apart are a vehicle
+            # at 1.5 m/s or a frame missed in between, and until this was
+            # written down there was no way to say which.
+            row["sim_t"] = round(float(taken_at), 3)
+        if pose is not None:
+            row["uav"] = {"x": round(pose[0], 3), "y": round(pose[1], 3),
+                          "z": round(pose[2], 3)}
+            row["uav_yaw_deg"] = round(pose[3], 2)
+        row["camera_link"] = self.camera_link
+        self._fh.write(json.dumps(row, ensure_ascii=False) + "\n")
         if not linked:
             self.unlinked[payload] = self.unlinked.get(payload, 0) + 1
             return
         self.linked += 1
         rec = self.boxes.setdefault(linked, {
             "qr": linked, "barcode": payload, "readings": 0,
-            "best_quality": quality, "expected_slot": slot_of_qr(linked),
+            "best_quality": quality,
             "first_seen": now, "last_seen": now, "disagreements": [],
         })
         rec["readings"] += 1
         rec["last_seen"] = now
         rec["best_quality"] = max(rec["best_quality"], quality)
         if payload != rec["barcode"]:
-            # Two different slot codes linked to one box. Worth keeping rather
+            # Two different barcodes linked to one box. Worth keeping rather
             # than overwriting: it is either a misread or a bad link, and both
             # are invisible if the last one silently wins.
             rec["disagreements"].append(payload)
@@ -345,28 +406,131 @@ class Session:
     def flush(self) -> None:
         self._fh.flush()
         agree, disagree = self.tally()
-        self.summary_path.write_text(json.dumps({
+        body = {
             "generated": datetime.now().isoformat(timespec="seconds"),
             "source": self.source,
             "frames_processed": self.frames,
             "qr_readings": self.qr_hits,
             "barcode_readings": self.bar_hits,
             "barcode_readings_linked": self.linked,
-            "boxes_with_placard": len(self.boxes),
-            "slot_agrees": agree,
-            "slot_disagrees": disagree,
+            "boxes_with_barcode": len(self.boxes),
+            "boxes_consistent": agree,
+            "boxes_conflicting": disagree,
             "unlinked_payloads": self.unlinked,
-            "boxes": sorted(self.boxes.values(), key=lambda r: r["qr"]),
-        }, indent=2, ensure_ascii=False))
+            "frames_saved": self.saved,
+        }
+        if self.frame_book is not None:
+            # Before the boxes, because it is what says whether a missing box
+            # is a missing frame.
+            body["frames"] = self.frame_book.summary()
+        body["boxes"] = sorted(self.boxes.values(), key=lambda r: r["qr"])
+        self.summary_path.write_text(
+            json.dumps(body, indent=2, ensure_ascii=False))
 
     def tally(self) -> tuple[int, int]:
-        agree = sum(1 for r in self.boxes.values()
-                    if r["expected_slot"] == r["barcode"])
-        return agree, len(self.boxes) - agree
+        """
+        Boxes whose linked readings all agreed with each other, and those that
+        did not.
+
+        Whether a barcode is the RIGHT one for its box is not a question this
+        process can answer any more: the two labels carry different facts and
+        the pairing lives in ground truth, which this deliberately does not
+        read. What it can still see is one box picking up two different
+        barcodes, which is a misread or a bad link either way.
+        """
+        clean = sum(1 for r in self.boxes.values() if not r["disagreements"])
+        return clean, len(self.boxes) - clean
 
     def close(self) -> None:
         self.flush()
         self._fh.close()
+
+
+class FrameBook:
+    """
+    What the camera published, against what actually reached the decoder.
+
+    The scanner keeps this count for its own cameras in
+    `out/navigation_report.json`, and without the same count here a run cannot
+    tell the two failures apart: a box whose barcode never landed whole in a
+    frame, and a box whose frame never reached zbar. On 2026-09-03 they were
+    not the same size. The scanner saw 3020 frames on the hires camera and
+    shed 60; this reader decoded 2285 of them. Adjacent decoded frames were
+    147 mm of travel apart where the camera's 10 Hz and the vehicle's 0.9 m/s
+    put them 90 mm apart, so about one frame in three was going missing - and
+    in the narrowest aisle, where the barcode is in shot for a single frame,
+    that is the difference between reading a box and not.
+
+    `arrived` is counted on the transport thread and `decoded` in the main
+    loop, so the gap between them is this process's own loss and nothing
+    else's. `shed` is the part of it this process can see: the queue was full
+    when the frame came in. Any remainder never reached the callback at all.
+    """
+
+    def __init__(self):
+        self.arrived = 0
+        self.shed = 0
+        self.decoded = 0
+        # Simulation-time gaps, in milliseconds: what the camera published at,
+        # and what was left of it after this process. Sim time rather than
+        # wall clock because the question is how far the vehicle moved between
+        # frames, and the simulator does not run at real time.
+        self.arrival_gaps: list[float] = []
+        self.decoded_gaps: list[float] = []
+        self._last_arrival = None
+        self._last_decoded = None
+
+    def arrival(self, stamp: float, queue_full: bool) -> None:
+        self.arrived += 1
+        if queue_full:
+            self.shed += 1
+        if self._last_arrival is not None:
+            self.arrival_gaps.append((stamp - self._last_arrival) * 1e3)
+        self._last_arrival = stamp
+
+    def decode(self, stamp: float) -> None:
+        self.decoded += 1
+        if self._last_decoded is not None:
+            self.decoded_gaps.append((stamp - self._last_decoded) * 1e3)
+        self._last_decoded = stamp
+
+    @staticmethod
+    def _spread(values) -> dict | None:
+        """
+        Median, p95 and worst, and how often the gap ran long.
+
+        The median alone says nothing here, and said the wrong thing once: a
+        reader is up for the whole session and most of that is the vehicle
+        waiting to arm, where nothing is being rendered and no frame is ever
+        missed. Those quiet frames outnumber the scanning ones and hold the
+        median at exactly the published period while the aisles lose frames.
+        `long_gaps_pct` is the share of gaps at least half a period over the
+        median - one skipped frame or more - which is the number that does not
+        average the flight away.
+        """
+        if not values:
+            return None
+        ordered = sorted(values)
+        median = ordered[len(ordered) // 2]
+        over = sum(1 for v in ordered if v > median * 1.5)
+        return {
+            "median": round(median, 1),
+            "p95": round(ordered[min(len(ordered) - 1,
+                                     int(0.95 * len(ordered)))], 1),
+            "max": round(ordered[-1], 1),
+            "long_gaps_pct": round(100.0 * over / len(ordered), 1),
+        }
+
+    def summary(self) -> dict:
+        return {
+            "arrived": self.arrived,
+            "decoded": self.decoded,
+            "shed_queue_full": self.shed,
+            "lost_before_the_callback": max(
+                0, self.arrived - self.decoded - self.shed),
+            "published_gap_ms": self._spread(self.arrival_gaps),
+            "decoded_gap_ms": self._spread(self.decoded_gaps),
+        }
 
 
 def topic_from_layout(path: Path) -> str:
@@ -376,45 +540,125 @@ def topic_from_layout(path: Path) -> str:
             f"/link/camera_hires_link/sensor/camera/image")
 
 
+def yaw_from_quaternion(q) -> float:
+    """Heading about world +Z, degrees counter-clockwise from +X."""
+    siny = 2.0 * (q.w * q.z + q.x * q.y)
+    cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+    return math.degrees(math.atan2(siny, cosy))
+
+
 def live(args, decoder, linker, session) -> int:
     """Subscribe to the camera and work on the newest frame there is."""
     os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
     os.environ.setdefault("GZ_IP", "127.0.0.1")
     import gz.transport13 as trans
     from gz.msgs10.image_pb2 import Image
+    from gz.msgs10.pose_v_pb2 import Pose_V
 
-    latest = {"frame": None}
+    # A short queue rather than one slot. A frame that arrived while the last
+    # one was being decoded used to be overwritten and lost, which cost about
+    # two frames in five. In the widest aisle that is invisible - a box is in
+    # shot for a dozen frames - but in the narrowest the barcode is fully in
+    # frame for one, so a frame dropped there is a box never read.
+    #
+    # Eight rather than four, now that what sits in it is the raw buffer and
+    # not a converted image: a frame is 2.4 MB, so the whole queue is under
+    # 20 MB, and at the rate the camera publishes it is a second and a half of
+    # slack. A stall in the decoder becomes a delay instead of a loss.
+    frames = deque(maxlen=8)
+    # What the camera published against what got decoded, so the run says so
+    # itself instead of it having to be inferred afterwards from how far apart
+    # the readings are.
+    book = FrameBook()
+    session.frame_book = book
+    # Poses, kept with the simulation time they carry. The newest pose is not
+    # the pose the frame was taken at: at 0.6 m/s a second of lag is 0.6 m,
+    # and one reading in this run landed 0.76 m out with the code dead ahead,
+    # which is a stale pose and not a bearing error.
+    poses = deque(maxlen=600)
+
+    def stamp_of(msg):
+        return msg.header.stamp.sec + msg.header.stamp.nsec * 1e-9
 
     def on_image(msg):
-        # Keep the callback to a copy and nothing else. Decoding here would
-        # block the transport thread and stale frames would pile up behind it.
+        # A REFERENCE AND NOTHING ELSE. This runs on the transport thread,
+        # which is the thread the next frame has to arrive on, and it used to
+        # reshape the buffer and convert 1024x768 pixels from RGB to BGR here.
+        # The conversion moved to the main loop, which has nothing else to do
+        # between frames; the buffer is the message's own bytes, held by the
+        # tuple until the loop picks it up.
         try:
-            img = np.frombuffer(msg.data, dtype=np.uint8).reshape(
-                (msg.height, msg.width, 3))
-            latest["frame"] = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            book.arrival(stamp_of(msg), len(frames) == frames.maxlen)
+            frames.append((stamp_of(msg), msg.width, msg.height, msg.data))
         except Exception:
             pass
+
+    # Where the vehicle is, read the way report/flight_log.py reads it: one
+    # Gazebo topic, nothing sent anywhere. A barcode reading with no pose
+    # cannot be placed, and this process has no other way to know one - it
+    # speaks no MAVLink on purpose, since PX4 counts a second connection as a
+    # ground station and one appearing mid-flight is a real disturbance.
+    def on_pose(msg):
+        # Every entity in the world is in this message and the vehicle is one
+        # of them, so the loop below is the price of each one - on the same
+        # interpreter as the image callback and the decoder. The topic runs far
+        # faster than anything here needs: the frame is matched to a pose
+        # within 0.20 s, and 50 Hz is 10 poses inside that window. Anything
+        # closer than 20 ms to the last pose recorded is not worth walking the
+        # message for.
+        stamp = stamp_of(msg)
+        if poses and 0.0 <= stamp - poses[-1][0] < POSE_MIN_GAP_S:
+            return
+        for entry in msg.pose:
+            if entry.name == args.model:
+                poses.append((stamp,
+                              (entry.position.x, entry.position.y,
+                               entry.position.z,
+                               yaw_from_quaternion(entry.orientation))))
+                return
+
+    def pose_at(when, tolerance=0.20):
+        """The pose closest in simulation time to when the frame was taken."""
+        if not poses:
+            return None
+        stamp, pose = min(poses, key=lambda row: abs(row[0] - when))
+        return pose if abs(stamp - when) <= tolerance else None
 
     node = trans.Node()
     if not node.subscribe(Image, args.topic, on_image):
         print(f"could not subscribe to {args.topic}")
         return 1
+    pose_node = trans.Node()
+    if not pose_node.subscribe(Pose_V, args.pose_topic, on_pose):
+        print(f"could not subscribe to {args.pose_topic}; readings will carry "
+              f"no position")
     print(f"listening on {args.topic}")
+    print(f"pose from   {args.pose_topic}")
     print("waiting for the first frame; is the simulator running?")
 
     seen_first = False
     last = time.time()
     try:
         while True:
-            frame = latest["frame"]
-            if frame is None:
-                time.sleep(0.05)
+            if not frames:
+                time.sleep(0.01)
                 continue
+            taken_at, width, height, data = frames.popleft()
+            # The work the callback used to do, done where there is time for
+            # it. np.frombuffer is a view on the message's bytes; cvtColor is
+            # what makes the copy the decoder and the window both read.
+            frame = cv2.cvtColor(
+                np.frombuffer(data, dtype=np.uint8).reshape((height, width, 3)),
+                cv2.COLOR_RGB2BGR)
+            book.decode(taken_at)
             if not seen_first:
                 print(f"first frame: {frame.shape[1]}x{frame.shape[0]}")
                 seen_first = True
-            latest["frame"] = None
-            if not step(frame, decoder, linker, session, args):
+            # The pose the frame was taken at, matched on the simulation time
+            # both messages carry, rather than whichever pose happens to be
+            # newest by the time the frame is decoded.
+            if not step(frame, decoder, linker, session, args,
+                        pose=pose_at(taken_at), taken_at=taken_at):
                 break
             # Nothing to do until the next frame arrives; the camera runs at
             # 10 Hz and spinning here would burn a core the simulator wants.
@@ -427,9 +671,27 @@ def live(args, decoder, linker, session) -> int:
     return 0
 
 
+VIDEO_SUFFIXES = (".mp4", ".avi", ".mkv", ".mov")
+
+
 def replay(args, decoder, linker, session) -> int:
-    """Run the same pipeline over saved frames, with no simulator involved."""
-    files = sorted(p for p in Path(args.replay).iterdir()
+    """
+    Run the same pipeline over saved frames, with no simulator involved.
+
+    A directory of images, or a recording the flight left behind. The flight
+    writes one with `RECORD_VIDEO=1` in the environment - the scanner's own
+    switch, nothing here turns it on - and that is the only way to ask a
+    question about the label itself on the pixels a camera actually produced,
+    rather than on a picture of a label pasted into a frame. A synthetic frame
+    answers a different question than it looks like it answers: one built here
+    failed to decode at 0.56 m, where the run reads that face 54 boxes out of
+    54.
+    """
+    source = Path(args.replay)
+    if source.is_file() and source.suffix.lower() in VIDEO_SUFFIXES:
+        return replay_video(source, args, decoder, linker, session)
+
+    files = sorted(p for p in source.iterdir()
                    if p.suffix.lower() in (".png", ".jpg", ".jpeg"))
     if not files:
         print(f"no images in {args.replay}")
@@ -444,7 +706,28 @@ def replay(args, decoder, linker, session) -> int:
     return 0
 
 
-def step(frame, decoder, linker, session, args, wait: int = 1) -> bool:
+def replay_video(path: Path, args, decoder, linker, session) -> int:
+    """Every frame of a recording, in order, through the same step()."""
+    cap = cv2.VideoCapture(str(path))
+    if not cap.isOpened():
+        print(f"could not open {path}")
+        return 1
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+    print(f"replaying {total or 'all'} frames from {path}")
+    try:
+        while True:
+            ok, frame = cap.read()
+            if not ok:
+                break
+            if not step(frame, decoder, linker, session, args, wait=args.wait):
+                break
+    finally:
+        cap.release()
+    return 0
+
+
+def step(frame, decoder, linker, session, args, wait: int = 1,
+         pose=None, taken_at=None) -> bool:
     """One frame: decode, link, record, draw. False means the user asked to stop."""
     t0 = time.perf_counter()
     qrs, bars = decoder(frame)
@@ -452,11 +735,34 @@ def step(frame, decoder, linker, session, args, wait: int = 1) -> bool:
     session.frames += 1
     session.qr_hits += len(qrs)
 
+    # The frames the whole question is about: a box was in shot, close enough
+    # for its QR to read, and its barcode did not. Written whole and lossless,
+    # because what gets asked of them afterwards is whether zbar could have
+    # read that label - a JPEG would be answering about the JPEG.
+    #
+    # This is here rather than RECORD_VIDEO=1 because that switch records both
+    # cameras through two cv2.VideoWriter threads and took the scan down with
+    # `corrupted double-linked list` at waypoint 11 of 24 on 2026-09-04. It is
+    # in scanner/ and not ours to fix. This writes a few hundred frames instead
+    # of two hundred thousand, and only the ones that failed.
+    if args.save_frames and qrs and not bars and session.saved < args.save_limit:
+        try:
+            args.save_frames.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(str(args.save_frames /
+                            f"{session.camera_link}_{session.frames:06d}.png"),
+                        frame)
+            session.saved += 1
+        except Exception:
+            pass
+
     qr_polys = [(payload, poly) for payload, poly, _ in qrs]
     drawn_bars = []
     for payload, poly, quality in bars:
         linked, dist = linker.link(qr_polys, poly)
-        session.record(payload, poly, quality, linked, dist, session.frames)
+        session.record(payload, poly, quality, linked, dist, session.frames,
+                       pose=pose,
+                       frame_size=(frame.shape[1], frame.shape[0]),
+                       drop_m=linker.drop_m, taken_at=taken_at)
         drawn_bars.append((payload, poly, quality, linked, dist))
 
     now = time.perf_counter()
@@ -505,8 +811,15 @@ def main() -> int:
     ap.add_argument("--topic", help="camera topic; defaults to the scanning "
                                     "camera named in scanner/layout.json")
     ap.add_argument("--replay", type=Path,
-                    help="read a directory of saved frames instead of the "
-                         "simulator")
+                    help="read saved frames instead of the simulator: a "
+                         "directory of images, or a recording the flight left "
+                         "in out/video (RECORD_VIDEO=1)")
+    ap.add_argument("--save-frames", type=Path, metavar="DIR",
+                    help="write the frames where a QR read and no barcode did, "
+                         "lossless, for --replay to be pointed at afterwards")
+    ap.add_argument("--save-limit", type=int, default=200,
+                    help="how many such frames to keep, per camera (default "
+                         "200; a Gazebo frame is a few hundred kB lossless)")
     ap.add_argument("--headless", action="store_true",
                     help="no window; print progress instead")
     ap.add_argument("--scale", type=float, default=1.0,
@@ -517,6 +830,12 @@ def main() -> int:
     ap.add_argument("--tolerance", type=float, default=LINK_TOL_M,
                     help="how far a barcode may sit from its predicted place "
                          "and still be linked, in metres")
+    ap.add_argument("--pose-topic",
+                    help="where the vehicle pose comes from; defaults to the "
+                         "world's dynamic_pose feed")
+    ap.add_argument("--model",
+                    help="gz model name whose pose to follow; defaults to the "
+                         "one in layout.json")
     ap.add_argument("--readings", type=Path, default=READINGS)
     ap.add_argument("--summary", type=Path, default=SUMMARY)
     ap.add_argument("--flush-every", type=int, default=50,
@@ -539,6 +858,11 @@ def main() -> int:
 
     if not args.topic:
         args.topic = topic_from_layout(LAYOUT)
+    layout = json.loads(LAYOUT.read_text())
+    if not args.model:
+        args.model = f"{layout['model']}_0"
+    if not args.pose_topic:
+        args.pose_topic = f"/world/{layout['world']}/dynamic_pose/info"
     source = str(args.replay) if args.replay else args.topic
     session = Session(args.readings, args.summary, source)
 
@@ -552,7 +876,7 @@ def main() -> int:
         agree, disagree = session.tally()
         print(f"\n{session.frames} frames · {session.bar_hits} barcode readings "
               f"({session.linked} linked) · {len(session.boxes)} boxes")
-        print(f"slot agrees {agree}, disagrees {disagree}")
+        print(f"boxes consistent {agree}, conflicting {disagree}")
         print(f"readings: {args.readings}")
         print(f"summary : {args.summary}")
     return rc

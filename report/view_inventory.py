@@ -356,6 +356,11 @@ def main() -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--inventory", type=Path, default=INVENTORY)
     ap.add_argument("--ground-truth", type=Path, default=GROUND_TRUTH)
+    ap.add_argument("--code-type", default="box_qr",
+                    choices=("box_qr", "box_placard"),
+                    help="which label this inventory was read from. A box "
+                         "carries two, they say different things, and each is "
+                         "drawn against its own truth")
     ap.add_argument("--config", type=Path, default=CONFIG)
     ap.add_argument("--out", type=Path,
                     default=REPO_ROOT / "out" / "inventory_3d.html")
@@ -366,7 +371,8 @@ def main() -> int:
 
     cfg = load_config(args.config)
     run = load_run(args.inventory)
-    truth = load_ground_truth(args.ground_truth) if args.truth else {}
+    truth = load_ground_truth(args.ground_truth, args.code_type) \
+        if args.truth else {}
     geometry = load_box_geometry(cfg)
     flight_z = flight_altitudes()
 

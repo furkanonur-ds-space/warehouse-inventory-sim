@@ -141,6 +141,11 @@ def main() -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--inventory", type=Path, default=INVENTORY)
     ap.add_argument("--ground-truth", type=Path, default=GROUND_TRUTH)
+    ap.add_argument("--code-type", default="box_qr",
+                    choices=("box_qr", "box_placard"),
+                    help="which label this inventory was read from. A box "
+                         "carries two, they say different things, and each is "
+                         "scored against its own truth")
     ap.add_argument("--config", type=Path, default=CONFIG)
     ap.add_argument("--json", type=Path,
                     default=REPO_ROOT / "out" / "coverage_report.json")
@@ -150,7 +155,7 @@ def main() -> int:
                     help="list every box that was not scanned")
     args = ap.parse_args()
 
-    truth_by_payload = load_ground_truth(args.ground_truth)
+    truth_by_payload = load_ground_truth(args.ground_truth, args.code_type)
     truth = list(truth_by_payload.values())
     if not truth:
         print("no box_qr entries in ground truth.")

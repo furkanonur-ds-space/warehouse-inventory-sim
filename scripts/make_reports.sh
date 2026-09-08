@@ -52,6 +52,31 @@ run report/missed_log.py
 # miss log, a run is added once.
 run report/run_log.py
 
+# The barcode half, when the run flew with a reader. A box carries two labels
+# that say different things, so a run produces two inventories and each is
+# scored against its own truth - the same tool, --code-type apart. Neither
+# label stands in for the other anywhere in here.
+#
+# missed_log is deliberately not run over it. That log accumulates across
+# flights to tell a box that fails every run from one that failed once, and
+# feeding it a second inventory per flight would count every run twice.
+if ls out/barcode_readings*.jsonl >/dev/null 2>&1; then
+  echo
+  echo "-- barcode --"
+  run report/barcode_inventory.py
+  run report/validate_inventory.py --inventory out/inventory_barcode.json \
+      --code-type box_placard \
+      --out out/validation_report_barcode.json \
+      --offsets out/position_offsets_barcode.csv --list-missed
+  run report/coverage_report.py --inventory out/inventory_barcode.json \
+      --code-type box_placard \
+      --json out/coverage_report_barcode.json \
+      --html out/coverage_barcode.html
+  run report/view_inventory.py --inventory out/inventory_barcode.json \
+      --code-type box_placard --out out/inventory_3d_barcode.html
+  run report/barcode_vs_qr.py
+fi
+
 echo
 if [ "$failed" -eq 0 ]; then
   echo "== all reports written to out/ =="

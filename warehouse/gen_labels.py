@@ -211,15 +211,31 @@ def code128_modules(payload: str) -> str:
 # yük (payload) biçimleri -- gen_world.py da bunları kullanır
 # --------------------------------------------------------------------------
 
-def placard_payload(row_id: str, bay: int, level: int) -> str:
-    """Konum plakası yükü: sıra harfi + göz (2 hane) + seviye (2 hane).
-    Rakamları çift sayıda tutmak Code128'in C modunu tetikler ve sembolü
-    kısaltır; "A-03-2" gibi bir yazım %28 daha küçük modül verirdi."""
-    return f"{row_id}{bay:02d}{level:02d}"
+def placard_payload(index: int) -> str:
+    """Kutu barkodu yükü: kutunun sıra numarası, 4 hane -- "0001".."0432".
+
+    Kutuya özel, QR gibi, ama QR'ın taşıdığı hiçbir alanı tekrar etmiyor: QR
+    kutunun adresini ve SKU'sunu söylüyor, barkod kutunun kendi numarasını.
+
+    Neden 4 hane. Code128'in C modu rakam ÇİFTLERİNİ tek sembolde kodluyor,
+    yani çift sayıda rakam tek sayıdan ucuz: 4 hane 57 modül, 3 hane 68, 5
+    hane 79. 432 kutu 4 haneye rahat sığıyor.
+
+    Bu, çubukların 190 mm'ye inmesini sağlayan şey. Sebep en dar koridor:
+    orada kamera raftan 0.227 m uzakta ve gördüğü alanın tamamı 0.262 m.
+    Eski 5 haneli yük 263 mm ediyordu -- karenin tam genişliği kadar, yani
+    1D kod hiçbir zaman tamamen kadraja girmiyordu ve 2026-09-03 koşusunda G
+    yüzünün 54 kutusundan 3'ü okundu. 57 modül 190 mm'ye sığdığında modül
+    genişliği 3.33 mm'de kalıyor: okunabilirlik hiç değişmiyor, barkod %28
+    daralıyor.
+
+    SKU'nun rakamları kullanılamazdı: ne ilk ne son 4 hanesi 432 kutuda
+    tekil (421 ve 428 farklı değer)."""
+    return "%04d" % index
 
 
-def placard_caption(row_id: str, bay: int, level: int) -> str:
-    return f"{row_id}-{bay:02d}-{level}"
+def placard_caption(index: int) -> str:
+    return "%04d" % index
 
 
 def box_payload(sku: str, row_id: str, bay: int, level: int) -> str:
@@ -232,7 +248,7 @@ def aruco_payload(marker_id: int, dict_name: str) -> str:
     return f"{dict_name}:{marker_id}"
 
 
-PLACARD_SAMPLE = placard_payload("A", 3, 2)
+PLACARD_SAMPLE = placard_payload(432)
 
 
 # --------------------------------------------------------------------------
@@ -368,7 +384,10 @@ def placard_geometry(spec: dict, px_per_m_tex: float,
     """
     _, scale = _canvas(spec["label"], px_per_m_tex, max_px)
     h_px = max(8, int(round(spec["label"][1] * scale)))
-    n = len(code128_modules("A0101"))          # yük uzunluğu sabit (sıra+göz+seviye)
+    # Modül sayısı yükün UZUNLUĞUNDAN gelir ve yük artık kutunun 4 haneli
+    # sıra numarası: "A0101" (göz adresi) 79 modül ederken "0432" 57 ediyor.
+    # Sabit bırakılınca burası 190 mm'lik çubukları 197.5 mm sanıyordu.
+    n = len(code128_modules(PLACARD_SAMPLE))
     module_px = max(1, int(round(spec["bar_width"] * scale / n)))
     bars_px = module_px * n
     bar_h = int(round(spec["bar_height"] * scale))
@@ -557,7 +576,7 @@ def main() -> int:
                                 codes["box_label"], ppm, maxpx)
         img.save(out / "ornek_kutu_etiketi.png")
         print(f"kutu etiketi     {img.size[0]}x{img.size[1]} px, modül {m*1000:.2f} mm")
-        img, m = make_bay_placard(PLACARD_SAMPLE, placard_caption("A", 3, 2),
+        img, m = make_bay_placard(PLACARD_SAMPLE, placard_caption(432),
                                   codes["box_placard"], ppm, maxpx)
         img.save(out / "ornek_kutu_barkodu.png")
         print(f"kutu barkodu     {img.size[0]}x{img.size[1]} px, modül {m*1000:.2f} mm")
