@@ -32,6 +32,7 @@ coverage, and read it beside `codes`.
 """
 import argparse
 import csv
+import datetime
 import json
 import os
 import sys
@@ -102,10 +103,33 @@ def thinnest(sightings):
     return worst[0], worst[1]["min"], once
 
 
-def injected(path):
-    """What the drift relay actually put in, if it was running."""
+def injected(path, nav):
+    """
+    What the drift relay put in, if it was running for THIS flight.
+
+    The relay writes out/drift_injected.csv and nothing clears it afterwards,
+    so the file outlives the run that made it. Read without checking, it hands
+    the next flight somebody else's number: the scan of 2026-09-08 was logged
+    with 0.3408 m of injected drift from a run five days earlier, which is
+    worse than logging nothing, because a wrong figure in a table is read as a
+    measurement.
+
+    So the file only counts if it was still being written during the flight.
+    The report is written when the flight ends and carries its duration, which
+    gives the window.
+    """
     if not os.path.exists(path):
         return "", ""
+    try:
+        ended = datetime.datetime.fromisoformat(nav["report_date"])
+        started = ended - datetime.timedelta(
+            seconds=float(nav.get("mission_duration_s", 0)) + 120)
+        written = datetime.datetime.fromtimestamp(os.path.getmtime(path))
+        if written < started:
+            return "", ""
+    except Exception:
+        return "", ""
+
     with open(path, encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
     if not rows:
@@ -128,7 +152,7 @@ def gather(source=OUT):
     age = nav.get("frame_age_s", {})
     frames = nav.get("frames", {})
     face, fewest, once = thinnest(nav.get("sightings_per_code", {}))
-    error, path = injected(os.path.join(source, "drift_injected.csv"))
+    error, path = injected(os.path.join(source, "drift_injected.csv"), nav)
 
     return {
         "scan_date": val.get("scan_date", nav.get("report_date", "")),

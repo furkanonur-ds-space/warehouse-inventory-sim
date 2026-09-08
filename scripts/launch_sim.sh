@@ -38,6 +38,26 @@ if [ ! -d "$PX4" ]; then
     exit 1
 fi
 
+# A vehicle left wired for a drift test has no position source of its own: the
+# odometry publisher writes to a private topic and inject_drift.py has to relay
+# it. Launched without the relay it sits on the ground, and the reason is in a
+# model file nobody thinks to open. So refuse, and say which state the model is
+# in and how to get out of it. DRIFT_TEST=1 is how you say you meant it.
+SDF="$PX4/Tools/simulation/gz/models/x500_c27/model.sdf"
+if [ -f "$SDF" ] && grep -q odom_covariance_topic "$SDF"; then
+    if [ "${DRIFT_TEST:-0}" != "1" ]; then
+        echo "the installed model is wired for a drift test."
+        echo
+        echo "  PX4 gets no odometry unless scanner/inject_drift.py is relaying"
+        echo "  it, so this would launch a vehicle that cannot fly."
+        echo
+        echo "  ordinary flight:  ./scripts/drift_test.sh off"
+        echo "  meant it:         DRIFT_TEST=1 $0 ${1:-}"
+        exit 1
+    fi
+    echo "drift test: start scanner/inject_drift.py or nothing will fly"
+fi
+
 # The spawn point has to match layout.json, which is what the scanner treats
 # as the origin of everything it commands.
 read -r X Y < <("$PY" - "$HERE/scanner/layout.json" <<'PYEOF'
