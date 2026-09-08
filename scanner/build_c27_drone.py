@@ -234,7 +234,7 @@ def range_block(link_name, joint_name, x_off, y_off, z_off,
 # near the end of the route every time, which looked like a flight logic fault
 # but is purely elapsed time.
 #
-# 10 Hz at 0.6 m/s cruise is a frame every 6 cm, far more than a box needs.
+# At 20 Hz and the 1 m/s the scan cruises at, that is a frame every 5 cm.
 hires_front = camera_block(
     "camera_hires_link", "camera_hires_joint",
     0.06, 0.0, 0.0, 0, 0, 0,

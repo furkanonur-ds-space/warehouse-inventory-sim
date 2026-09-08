@@ -660,8 +660,11 @@ def live(args, decoder, linker, session) -> int:
             if not step(frame, decoder, linker, session, args,
                         pose=pose_at(taken_at), taken_at=taken_at):
                 break
-            # Nothing to do until the next frame arrives; the camera runs at
-            # 10 Hz and spinning here would burn a core the simulator wants.
+            # Nothing to do until the next frame arrives; the hires camera
+            # runs at 20 Hz and the rear at 8, and spinning here would burn a
+            # core the simulator wants. The 20 ms below is a floor rather than
+            # a frame period, so it did not need changing when the hires rate
+            # did.
             elapsed = time.time() - last
             if elapsed < 0.02:
                 time.sleep(0.02 - elapsed)

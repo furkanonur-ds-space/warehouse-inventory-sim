@@ -193,14 +193,25 @@ def half_frame_m(hfov_deg, frame_px, depth):
 
 # --- SCAN PARAMETERS ---------------------------------------------------
 WAYPOINT_TOLERANCE = 0.4      # metres
-# One speed in every aisle.
+# One speed in every aisle, and it is fixed at 1 m/s by a decision above this
+# work rather than by anything measured here.
 #
-# Slowing down in the narrow ones was tried, on the reading that the codes
-# lost there were lost to a shortage of frames. The measurement does not
-# support it: flying a box past the camera on paper at 1 m/s with a 10 Hz
-# camera gives four samples at the 0.271 m the narrowest aisle is flown at,
-# and all four decode. What was losing them was the strips cutting a code too
-# large to fit in one, which is fixed above.
+# Slowing down in the narrow ones was tried once, on the reading that the codes
+# lost there were lost to a shortage of frames, and dismissed on a paper
+# calculation that said four samples were available and all four decoded. That
+# dismissal was wrong, and it is worth saying so here because it is the comment
+# the next person will read before dismissing the same idea again.
+#
+# There was a shortage of frames, on face G, and it was the whole of what was
+# left: 40 of that face's 108 codes were read in exactly one frame while the
+# rest of the warehouse read everything three to nine times. The paper
+# calculation asked whether the middle of a code was in view. A code half out
+# of the side does not decode, and counting whole codes gives 1.7 views and not
+# four.
+#
+# The fix was not slowing down. It was the camera: 10 Hz to 20, which needed
+# decode cost cut first. Face G now reads no code only once. See
+# build_c27_drone.py HIRES_RATE for the whole of it.
 CRUISE_SPEED = 1.0             # m/s along an aisle
 CLIMB_SPEED = 0.15             # m/s when changing shelf level
 TURN_SETTLE_S = 3.0            # seconds held after a heading change
