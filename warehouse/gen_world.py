@@ -413,39 +413,6 @@ def inventory(cfg, rng, textures, manifest) -> str:
     _, qr_rise = gl.box_label_geometry(spec, ppm, maxpx)
     pc_spec = codes["box_placard"]
     pw, ph = pc_spec["label"]
-
-    def placard_spec_for(aisle_id: int) -> dict:
-        """
-        The placard spec this aisle's boxes carry.
-
-        The bars are not one width any more, and they cannot be. Two
-        constraints pull against each other and they bind on different faces:
-        a far face wants a BIGGER module, because the camera reads it at
-        1.3 m and runs out of pixels per module, while the narrowest aisle
-        wants a NARROWER symbol, because the camera stands 0.29 m off the
-        shelf and the code has to fit inside the frame at all. Measured over
-        three runs at one width for the whole warehouse, 190/166/142 mm, the
-        total never passed 414 of 432: every width that helped face G cost
-        face A and the other way round.
-
-        Their failures do not even look alike. Of the frames a run saves
-        because a QR read and the barcode beside it did not, every one of
-        face A's was the symbol sitting whole in the frame and not decoding,
-        and every one of face G's was the bars running off the edge.
-
-        So the aisle chooses. This is a design decision and not a fitted
-        constant: a warehouse whose aisles differ by a factor of five in
-        width prints different label stock for the narrow ones, and the
-        module size of every code is written into ground truth per code, so
-        nothing downstream has to be told.
-        """
-        override = pc_spec.get("bar_width_by_aisle") or {}
-        width = override.get(aisle_id, override.get(str(aisle_id)))
-        if width is None:
-            return pc_spec
-        spec = dict(pc_spec)
-        spec["bar_width"] = float(width)
-        return spec
     label_gap = LABEL_GAP
 
     # Koridor genişliği -> o koridordan geçirilebilecek en büyük kutu. Bir
@@ -462,7 +429,6 @@ def inventory(cfg, rng, textures, manifest) -> str:
 
     for row in rk["rows"]:
         rid, y0, facing = row["id"], row["y0"], row["facing"]
-        row_pc_spec = placard_spec_for(row["aisle"])
         # bu sıraya hizmet eden koridorun geçirebildiği kutular
         limit = aisle_width[row["aisle"]] - clearance
         allowed = [s for s in bx["sizes"]
@@ -520,7 +486,7 @@ def inventory(cfg, rng, textures, manifest) -> str:
                     img, module_m = gl.make_box_label(payload, sku, spec, ppm, maxpx)
                     textures[tex] = img
                     pc_img, pc_module_m = gl.make_bay_placard(pc_payload, pc_caption,
-                                                              row_pc_spec, ppm, maxpx)
+                                                              pc_spec, ppm, maxpx)
                     textures[pc_tex] = pc_img
 
                     link = f"box_{rid}_{bi+1:02d}_{li+1}_{si}"
