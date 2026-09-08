@@ -274,42 +274,8 @@ codes:
     #
     # Beyaz alan 240 mm'de KALIYOR. Sessiz alan 37 mm'ye çıkıyor ve bu bedava:
     # kadraja girmesi gereken kısım zaten ~2 modül, gerisi sadece marj.
-    # 2026-09-08: 166 -> 142 mm. Bu sefer okunamayan KARELERİN kendisinden:
-    # SAVE_FRAMES=1 ile saklanan 126 karenin 121'inde (%96) çubuklar kadrajın
-    # fiziksel olarak dışındaydı; yalnızca 5'inde sembol tam içerideyken
-    # okunamadı. Yani G'de kalan her şey kadraja sığmamak. Taşma medyanı
-    # 20 mm, en kötüsü 48 mm.
-    #
-    # 142 mm her uca 12 mm pay veriyor: pencere 110 -> ~134 mm, kareler arası
-    # 148 mm, kare başına %74 -> %91, G'de beklenen ~49/54.
-    #
-    # Bedel yine B: 1.67 -> 1.43 px/modül, zbar kalitesi medyan 7 ile depodaki
-    # en zayıf yüz. Ama B kutu başına 11 okuma alıyor ve biri yetiyor;
-    # 190 -> 166'da da okuma kalitesi düştü ama sembol kadrajda daha uzun
-    # bütün kaldığı için okuma sayısı 7'den 11'e çıktı ve B 54/54'te kaldı.
-    # B düşerse bu satır 0.166'ya geri döner.
-    label: [0.240, 0.026]     # beyaz alan her genişlikte aynı
+    label: [0.240, 0.026]     # çubuklar + 37 mm sessiz alan, 1 mm alt/üst
     bar_width: 0.166          # -> 57 modülde 2.92 mm/modül
-
-    # Koridor 4 dışındaki her yer 166 mm. Üç koşu tek genişlikle denendi ve
-    # hiçbiri 414/432'yi geçemedi, çünkü kısıtlar zıt yönde:
-    #
-    #   çubuk   A(1.32m)  B(1.12m)  G(0.29m)  toplam
-    #   190 mm   53/54     54/54     31/54    408/432
-    #   166 mm   54/54     54/54     36/54    414/432
-    #   142 mm   43/54     53/54     44/54    410/432
-    #
-    # A'nın 142'deki 91 okunamayan karesinin HEPSİ "sembol kadrajda, çözülemedi"
-    # -- yani çözünürlük; 1.68 px/modül zbar'ın altında kalıyor. G'ninkilerin
-    # hepsi "çubuk kadrajın dışında" -- yani çerçeveleme. Aynı sayı ikisini
-    # birden çözemez.
-    #
-    # 119 mm koridor 4 için: orada kamera raftan 0.29 m uzakta ve 335 mm
-    # görüyor; 119 mm'lik çubuk pencereyi kareler arası 148 mm yolun üstüne
-    # çıkarıyor, yani kod her karede bütün kalıyor. Çözünürlük orada sorun
-    # değil, 119 mm'de bile 6.6 px/modül -- depodaki en rahat ikinci yüz.
-    bar_width_by_aisle:
-      4: 0.119                # -> 57 modülde 2.08 mm/modül
     bar_height: 0.024
     caption_height: 0.0
 

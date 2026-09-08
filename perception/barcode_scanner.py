@@ -134,21 +134,8 @@ class Linker:
         # scale every prediction by about 1%.
         self.qr_side_m, qr_rise = gl.box_label_geometry(
             codes["box_label"], ppm_tex, max_px)
-        # The WIDEST bars in the warehouse, not this aisle's. The bars are no
-        # longer one width - the narrowest aisle carries a narrower symbol -
-        # and this process cannot know which aisle it is flying: it reads a
-        # camera topic and a config, not the route. The number is only used as
-        # the slack a two-point polygon gets along the bar axis, where the
-        # centre is unknown by half a symbol, so the widest is the safe one:
-        # too small would refuse a real link, and too large still cannot reach
-        # a neighbour, which sits 0.72 m away against a 0.12 m tolerance.
-        placard = dict(codes["box_placard"])
-        widths = [placard["bar_width"]]
-        widths += [float(w) for w in
-                   (placard.get("bar_width_by_aisle") or {}).values()]
-        placard["bar_width"] = max(widths)
         self.bar_w_m, _, bar_rise = gl.placard_geometry(
-            placard, ppm_tex, max_px)
+            codes["box_placard"], ppm_tex, max_px)
 
         # QR symbol centre down to bar centre, in metres.
         self.drop_m = (qr_rise + label_h / 2.0 + LABEL_GAP

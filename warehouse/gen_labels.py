@@ -511,37 +511,20 @@ def compute_budget(cfg: dict) -> list[BudgetRow]:
     # değil, o yüzden tek bir mesafe listesi yerine koridor başına iki satır:
     # drone orta çizgide durursa yakın yüz, karşıya bakarsa uzak yüz.
     measurements: list[tuple[str, float]] = []
-    measurements_with_aisle: list[tuple[int, str, float]] = []
     for aid in sorted(halves):
         half = halves[aid]
-        for label, d in ((f"k{aid} orta", round(half, 2)),
-                         (f"k{aid} karşı", round(2 * half, 2))):
-            measurements.append((label, d))
-            measurements_with_aisle.append((aid, label, d))
+        measurements.append((f"k{aid} orta", round(half, 2)))
+        measurements.append((f"k{aid} karşı", round(2 * half, 2)))
 
     rows: list[BudgetRow] = []
-    n_modules = len(code128_modules(PLACARD_SAMPLE))
     box_module = codes["box_label"]["code"] / qr_module_count(codes["box_label"]["qr_version"])
-    # The barcode module is not one number any more: the narrowest aisle
-    # carries a narrower symbol, so the budget has to ask per aisle or it
-    # reports a readability the warehouse does not have. `measurements`
-    # already carries the aisle in its label.
-    placard = codes["box_placard"]
-    overrides = {int(k): float(v)
-                 for k, v in (placard.get("bar_width_by_aisle") or {}).items()}
-
-    def placard_module(aid: int) -> float:
-        return overrides.get(aid, placard["bar_width"]) / n_modules
-
-    for label, d in measurements:
-        rows.append(BudgetRow("kutu QR", scan_name, d, box_module * 1000,
-                              px_per_module(cam["width"], cam["hfov"], d, box_module),
-                              label))
-    for aid, label, d in measurements_with_aisle:
-        module = placard_module(aid)
-        rows.append(BudgetRow("kutu barkodu", scan_name, d, module * 1000,
-                              px_per_module(cam["width"], cam["hfov"], d, module),
-                              label))
+    placard_module = codes["box_placard"]["bar_width"] / len(code128_modules(PLACARD_SAMPLE))
+    for name, module in (("kutu QR", box_module),
+                         ("kutu barkodu", placard_module)):
+        for label, d in measurements:
+            rows.append(BudgetRow(name, scan_name, d, module * 1000,
+                                  px_per_module(cam["width"], cam["hfov"], d, module),
+                                  label))
     return rows
 
 
