@@ -18,27 +18,32 @@ scanner learns anything about a warehouse.
 
 ## Results
 
-Latest run, 2026-09-03, against `warehouse/ground_truth.json`, in the tapered
-warehouse whose aisles run 2.40, 1.77, 1.13 and 0.50 m. Four consecutive runs
-have read all 432:
+Latest run, 2026-09-08, against `warehouse/ground_truth.json`, in the tapered
+warehouse whose aisles run 2.40, 1.77, 1.13 and 0.50 m:
 
 | Metric | Value |
 |---|---|
 | Box QR codes decoded | 432 / 432 (100%) |
+| Box barcodes decoded | 431 / 432 (99.8%) |
 | Filed correctly | 432 / 432 (100%) |
 | Wrong shelf, level or bay | 0, 0, 0 |
 | Waypoints reached | 24 / 24 |
-| Position error, median | 0.022 m |
-| Position error, p95 | 0.061 m |
-| Position error, worst | 0.135 m |
-| Within 10 cm | 99.8% |
-| Within 25 cm | 100% |
-| Frames decoded | 6157 |
+| Clearance alarms | 0 |
+| Closest obstacle | 0.209 m |
+| Position error, median | 0.018 m |
+| Position error, p95 | 0.071 m |
+| Position error, worst | 0.134 m |
+| Within 10 cm | 99.1% |
+| Frames decoded | 8239 |
 | Frames dropped for being too old | 0 |
-| Frames dropped with a decoder busy | 108 (1.8%) |
-| Frame age, median | 0.004 s |
-| Marker fixes applied | 318 |
-| Flight time | 587 s |
+| Frames dropped with a decoder busy | 119 (1.4%) |
+| Busiest decoder | 96% of the frame interval, 1.77 m aisle |
+| Marker fixes applied | 342 |
+| Flight time | 580 s |
+
+The barcode is the other label on the same box and is read by a separate
+program alongside the scan, `perception/barcode_scanner.py`. It went from 409
+to 431 in one change, described below.
 
 Both faces of an aisle are read in one pass, the forward hires camera ahead and
 the rear tracking camera behind, which is what halves the route to 24
@@ -92,6 +97,62 @@ frame at all, whatever the axis:
 Rows A to F span 0.11 m. A 0.50 m aisle holding stock like theirs could not be
 read in one pass, and the scanner now says so before it flies rather than
 returning a shelf that looks half empty.
+
+### Face G ran out of looks, not of frame
+
+With everything above done, one face still lost codes and no other face lost
+any. Every QR miss and every barcode miss across four flights was on G, which
+is one side of the 0.50 m aisle.
+
+Two explanations were tried before the right one. Aiming the optical axis
+between the QR and the barcode rather than at the QR gave the barcode the
+margin it wanted and cost two QRs a flight, twice, and was reverted. The
+altitude hold was suspected and cleared: the settled residual is -0.061 m at
+all 24 waypoints of every flight, which is a constant datum offset and
+repeatable to 2 mm, so nothing was being eaten by altitude jitter.
+
+What is different about G is how long a code is in view:
+
+    face  camera  hfov  depth     shelf in view   in view at 1 m/s
+    G     hires   60    0.211 m         0.244 m           0.24 s
+    H     rear    90    0.174 m         0.348 m           0.35 s
+
+At 10 Hz, 0.24 s is 2.4 frames, and 40 of G's 108 codes were read in exactly
+one frame while the rest of the warehouse read everything three to nine times.
+H, seen for 43 per cent longer through a wider lens, missed nothing.
+
+The frame rate was 10 because that was believed to be what the machine could
+render. It is not. `scanner/measure_rate.py` subscribes to a running simulator
+and reports what it delivers, and on an idle sim the hires gives 19.2 Hz at a
+real time factor of 0.99. Rendering was never the constraint.
+
+Decoding was. A frame on the 0.50 m aisle took 118 ms of a 157 ms interval, so
+the decoder was three quarters loaded and doubling the frame rate onto it would
+have filled the queue and shed most of what it gained. What it was spending
+that on is detail it cannot use: a code is read from its modules, and from
+0.21 m one module covers 11.8 pixels against the 1.66 this detector has been
+measured down to. Frames are now scaled to about four pixels a module before
+decoding, which is 0.340 on face G and 0.388 on H and no scaling at all on A,
+B, C, D and F, where 1.71 to 2.76 pixels a module leaves nothing to give. The
+rule only ever gives detail away and never asks for more, which is what keeps
+the far faces untouched. Decode went to 38 ms, and the frame rate to 20.
+
+    10 Hz    432 QR   409 barcode    23 barcode misses, every one on G
+    20 Hz    432 QR   431 barcode     1 barcode miss, on E
+
+The scaling on its own changed no coverage, and was not expected to: nothing
+was being dropped at 10 Hz. It is what made the frame rate affordable. The
+order matters and reversing it does not work.
+
+It cost wall clock and not accuracy. In lockstep a slow render slows simulated
+time too, so the vehicle sees the same frames per metre whatever the machine
+manages; the real time factor went from 0.63 to 0.57 and the flight from 15.6
+minutes to 17.
+
+Checked without flying, on real pixels. `scanner/test_decode_scale.py` renders
+the warehouse's own label textures at the distance and bearing each camera sees
+them at and puts both the full frame and the scaled one through the scanner's
+own `decode_qr`: 24 of 24 read either way, on all eight faces.
 
 ### Both cameras used to decode on one thread
 
@@ -181,6 +242,78 @@ finished run, height error alone:
 
 Median position error went from 0.062 m to 0.022, and within 10 cm from 98.8
 per cent to 99.8.
+
+### The drift correction, made falsifiable
+
+The floor markers exist to cancel the error a real visual odometry accumulates.
+In simulation there is no such error: Gazebo's OdometryPublisher reports the
+model's true pose, so the correction has nothing to correct and "it works" is
+a claim that cannot be checked either way. Testing a lane keeping assist on a
+straight road in still air says nothing about the assist.
+
+So the error is injected. `scanner/inject_drift.py` sits between the simulator
+and PX4 and makes the estimate wrong on purpose:
+
+    OdometryPublisher -> .../odometry_with_covariance_true
+                              |
+                          inject_drift.py, adds an accumulating error
+                              |
+                         .../odometry_with_covariance -> PX4
+
+PX4's gz bridge subscribes to exactly `/model/<model>/odometry_with_covariance`,
+so moving the plugin off that topic is what makes room. Build the model with
+`python3 scanner/build_c27_drone.py --drift` and nothing flies until the relay
+is running, because PX4 then has no position source at all. That is
+deliberate: a harness the vehicle depends on should be impossible to forget.
+Rebuild without the flag to get the ordinary vehicle back.
+
+The error goes here and not into the scanner because on the aircraft it is the
+estimator that is wrong, and every setpoint lands displaced because of it.
+Biasing what the scanner reads does move the vehicle, through the lateral
+check in the settle loop, but only as far as that check's tolerance and
+timeout allow, and it leaves EKF2 being fed the truth.
+
+Three flights, same warehouse, same seed:
+
+| | no drift | 0.5% drift, markers on | 0.5% drift, markers off |
+|---|---|---|---|
+| Codes | 432 / 432 | 428 / 432 | 320 / 432 |
+| Position error, median | 0.019 m | 0.051 m | 0.151 m |
+| Within 10 cm | 99.3% | 90.4% | 32.5% |
+| Wrong shelf | 0 | 0 | 15 |
+| Clearance alarms | 0 | 0 | 84 |
+| Nearest obstacle | 0.206 m | 0.226 m | 0.12 m |
+
+The correction is worth 108 codes and 84 near collisions. The last column is
+the one that makes the other two mean anything: without it, a run that scores
+well with the markers on proves only that the markers were not needed.
+
+The correction also measures the right thing. Against 0.318 m of injected
+error it settled on an offset of 0.333 m.
+
+### How far apart the markers can be
+
+The error between two fixes has to stay inside the clearance the narrowest
+aisle leaves, which here is 0.084 m between a propeller tip and face H:
+
+    maximum marker spacing = clearance / drift rate
+
+        1.0%     8.4 m
+        0.5%    16.8 m
+        0.25%   33.6 m
+
+The markers in this warehouse are 18 m apart, at the aisle ends. At 0.5% the
+formula allows 16.8 m and the run lost 4 codes without colliding, which is
+what being slightly over the line looks like. At 0.25% it allows 33.6 m and
+the run read all 432. That prediction was made before the flight.
+
+This is the part that travels. Measure what `voxl-qvio-server` actually drifts
+over a known path, measure the clearance in the real aisles, and the marker
+spacing follows, before anybody marks a floor.
+
+What it does not cover: the drift here is smooth and continuous. Real VIO also
+fails suddenly and completely in a featureless corridor, and that is a
+different scenario.
 
 ### Where a code is filed
 
@@ -425,7 +558,7 @@ succeeded.
 ./scripts/run_tests.sh
 ```
 
-Five suites, seconds each, no simulator. They import the scanner, read the
+Seven suites, seconds each, no simulator. They import the scanner, read the
 layout, and work through the geometry, so they fail loudly on a virtualenv
 missing a package or a `setup_px4.sh` that did not finish, which are the two
 ways a fresh install goes wrong. `all suites passed` means the next thing to
@@ -545,7 +678,7 @@ measurement, so it was not short of the eight processors WSL is given.
 ./scripts/run_tests.sh
 ```
 
-Five suites, seconds each, no simulator:
+Seven suites, seconds each, no simulator:
 
 - `test_pose_history.py` - that a code is filed against the pose its frame was
   taken at. Includes the case the whole thing exists for: a frame handled two
@@ -559,13 +692,49 @@ Five suites, seconds each, no simulator:
 - `test_strips.py` - reading a frame in strips: that it finds more codes, and
   that a strip coordinate is mapped back to the frame. The second half fails
   silently here and puts every box on the wrong part of the shelf in flight.
-- `test_drift_correction.py` - the marker correction geometry.
+- `test_drift_correction.py` - the marker correction geometry, and the shape
+  of the error inject_drift.py adds. The second half is there because the
+  first version of that error was wrong by a factor of a hundred: it drew a
+  fresh direction for every odometry message, and at 50 Hz the steps cancelled
+  out. Nothing but a check would have said so, and a whole test flight would
+  have run against an error too small to see.
 - `test_framing.py` - the vertical half. That the axis lands on the codes,
   that every code the layout describes fits the frame it is read from, and
   that a band which cannot fit is named rather than passed over.
+- `test_decode_scale.py` - that shrinking a frame to the detail a code needs
+  still reads the code. It renders the warehouse's own label textures at the
+  distance and bearing each camera sees them at and decodes both the full
+  frame and the scaled one. This is the suite that would catch the scaling
+  being taken too far, and it works on real pixels rather than on the
+  arithmetic that chose the factor.
+- `test_barcode_inventory.py` - that a barcode reading is filed against the
+  box it names.
 
 A scan takes ten minutes and only tells you the total. These say which piece
 of the geometry is wrong.
+
+## One line per flight
+
+```sh
+python3 report/run_log.py --show
+```
+
+`make_reports.sh` adds a row to `out/runs.csv` after every scan: coverage,
+where the codes were put, the clearances, the margin, whether the decoders
+kept up, and what drift was injected if any. Open it in a spreadsheet and the
+history is a table.
+
+It exists because everything else was the wrong way round. The console logs
+accumulate, one per flight, and the numbers are overwritten by the next one:
+an afternoon of scanning left twelve logs of scrolling text and the figures of
+exactly one run. No raw data is kept here. The recordings are 150 MB a flight
+and PX4's own logs reached six gigabytes across seventy eight of them, and
+neither answers a question anybody asks twice.
+
+Read `codes_read_once` beside `codes`. It counts the codes a run read in
+exactly one frame, which is the margin, but it can only count codes that were
+read at all: the run that lost 94 to uncorrected drift has the lowest count in
+the table and the worst flight in it.
 
 ## Reports
 
@@ -785,6 +954,95 @@ here, which looked exactly like a broken sensor for about an hour.
 in the first seconds. These clear as the simulator comes up. They matter only
 if they keep repeating after `Ready for takeoff!`.
 
+## Running this on another machine
+
+Everything below is about one thing: this reads 432 QR and 431 barcodes here,
+and if it reads fewer somewhere else you want to know within a minute whether
+that is the machine or the code.
+
+### Rebuild the model after pulling
+
+```sh
+python3 scanner/build_c27_drone.py
+```
+
+The camera frame rate lives in the model this writes into the PX4 tree, not in
+the code that flies it. Pull the change that took the hires to 20 Hz, forget
+this step, and the vehicle flies the model from before the change while every
+file in the checkout says otherwise. It is exactly the setting that would
+happen to: 10 Hz reads 409 of 432 barcodes and 20 reads 431.
+
+`launch_sim.sh` now compares the two and refuses to start if they disagree,
+naming the command above. So this is a habit rather than a trap, but it is
+still the first thing to check if a number comes out low.
+
+### Measure the machine before flying it
+
+```sh
+./scripts/launch_sim.sh nvidia          # in one terminal
+python3 scanner/measure_rate.py         # in another, once it is up
+```
+
+Thirty seconds, no flight. It reports what the simulator actually delivers:
+
+    camera     frames     sim Hz    wall Hz      RTF
+    hires         575      19.23      19.08     0.99
+    rear          230       8.06       7.06     0.88
+
+`sim Hz` is the one that decides coverage. It should be about 20 for the hires
+and 8 for the rear; that is what the vehicle sees per metre of shelf. If it
+comes out lower, Gazebo is not managing to render what the model asks for and
+nothing downstream can make up for it.
+
+`RTF` is only how long you wait. In lockstep a slow machine slows simulated
+time as well, so the flight is not degraded, it is lengthened: 0.57 here means
+a 580 s flight takes about 17 minutes.
+
+### Read one column after the flight
+
+```sh
+python3 report/run_log.py --show
+```
+
+`decode_duty_pct` is how full the busiest decoder was, as a share of the
+interval between frames, with the aisle and camera it was on. Here it is 96 per
+cent on the 1.77 m aisle.
+
+Do not watch `frames_dropped` for this. It stays near zero right up to the edge
+and then falls off it, so it tells you afterwards what duty tells you before.
+
+Below 100 per cent the decoder finishes one frame before the next arrives. At
+100 it is handing back exactly as fast as it is handed to, and everything past
+that is shed. A machine a third slower than this one will be over the line in
+the wide aisles, which is survivable - a code is seen three to nine times out
+there - but it should be a decision and not a surprise.
+
+If it is over, turn the frame rate down and rebuild:
+
+```sh
+python3 scanner/build_c27_drone.py --hires-rate 15
+```
+
+Most of what 20 Hz bought is on the 0.50 m aisle, where decoding is cheap
+because the code is close and the frame is scaled hard, so 15 keeps the
+majority of it and gives the wide aisles their room back.
+
+### What to expect
+
+| | |
+|---|---|
+| Box QR | 432 / 432 |
+| Box barcode | 431 / 432 |
+| Wrong shelf, level or bay | 0, 0, 0 |
+| Clearance alarms | 0 |
+| Position error, median | under 0.02 m |
+| Flight, wall clock | 17 min here, longer on a slower machine |
+
+If the QR total is not 432, or the barcode is under about 420, send
+`decode_duty_pct` and the `sim Hz` from `measure_rate.py` along with the
+number. Those two say whether the machine ran out of room, and they are quicker
+to read than a scan is to repeat.
+
 ## Known issues
 
 **Gazebo memory growth.** `gz sim` grows with every rendered frame. A 24
@@ -793,51 +1051,67 @@ waypoint scan runs about ten minutes of wall clock and `gz sim` has reached
 on the first signal. Run `./scripts/clean.sh` before every launch: starting a
 second simulator beside a surviving one leaves neither with enough memory, and
 the symptom is PX4 reporting "Accel Sensor 0 missing" with nothing on the
-terminal. Camera update rates are already reduced for this (10 Hz hires, 8 Hz
-rear, 5 Hz downward, and the two tracking cameras nothing reads are not
-rendered at all).
+terminal. Camera update rates are kept down for this: 20 Hz hires, 8 Hz rear,
+5 Hz downward, and the two tracking cameras nothing reads are not rendered at
+all. The hires was 10 until it was measured; see "Face G ran out of looks".
 
-**Readability margin is thin on the rear camera in the widest aisle.** 1.7 px
-per module at the 1.05 m it stands there, against a threshold of 3. It reads
-54 of 54 anyway, because WeChat's detector is what finds them and it goes down
-to 1.66. Enlarging the label QR from 70 mm to 100 mm would give the whole
-building far more room. That is a change on the warehouse side.
+**The narrowest aisle offers a code very little frame, and the answer was
+frames per second.** A code half out of the side of a frame does not decode any
+more than one half out of the top, so what counts is the whole code being in
+view. Subtracting the code's own 0.072 m from the span, at 1 m/s through the
+lenses the vehicle carries, face G gets 1.7 whole views of a code and face H
+2.2, against 13.6 and 16.1 in the widest aisle. That is close to bedrock: the
+speed is fixed at 1 m/s by choice and the lens is the one the real vehicle has.
 
-**A code is wholly in frame 1.7 times in the narrowest aisle.** Every frame
-count in this project used to ask whether the middle of a code was in view,
-but a code half out of the side does not decode any more than one half out of
-the top. Subtracting the code's own 0.072 m from the span:
+Moving the lane was measured and is not worth it. Splitting the aisle so the
+weaker face is as strong as possible takes G from 1.71 to 1.92 whole views and
+cuts the clearance between a propeller tip and face H from 0.084 m to 0.066, on
+the side the TOF cannot see.
 
-    face  aisle    whole code in frame   codes read once
-    A     2.40 m                 13.6                 0
-    B     2.40                   16.1                 0
-    E     1.13                    5.7                 0
-    G     0.50                    1.7                38
-    H     0.50                    2.2                18
+What did work was giving the geometry more frames to spend, which meant making
+decoding cheap enough to afford them. See "Face G ran out of looks" above:
+codes read exactly once on G went from 40 to 1, and the barcode from 409 to
+431. The bedrock is unchanged; there are simply more samples of it.
 
-That is the whole of why 38 of G's 54 codes were read exactly once, and the
-model agrees with the counts on all eight faces. It is close to bedrock: at
-1 m/s, through a 60 degree lens, from the 0.211 m the hires can stand at in a
-0.50 m aisle, 1.7 is what the geometry gives. Speed is fixed at 1 m/s by
-choice, and the lens is the one the real vehicle carries.
+**The decoder is now the thing closest to the edge, and it is closest in the
+widest aisle.** At 20 Hz the hires decoder runs at 96 per cent of the frame
+interval on the 1.77 m aisle and sheds 94 frames of 5876. A distant code
+cannot be scaled down - at 2.06 pixels a module there is nothing to give - and
+there are more codes in one frame out there, so that is where the cost lands.
+It does not show in the result here and it will show on a slower machine
+before it shows on this one. `report/run_log.py` reports it as
+`decode_duty_pct` with the aisle and camera it was on, and that is the number
+to look at first on a machine this has not run on. Turning the frame rate back
+down is one flag: `build_c27_drone.py --hires-rate 15`.
 
-Moving the lane was measured and is not worth it: splitting the aisle to make
-the weaker face as strong as possible takes G from 1.71 to 1.92 whole views
-and cuts the clearance between a propeller tip and face H from 0.084 m to
-0.066, on the side the TOF cannot see.
+Decoding only the rows a code can be in, which the layout knows before the
+frame arrives, was benched at 44 per cent faster through the real pipeline with
+no codes lost and slightly more read. It is still not implemented, and it is
+now the obvious next thing if that 96 per cent has to come down.
 
-The remaining lever is decode cost, which is what stops the cameras being run
-faster. Decoding only the rows a code can be in, which the layout knows before
-the frame arrives, was benched at 44 per cent faster through the real pipeline
-with no codes lost and slightly more read. It is not implemented: it buys
-robustness on a slow machine rather than coverage here, and the codes are
-about to stop being QR read by OpenCV.
+**Face B has 1.71 px per module, the thinnest reading in the building.** At
+the 1.05 m the rear camera stands at in the widest aisle, against a usual
+threshold of 3. It reads every code because WeChat's detector goes down to
+1.66. It is also why the frame scaling leaves that face alone: there is nothing
+there to give away. Enlarging the label QR from 70 mm to 100 mm would give the
+whole building far more room, and that is a change on the warehouse side.
 
-**Face B has 1.7 px per module, the thinnest reading in the building.** At the
-1.05 m the rear camera stands at in the widest aisle, against a threshold of
-3. It reads 54 of 54 because WeChat's detector goes down to 1.66. Enlarging
-the label QR from 70 mm to 100 mm would give the whole building far more room.
-That is a change on the warehouse side.
+**One barcode was missed on the last flight and it is not understood.** Box
+`E|03|1`, barcode `0236`, at y=1.450 on a face whose other barcodes were read
+three to seven times each. Its QR was read. The geometry rules out the usual
+explanations: every label on that row sits at the same x and the same height,
+this one lands 470 to 560 pixels down a 768 pixel frame, and the vehicle had
+about five or six frames of it while decoding none. The neighbouring labels
+either side of it decoded at quality 33 to 37 in the same pass. Finding out
+means looking at those frames, which `SAVE_FRAMES=1 ./scripts/scan_with_barcode.sh`
+keeps: it saves the frames where a QR read and the barcode beside it did not,
+which is exactly this case.
+
+**The drift injected is smooth, and real VIO is not.** It grows with distance
+along a heading that turns slowly, which is how a scale or heading error in an
+estimator behaves. It does not model the other failure: losing tracking
+suddenly and completely in a featureless corridor. That belongs with the
+obstacle and failsafe work.
 
 **None of this is measured against a real detector.** The vehicle will not run
 OpenCV: torn, dirty and badly lit labels are a trained model's problem. The
