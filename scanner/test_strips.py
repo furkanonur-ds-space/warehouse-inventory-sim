@@ -11,6 +11,7 @@ So this measures both: how many of the codes placed in a frame come back, and
 how far each one is reported from where it was actually put.
 """
 import glob
+import json
 import math
 import os
 import random
@@ -22,20 +23,59 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import scanner as s
 
-LABEL_M = (0.10, 0.15)
+def label_size_m():
+    """
+    The box label's real size, from the world that was generated.
+
+    Read rather than written down. These were two constants, 0.10 by 0.15,
+    which stopped being true the moment the label changed shape: the texture
+    still loaded, so the test drew a 95 mm label as though it were 150 mm and
+    every code in it came out squashed and unreadable. That looks like a
+    detector failure and is not one.
+    """
+    truth = os.path.join(os.path.dirname(os.path.abspath(s.LAYOUT_PATH)),
+                         "..", "warehouse", "ground_truth.json")
+    try:
+        with open(truth, encoding="utf-8") as handle:
+            for code in json.load(handle)["codes"]:
+                if code.get("type") == "box_qr":
+                    return tuple(code["label_size_m"])
+    except Exception:
+        pass
+    return (0.10, 0.095)
+
+
+LABEL_M = None      # label_size_m(), once scanner is imported
+LABEL_M = label_size_m()
 TRIALS = 12
 failures = []
 
 
 def texture_dir():
-    for candidate in (
-            os.path.join(os.path.dirname(s.LAYOUT_PATH),
-                         "../warehouse/generated/out/textures"),
-            "/home/furk/PX4-Autopilot/Tools/simulation/gz/models/"
-            "warehouse_assets/materials/textures"):
+    """
+    Where the generated label textures ended up.
+
+    Three places, in order: a directory the layout names, the generator's own
+    output tree before it is installed, and the PX4 tree that setup_px4.sh
+    copies it into. The last one used to be a path under one developer's home
+    directory, which meant these tests only ran on that machine.  PX4_DIR is
+    the same override setup_px4.sh and launch_sim.sh take.
+    """
+    here = os.path.dirname(os.path.abspath(s.LAYOUT_PATH))
+    px4 = os.environ.get("PX4_DIR") or os.path.expanduser("~/PX4-Autopilot")
+    candidates = []
+    if s.LAYOUT.get("texture_dir"):
+        candidates.append(os.path.join(here, s.LAYOUT["texture_dir"]))
+    candidates += [
+        os.path.join(here, "..", "warehouse", "generated", "gz", "models",
+                     "warehouse_assets", "materials", "textures"),
+        os.path.join(px4, "Tools", "simulation", "gz", "models",
+                     "warehouse_assets", "materials", "textures"),
+    ]
+    for candidate in candidates:
         if os.path.isdir(candidate):
-            return candidate
-    raise SystemExit("no label textures")
+            return os.path.normpath(candidate)
+    raise SystemExit("no label textures; run setup_px4.sh first")
 
 
 labels = [cv2.imread(p) for p in

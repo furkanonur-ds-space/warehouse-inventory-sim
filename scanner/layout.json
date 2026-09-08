@@ -344,6 +344,25 @@
     "way as flight_z. code_size_m is the QR side from gen_labels, needed to",
     "ask whether a whole code fits the frame rather than just its centre."
   ],
+  "code_module_size_m": 0.0028,
+  "_code_module_note": [
+    "The side of one square in a box QR, from warehouse/ground_truth.json,",
+    "where every one of the 432 carries the same figure. With code_size_m it",
+    "gives the module count, and with a distance it gives how many pixels a",
+    "module covers, which is the only thing that decides whether a code can",
+    "be read.",
+    "",
+    "It is here because the decoder is given frames scaled to the detail it",
+    "needs rather than the detail the camera has. On the 0.50 m aisle a code",
+    "covers 303 pixels and resolves 12.1 pixels to a module, six times what",
+    "the detector has been measured down to, and decoding all of them cost",
+    "118 ms a frame against a 157 ms frame interval. On the 2.40 m aisle the",
+    "same code covers 51 pixels and 2.06 to a module, so nothing there can be",
+    "given away and nothing is.",
+    "",
+    "A site with larger labels, or a camera with more pixels, changes this",
+    "number and the rule reads the same."
+  ],
   "code_plane_offset_m": 0.016,
   "_code_plane_note": [
     "How far the plane the codes sit in is from the shelf surface named by",

@@ -22,6 +22,102 @@ the same failure. The plain x500 already provides optical flow and a range
 sensor.
 """
 import os
+import sys
+
+# Build a model whose odometry does not go straight to PX4.
+#
+#   python3 build_c27_drone.py            the vehicle that flies every day
+#   python3 build_c27_drone.py --drift    the same vehicle, wired for a test
+#
+# With --drift the odometry publisher writes to a private topic and PX4 is
+# left with nothing on the one it reads, so inject_drift.py has to sit in
+# between and is obviously required rather than quietly optional. That is the
+# point of doing it this way: the model that flies normally is not carrying a
+# test harness it could fail without.
+INJECT_DRIFT = "--drift" in sys.argv
+
+# How often the hires camera renders, in Hz. It decides how many looks a code
+# gets: on the 0.50 m aisle a code is in view for 0.24 s, which was 2.4 frames
+# at the 10 Hz this used to be, and face G read 46 of its 108 codes in exactly
+# one frame. At 20 it is 4.9 frames, and G reads exactly one code once.
+#
+#     10 Hz    432 QR   409 barcode    23 barcode misses, all on G
+#     20 Hz    432 QR   431 barcode     1 barcode miss, on E
+#
+# It was 10 because that was believed to be what the machine could render. It
+# is not: measured on an idle simulator the hires delivers 19.2 Hz at a real
+# time factor of 0.99. What could not take 20 Hz was the decoder, at 118 ms a
+# frame, and that is now 38 because frames are scaled to the detail a code
+# needs before decoding.
+#
+# Raising it costs wall clock and not accuracy. In lockstep, slower rendering
+# slows simulated time too, so the vehicle sees the same frames per metre
+# either way; the flight just takes longer to sit through. Measured at 20 Hz
+# the real time factor is 0.57, so a 580 s flight takes about 17 minutes.
+#
+# There is less room left than there was. On the 1.77 m aisle the hires
+# decoder now runs at 96 per cent of the frame interval and sheds 94 frames a
+# flight, because a distant code cannot be scaled down and there are more of
+# them in view. A slower machine will shed more. Raise this again only with
+# that number in front of you.
+HIRES_RATE = 20
+for _i, _a in enumerate(sys.argv):
+    if _a == "--hires-rate" and _i + 1 < len(sys.argv):
+        HIRES_RATE = int(sys.argv[_i + 1])
+
+# How finely the TOF is sampled, horizontally and vertically.
+#
+# The sensor on the vehicle is a PMD IRS2975C: 240 x 180 points across 106 by
+# 86 degrees, which is 0.44 by 0.48 degrees a point. This is a gpu_lidar here
+# and every ray costs render time, so it has always been 32 by 8, which is
+# 3.31 by 10.75 degrees: 7.5 times coarser across and 22 times coarser up.
+#
+# In metres at a metre, the simulated sensor steps 58 mm sideways and 188 mm
+# vertically from one reading to the next. Anything smaller than that, in the
+# gap, is not there as far as the simulation is concerned: a box corner
+# protruding into the aisle, a pallet strap, an arm. The real sensor steps 8
+# and 8 mm at the same distance.
+#
+# It matters because clearance is what the safety claim rests on. A run
+# reporting a minimum obstacle distance of 0.209 m and no alarms measured that
+# with 256 samples of the shelf where the vehicle has 43200.
+#
+# 240 x 180 at 20 Hz is 864000 rays a second and is not affordable. 96 x 32 is
+# 61440 and steps 19 by 47 mm at a metre, smaller than anything the vehicle
+# could hit and survive. Measure before adopting, the way the camera rate was:
+#
+#     python3 build_c27_drone.py --tof 96x32
+#     ./scripts/launch_sim.sh nvidia
+#     python3 scanner/measure_rate.py
+# How often the rear tracking camera renders, in Hz.
+#
+# It reads face H, and face H is now the only thin face in the building: 37 of
+# its codes are read in exactly one frame where every other face reads
+# everything five to nine times. That is the same shape as face G's problem
+# before the hires went to 20 Hz, and the same cause. The two barcodes missed
+# on 2026-09-08 at 16:36 were both on H.
+#
+# There is room for it. The rear decoder runs at 28 per cent of the frame
+# interval on the 0.50 m aisle, where H is, against the hires' 43. It is the
+# wide aisles that bind: 54, 60 and 63 per cent, where a distant code cannot be
+# scaled down. At 12 Hz those become roughly 81, 90 and 95, which is tight but
+# under. At 16 they go over and the decoder starts shedding.
+#
+# The vehicle runs this camera at 30 fps.
+#
+# Left at 8 until a flight says otherwise, the same way the hires was.
+REAR_RATE = 8
+for _i, _a in enumerate(sys.argv):
+    if _a == "--rear-rate" and _i + 1 < len(sys.argv):
+        REAR_RATE = int(sys.argv[_i + 1])
+
+
+TOF_H_SAMPLES = 32
+TOF_V_SAMPLES = 8
+for _i, _a in enumerate(sys.argv):
+    if _a == "--tof" and _i + 1 < len(sys.argv):
+        TOF_H_SAMPLES, TOF_V_SAMPLES = (
+            int(v) for v in sys.argv[_i + 1].lower().split("x"))
 
 GZ_MODELS = os.path.expanduser('~/PX4-Autopilot/Tools/simulation/gz/models')
 model_name = "x500_c27"
@@ -81,7 +177,8 @@ def camera_block(link_name, joint_name, x_off, y_off, z_off,
 
 def range_block(link_name, joint_name, x_off, y_off, z_off,
                 roll, pitch, yaw, max_range=5.0,
-                h_fov=1.8500, v_fov=1.5010, h_samples=32, v_samples=8):
+                h_fov=1.8500, v_fov=1.5010,
+                h_samples=TOF_H_SAMPLES, v_samples=TOF_V_SAMPLES):
     """
     The PMD TOF module, as a ray grid rather than a depth camera.
 
@@ -160,11 +257,11 @@ def range_block(link_name, joint_name, x_off, y_off, z_off,
 # near the end of the route every time, which looked like a flight logic fault
 # but is purely elapsed time.
 #
-# 10 Hz at 0.6 m/s cruise is a frame every 6 cm, far more than a box needs.
+# At 20 Hz and the 1 m/s the scan cruises at, that is a frame every 5 cm.
 hires_front = camera_block(
     "camera_hires_link", "camera_hires_joint",
     0.06, 0.0, 0.0, 0, 0, 0,
-    fov=1.0472, width=1024, height=768, update_rate=10)
+    fov=1.0472, width=1024, height=768, update_rate=HIRES_RATE)
 
 # --- AR0144 tracking cameras -------------------------------------------
 #
@@ -211,7 +308,7 @@ tracking_front = camera_block(
 tracking_rear = camera_block(
     "camera_track_rear_link", "camera_track_rear_joint",
     -0.055, 0.0, -0.015, 0, 0, 3.14159,
-    fov=1.5708, width=1280, height=800, update_rate=8)
+    fov=1.5708, width=1280, height=800, update_rate=REAR_RATE)
 
 # The downward tracking camera doubles as the ArUco marker reader for drift
 # correction.
@@ -305,12 +402,29 @@ tracking_down = camera_block(
 # test_drift_correction.py, which drives it with synthetic frames and a known
 # injected error. That test found a real defect the simulator could never have
 # surfaced: the correction summed its measurement instead of converging on it.
+#
+# What --drift changes. PX4's gz bridge subscribes to exactly
+# /model/<model>/odometry_with_covariance, built from the model name in
+# GZBridge.cpp, so the way to put something in front of PX4 is to move the
+# plugin off that topic. It then publishes the true pose on a private name and
+# inject_drift.py reads it, adds an accumulating error and publishes the
+# result on the name PX4 is waiting for.
+#
+# That puts the error where a real one is. Corrupting what the scanner reads
+# instead does displace the vehicle, through the lateral check in the settle
+# loop, but only as far as that check's own tolerance and timeout allow, and
+# it leaves PX4's estimator being fed the truth. On the vehicle it is the
+# estimator that is wrong, and every setpoint lands displaced because of it.
+DRIFT_TOPIC = "/model/%s/odometry_with_covariance_true" % model_name
+
 vio_odometry = '''
     <plugin
       filename="gz-sim-odometry-publisher-system"
       name="gz::sim::systems::OdometryPublisher">
-      <dimensions>3</dimensions>
-    </plugin>'''
+      <dimensions>3</dimensions>%s
+    </plugin>''' % (
+    "\n      <odom_covariance_topic>%s</odom_covariance_topic>" % DRIFT_TOPIC
+    if INJECT_DRIFT else "")
 
 # --- PMD TOF, front facing, obstacle distance --------------------------
 #
@@ -351,6 +465,13 @@ print("  camera_track_front_link  1280x800  front, 90 deg   odometry")
 print("  camera_track_rear_link   1280x800  rear,  90 deg   odometry")
 print("  camera_track_down_link   1280x800  down,  90 deg   odometry and ArUco")
 print("  OdometryPublisher         plugin   VIO simulation")
+if INJECT_DRIFT:
+    print()
+    print("  WIRED FOR A DRIFT TEST. The odometry goes to")
+    print("    %s" % DRIFT_TOPIC)
+    print("  and not to PX4. Nothing will fly until inject_drift.py is")
+    print("  relaying it, because PX4 has no position source without it.")
+    print("  Rebuild without --drift to get the vehicle back.")
 print("  tof_link                  PMD TOF, 106x86 deg, 5 m, 32x8 rays")
 print()
 print("  Note: scanning now requires the vehicle to face the shelf, so each")

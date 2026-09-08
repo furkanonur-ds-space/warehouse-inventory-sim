@@ -20,6 +20,7 @@ Outputs a JSON inventory mapping every detected QR code to an estimated 3D
 position.
 """
 import os
+import glob
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
 import asyncio
@@ -36,6 +37,29 @@ from mavsdk.offboard import PositionNedYaw, OffboardError
 import gz.transport13 as trans
 from gz.msgs10.image_pb2 import Image
 from gz.msgs10.laserscan_pb2 import LaserScan
+
+# We do our own threading, so OpenCV should not do any of its own.
+#
+# Three of our threads call into it: a decoder for each camera, and the ArUco
+# pass on the thread gz transport calls callbacks from. OpenCV then opens a
+# pool inside each call, eight wide on this machine, so three threads of ours
+# become two dozen of its on eight cores.
+#
+# A scan aborted at waypoint 3 with "corrupted double-linked list", a heap
+# corruption from inside the library, after nine scans that did not. Nothing
+# in this file changed between them; what changed earlier was that decoding
+# moved off the single transport thread, which is what introduced concurrent
+# use of OpenCV at all. Before that the two decoders and the ArUco pass were
+# serialised and none of this could arise.
+#
+# This is a mitigation and not a proof. One failure in ten runs cannot be
+# shown to be fixed by a run that works, and the navigation report records the
+# thread count so a future crash can be attributed rather than guessed at.
+#
+# It is close to free: benched on real frames, two decoders at once went from
+# 124 and 109 ms a frame to 130 and 110, and the wall clock for the pair from
+# 2.86 s to 2.91. WeChat's detector barely uses the pool it was given.
+cv2.setNumThreads(1)
 
 # --- WAREHOUSE FLOOR PLAN ----------------------------------------------
 #
@@ -144,6 +168,20 @@ CODE_SIZE_M = LAYOUT.get("code_size_m", 0.072)
 # shelf. Reporting the surface instead put every one of 432 codes 0.016 m out
 # in x, with the sign following the face. Zero for a layout that does not say.
 CODE_PLANE_OFFSET_M = LAYOUT.get("code_plane_offset_m", 0.0)
+CODE_MODULE_SIZE_M = LAYOUT.get("code_module_size_m", 0.0)
+
+# How much detail the decoder is given, in pixels per QR module.
+#
+# WeChat's detector has been measured on these labels down to 1.66 pixels a
+# module and is reliable from about 2.0. Four is that with the margin doubled,
+# and it is a ceiling rather than a target: a frame is only ever scaled down to
+# reach it, never up, so the aisles that resolve 2.06 and 1.76 are handed the
+# pixels they have and are not touched.
+#
+# What it buys is on the narrow aisle, where the camera is 0.21 m from the
+# shelf and a code covers 303 pixels. Decoding that took 118 ms of a 157 ms
+# frame interval, which is a decoder with no room to be given more frames.
+DECODE_TARGET_PX_PER_MODULE = 4.0
 
 
 def half_frame_m(hfov_deg, frame_px, depth):
@@ -155,14 +193,25 @@ def half_frame_m(hfov_deg, frame_px, depth):
 
 # --- SCAN PARAMETERS ---------------------------------------------------
 WAYPOINT_TOLERANCE = 0.4      # metres
-# One speed in every aisle.
+# One speed in every aisle, and it is fixed at 1 m/s by a decision above this
+# work rather than by anything measured here.
 #
-# Slowing down in the narrow ones was tried, on the reading that the codes
-# lost there were lost to a shortage of frames. The measurement does not
-# support it: flying a box past the camera on paper at 1 m/s with a 10 Hz
-# camera gives four samples at the 0.271 m the narrowest aisle is flown at,
-# and all four decode. What was losing them was the strips cutting a code too
-# large to fit in one, which is fixed above.
+# Slowing down in the narrow ones was tried once, on the reading that the codes
+# lost there were lost to a shortage of frames, and dismissed on a paper
+# calculation that said four samples were available and all four decoded. That
+# dismissal was wrong, and it is worth saying so here because it is the comment
+# the next person will read before dismissing the same idea again.
+#
+# There was a shortage of frames, on face G, and it was the whole of what was
+# left: 40 of that face's 108 codes were read in exactly one frame while the
+# rest of the warehouse read everything three to nine times. The paper
+# calculation asked whether the middle of a code was in view. A code half out
+# of the side does not decode, and counting whole codes gives 1.7 views and not
+# four.
+#
+# The fix was not slowing down. It was the camera: 10 Hz to 20, which needed
+# decode cost cut first. Face G now reads no code only once. See
+# build_c27_drone.py HIRES_RATE for the whole of it.
 CRUISE_SPEED = 1.0             # m/s along an aisle
 CLIMB_SPEED = 0.15             # m/s when changing shelf level
 TURN_SETTLE_S = 3.0            # seconds held after a heading change
@@ -337,6 +386,16 @@ REAR_HZ = 8.0
 # at the moment means the narrowest aisle, where two codes go missing and
 # every test of why has been synthetic.
 RECORD_VIDEO = os.environ.get("RECORD_VIDEO", "") not in ("", "0")
+
+# Whether to ignore the floor markers entirely.
+#
+# For one run only, and it is the run that makes the correction falsifiable.
+# With the simulated odometry exact there is nothing to correct and a flight
+# cannot tell whether the correction helps; with an error injected there is,
+# and the honest test is to fly the same error twice, once with the markers
+# and once without. If the run without them comes back just as good, whatever
+# carried it was not the correction.
+NO_DRIFT_CORRECTION = os.environ.get("NO_DRIFT_CORRECTION", "") not in ("", "0")
 frames_stale = {"n": 0}
 
 # What happened to the frames on each lane. The flight totals never said where
@@ -582,6 +641,14 @@ class CameraDecoder:
                     # A copy, because the decoder is about to look at the same
                     # array and the writer thread will still be holding this.
                     recorder.offer(bgr.copy())
+                # Scaled to the detail the code needs rather than the
+                # detail the camera has. Done here and not in decode_qr so the
+                # recording above keeps every pixel the camera sent: what is
+                # being economised is decode time, not the evidence.
+                scale = decode_scale(depth, self.hfov_deg, bgr.shape[1])
+                if scale < 1.0:
+                    bgr = cv2.resize(bgr, None, fx=scale, fy=scale,
+                                     interpolation=cv2.INTER_AREA)
                 started = time.perf_counter()
                 hits = decode_qr(bgr, self)
                 # Recorded against the lane the frame was taken on, which
@@ -652,6 +719,15 @@ def load_marker_map():
     sighting ambiguous and defeated the point of using them as references.
     """
     global marker_map
+    if NO_DRIFT_CORRECTION:
+        # Turned off on purpose, for the run that says whether the correction
+        # is doing anything. A run with drift injected and the correction on
+        # proves nothing by itself: if the same run with it off comes back
+        # just as good, whatever carried it was not the markers.
+        print("[INFO] NO_DRIFT_CORRECTION=1: floor markers ignored, no "
+              "correction will be applied")
+        marker_map = {}
+        return
     try:
         with open(MARKER_MAP_PATH, encoding="utf-8") as handle:
             marker_map = json.load(handle)
@@ -926,6 +1002,32 @@ def detect_in_strips(frame, detector, strips=MAX_DECODE_STRIPS):
         for value, quad in zip(values, quads):
             sightings.append((value, quad, x1, x2))
     return sightings
+
+
+def decode_scale(depth, hfov_deg, frame_width):
+    """
+    How far a frame can be shrunk before the decoder starts to struggle.
+
+    A code is read from its modules, not its pixels, so what matters is how
+    many pixels cover one module. That follows from the distance: the same
+    label covers 303 pixels from 0.21 m and 51 from 1.24 m. Handing the
+    decoder all 303 is paying for detail it cannot use, and paying in the one
+    currency the narrow aisle has none of, which is time.
+
+    Returns a factor at or below 1.0, and exactly 1.0 whenever the frame
+    already has no detail to spare. A camera that does not know its distance
+    gets 1.0, because guessing here loses codes.
+    """
+    if not CODE_MODULE_SIZE_M or not depth or depth <= 0:
+        return 1.0
+    view = 2 * depth * math.tan(math.radians(hfov_deg) / 2)
+    if view <= 0:
+        return 1.0
+    modules = CODE_SIZE_M / CODE_MODULE_SIZE_M
+    px_per_module = CODE_SIZE_M / view * frame_width / modules
+    if px_per_module <= DECODE_TARGET_PX_PER_MODULE:
+        return 1.0
+    return DECODE_TARGET_PX_PER_MODULE / px_per_module
 
 
 def decode_qr(frame, cam):
@@ -1522,6 +1624,66 @@ def aisle_fits(width):
     return width / 2.0 - VEHICLE_HALF_SPAN >= AISLE_CLEARANCE_M
 
 
+NEWLINE = bytes([10])
+
+
+class BarcodeTail:
+    """
+    How many distinct barcodes the reader beside this scan has read so far.
+
+    The barcode reader is a separate process, started by
+    scripts/scan_with_barcode.sh, appending one JSON object per reading to
+    out/barcode_readings_<camera>.jsonl. Nothing tells the scan how it is
+    doing. The QR total climbs on the console every waypoint and the barcode
+    total is invisible until the flight lands and the reports are run, which
+    is ten minutes too late to notice that one of the two readers never
+    started, or died at waypoint three, or is reading nothing because it was
+    pointed at a topic that does not exist.
+
+    So follow the files. Only the bytes written since the last look are read,
+    and only up to the last newline: the reader is appending while this reads,
+    and half a line is not a reading. A file that vanishes or has not been
+    created yet counts as nothing, which is what "no barcode reader running"
+    should look like.
+
+    Distinct payloads rather than readings, because a barcode is read many
+    times and what the number is being compared against is 432 boxes.
+    """
+
+    def __init__(self, pattern):
+        self.pattern = pattern
+        self.offsets = {}
+        self.seen = set()
+
+    def count(self):
+        for path in sorted(glob.glob(self.pattern)):
+            try:
+                with open(path, "rb") as handle:
+                    handle.seek(self.offsets.get(path, 0))
+                    chunk = handle.read()
+            except OSError:
+                continue
+            cut = chunk.rfind(NEWLINE) + 1
+            if not cut:
+                continue
+            self.offsets[path] = self.offsets.get(path, 0) + cut
+            for line in chunk[:cut].splitlines():
+                try:
+                    self.seen.add(json.loads(line)["payload"])
+                except (ValueError, KeyError):
+                    continue
+        return len(self.seen)
+
+    def running(self):
+        """Whether there is a reader to report on at all."""
+        return bool(self.offsets) or bool(glob.glob(self.pattern))
+
+
+barcodes = BarcodeTail(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "..", "out", "barcode_readings_*.jsonl"))
+
+
 def lane_levels(reads):
     """
     What altitude to fly at each level on this lane, and whether it is enough.
@@ -1889,7 +2051,10 @@ async def goto_waypoint(drone, index, total, x, y, z, yaw_deg):
                 worst = max(alt_samples, key=abs)
                 spread = max(alt_samples) - min(alt_samples)
                 flag = "  OUT OF FRAME" if abs(worst) > 0.37 else ""
+                bars = (f"barcodes {barcodes.count()}  "
+                        if barcodes.running() else "")
                 print(f"           reached  codes {len(inventory)}  "
+                      f"{bars}"
                       f"alt worst {worst:+.3f} spread {spread:.3f} "
                       f"residual {residual:+.3f} settled in {settle:.1f}s{flag}")
             return True
@@ -1966,6 +2131,20 @@ def write_navigation_report(reached, planned, duration_s):
     report = {
         "report_date": datetime.now().isoformat(timespec="seconds"),
         "world": WORLD,
+        # What this run was, so that four reports from an afternoon can be
+        # told apart afterwards without remembering which terminal was which.
+        # The drift itself is injected outside this process and writes its own
+        # out/drift_injected.csv; what belongs here is what the scanner was
+        # asked to do about it.
+        "configuration": {
+            "drift_correction": not NO_DRIFT_CORRECTION,
+            "recording": RECORD_VIDEO,
+            "marker_map_loaded": len(marker_map),
+            # How many threads OpenCV was allowed inside each of ours. Here
+            # because a scan once aborted on a heap corruption and the first
+            # question was how much concurrency the library had been given.
+            "opencv_threads": cv2.getNumThreads(),
+        },
         "mission_duration_s": round(duration_s, 1),
         "waypoints": {
             "planned": planned,
