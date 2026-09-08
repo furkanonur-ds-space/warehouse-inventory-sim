@@ -24,7 +24,7 @@ warehouse whose aisles run 2.40, 1.77, 1.13 and 0.50 m:
 | Metric | Value |
 |---|---|
 | Box QR codes decoded | 432 / 432 (100%) |
-| Box barcodes decoded | 431 / 432 (99.8%) |
+| Box barcodes decoded | 429 to 432, run to run |
 | Filed correctly | 432 / 432 (100%) |
 | Wrong shelf, level or bay | 0, 0, 0 |
 | Waypoints reached | 24 / 24 |
@@ -41,9 +41,18 @@ warehouse whose aisles run 2.40, 1.77, 1.13 and 0.50 m:
 | Marker fixes applied | 342 |
 | Flight time | 580 s |
 
-The barcode is the other label on the same box and is read by a separate
-program alongside the scan, `perception/barcode_scanner.py`. It went from 409
-to 431 in one change, described below.
+**The QR total is the repeatable one.** 432 of 432 on five consecutive
+flights, and on a second machine with different hardware, which is what makes
+it a result rather than a good afternoon.
+
+The barcode is the other label on the same box, read by a separate program
+alongside the scan, `perception/barcode_scanner.py`. It went from 409 to 431 in
+one change, described below, and since then has come out at 429, 430, 431 and
+432 across four flights on this machine and 432 on the second one. Every miss
+in all of those was on the 0.50 m aisle and on a different code each time. That
+last figure is therefore quoted as a range and not as a number: one to three
+codes in 432, moving around, on the aisle that is at the geometric limit
+anyway. A change should not be judged by it.
 
 Both faces of an aisle are read in one pass, the forward hires camera ahead and
 the rear tracking camera behind, which is what halves the route to 24
@@ -1096,16 +1105,23 @@ threshold of 3. It reads every code because WeChat's detector goes down to
 there to give away. Enlarging the label QR from 70 mm to 100 mm would give the
 whole building far more room, and that is a change on the warehouse side.
 
-**One barcode was missed on the last flight and it is not understood.** Box
-`E|03|1`, barcode `0236`, at y=1.450 on a face whose other barcodes were read
-three to seven times each. Its QR was read. The geometry rules out the usual
-explanations: every label on that row sits at the same x and the same height,
-this one lands 470 to 560 pixels down a 768 pixel frame, and the vehicle had
-about five or six frames of it while decoding none. The neighbouring labels
-either side of it decoded at quality 33 to 37 in the same pass. Finding out
-means looking at those frames, which `SAVE_FRAMES=1 ./scripts/scan_with_barcode.sh`
-keeps: it saves the frames where a QR read and the barcode beside it did not,
-which is exactly this case.
+**One to three barcodes go missing a flight, and which ones is random.**
+Never the same code twice, always on the 0.50 m aisle, and a second machine
+read all 432. One of them was looked at in detail: box `E|03|1`, whose QR read
+and whose neighbours on the same row read three to seven times each at quality
+33 to 37. Every label on that row sits at the same x and the same height, that
+one landed mid-frame, and the vehicle had five or six frames of it while
+decoding none.
+
+So it is not framing and not coverage; it is the last per cent of a detector
+working at the edge of the aisle the geometry barely allows. Chasing it further
+means looking at real pixels, and
+`SAVE_FRAMES=1 ./scripts/scan_with_barcode.sh` keeps exactly the frames that
+would answer it: the ones where a QR read and the barcode beside it did not.
+
+Raising the rear camera from 8 Hz to 12 was tried against it. It halved the
+codes read once on face H, from 37 to 17, and left the barcode total where it
+was. See `build_c27_drone.py` REAR_RATE.
 
 **The drift injected is smooth, and real VIO is not.** It grows with distance
 along a heading that turns slowly, which is how a scale or heading error in an
