@@ -65,6 +65,37 @@ for _i, _a in enumerate(sys.argv):
     if _a == "--hires-rate" and _i + 1 < len(sys.argv):
         HIRES_RATE = int(sys.argv[_i + 1])
 
+# How finely the TOF is sampled, horizontally and vertically.
+#
+# The sensor on the vehicle is a PMD IRS2975C: 240 x 180 points across 106 by
+# 86 degrees, which is 0.44 by 0.48 degrees a point. This is a gpu_lidar here
+# and every ray costs render time, so it has always been 32 by 8, which is
+# 3.31 by 10.75 degrees: 7.5 times coarser across and 22 times coarser up.
+#
+# In metres at a metre, the simulated sensor steps 58 mm sideways and 188 mm
+# vertically from one reading to the next. Anything smaller than that, in the
+# gap, is not there as far as the simulation is concerned: a box corner
+# protruding into the aisle, a pallet strap, an arm. The real sensor steps 8
+# and 8 mm at the same distance.
+#
+# It matters because clearance is what the safety claim rests on. A run
+# reporting a minimum obstacle distance of 0.209 m and no alarms measured that
+# with 256 samples of the shelf where the vehicle has 43200.
+#
+# 240 x 180 at 20 Hz is 864000 rays a second and is not affordable. 96 x 32 is
+# 61440 and steps 19 by 47 mm at a metre, smaller than anything the vehicle
+# could hit and survive. Measure before adopting, the way the camera rate was:
+#
+#     python3 build_c27_drone.py --tof 96x32
+#     ./scripts/launch_sim.sh nvidia
+#     python3 scanner/measure_rate.py
+TOF_H_SAMPLES = 32
+TOF_V_SAMPLES = 8
+for _i, _a in enumerate(sys.argv):
+    if _a == "--tof" and _i + 1 < len(sys.argv):
+        TOF_H_SAMPLES, TOF_V_SAMPLES = (
+            int(v) for v in sys.argv[_i + 1].lower().split("x"))
+
 GZ_MODELS = os.path.expanduser('~/PX4-Autopilot/Tools/simulation/gz/models')
 model_name = "x500_c27"
 model_dir = os.path.join(GZ_MODELS, model_name)
@@ -123,7 +154,8 @@ def camera_block(link_name, joint_name, x_off, y_off, z_off,
 
 def range_block(link_name, joint_name, x_off, y_off, z_off,
                 roll, pitch, yaw, max_range=5.0,
-                h_fov=1.8500, v_fov=1.5010, h_samples=32, v_samples=8):
+                h_fov=1.8500, v_fov=1.5010,
+                h_samples=TOF_H_SAMPLES, v_samples=TOF_V_SAMPLES):
     """
     The PMD TOF module, as a ray grid rather than a depth camera.
 
