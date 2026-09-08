@@ -36,16 +36,31 @@ import sys
 # test harness it could fail without.
 INJECT_DRIFT = "--drift" in sys.argv
 
-# How often the hires camera renders, in Hz. It is 10 because that is what the
-# machine can render three cameras at while PX4 flies in lockstep, and not
-# because a Starling's camera is slow. It decides how many looks a code gets:
-# on the narrow aisle a code is in view for 0.24 s, which is 2.4 frames at 10
-# Hz and is why face G reads 46 of its 108 codes in exactly one frame.
+# How often the hires camera renders, in Hz. It decides how many looks a code
+# gets: on the 0.50 m aisle a code is in view for 0.24 s, which was 2.4 frames
+# at the 10 Hz this used to be, and face G read 46 of its 108 codes in exactly
+# one frame. At 20 it is 4.9 frames, and G reads exactly one code once.
+#
+#     10 Hz    432 QR   409 barcode    23 barcode misses, all on G
+#     20 Hz    432 QR   431 barcode     1 barcode miss, on E
+#
+# It was 10 because that was believed to be what the machine could render. It
+# is not: measured on an idle simulator the hires delivers 19.2 Hz at a real
+# time factor of 0.99. What could not take 20 Hz was the decoder, at 118 ms a
+# frame, and that is now 38 because frames are scaled to the detail a code
+# needs before decoding.
 #
 # Raising it costs wall clock and not accuracy. In lockstep, slower rendering
-# slows simulated time too, so the vehicle still sees the same frames per
-# metre; the flight just takes longer to watch.
-HIRES_RATE = 10
+# slows simulated time too, so the vehicle sees the same frames per metre
+# either way; the flight just takes longer to sit through. Measured at 20 Hz
+# the real time factor is 0.57, so a 580 s flight takes about 17 minutes.
+#
+# There is less room left than there was. On the 1.77 m aisle the hires
+# decoder now runs at 96 per cent of the frame interval and sheds 94 frames a
+# flight, because a distant code cannot be scaled down and there are more of
+# them in view. A slower machine will shed more. Raise this again only with
+# that number in front of you.
+HIRES_RATE = 20
 for _i, _a in enumerate(sys.argv):
     if _a == "--hires-rate" and _i + 1 < len(sys.argv):
         HIRES_RATE = int(sys.argv[_i + 1])
