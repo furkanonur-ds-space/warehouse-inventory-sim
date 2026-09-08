@@ -20,6 +20,7 @@ Outputs a JSON inventory mapping every detected QR code to an estimated 3D
 position.
 """
 import os
+import glob
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
 import asyncio
@@ -1590,6 +1591,66 @@ def face_labels(face, index):
     return labels
 
 
+NEWLINE = bytes([10])
+
+
+class BarcodeTail:
+    """
+    How many distinct barcodes the reader beside this scan has read so far.
+
+    The barcode reader is a separate process, started by
+    scripts/scan_with_barcode.sh, appending one JSON object per reading to
+    out/barcode_readings_<camera>.jsonl. Nothing tells the scan how it is
+    doing. The QR total climbs on the console every waypoint and the barcode
+    total is invisible until the flight lands and the reports are run, which
+    is ten minutes too late to notice that one of the two readers never
+    started, or died at waypoint three, or is reading nothing because it was
+    pointed at a topic that does not exist.
+
+    So follow the files. Only the bytes written since the last look are read,
+    and only up to the last newline: the reader is appending while this reads,
+    and half a line is not a reading. A file that vanishes or has not been
+    created yet counts as nothing, which is what "no barcode reader running"
+    should look like.
+
+    Distinct payloads rather than readings, because a barcode is read many
+    times and what the number is being compared against is 432 boxes.
+    """
+
+    def __init__(self, pattern):
+        self.pattern = pattern
+        self.offsets = {}
+        self.seen = set()
+
+    def count(self):
+        for path in sorted(glob.glob(self.pattern)):
+            try:
+                with open(path, "rb") as handle:
+                    handle.seek(self.offsets.get(path, 0))
+                    chunk = handle.read()
+            except OSError:
+                continue
+            cut = chunk.rfind(NEWLINE) + 1
+            if not cut:
+                continue
+            self.offsets[path] = self.offsets.get(path, 0) + cut
+            for line in chunk[:cut].splitlines():
+                try:
+                    self.seen.add(json.loads(line)["payload"])
+                except (ValueError, KeyError):
+                    continue
+        return len(self.seen)
+
+    def running(self):
+        """Whether there is a reader to report on at all."""
+        return bool(self.offsets) or bool(glob.glob(self.pattern))
+
+
+barcodes = BarcodeTail(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "..", "out", "barcode_readings_*.jsonl"))
+
+
 def lane_levels(reads):
     """
     What altitude to fly at each level on this lane, and whether it is enough.
@@ -1962,7 +2023,10 @@ async def goto_waypoint(drone, index, total, x, y, z, yaw_deg):
                 worst = max(alt_samples, key=abs)
                 spread = max(alt_samples) - min(alt_samples)
                 flag = "  OUT OF FRAME" if abs(worst) > 0.37 else ""
+                bars = (f"barcodes {barcodes.count()}  "
+                        if barcodes.running() else "")
                 print(f"           reached  codes {len(inventory)}  "
+                      f"{bars}"
                       f"alt worst {worst:+.3f} spread {spread:.3f} "
                       f"residual {residual:+.3f} settled in {settle:.1f}s{flag}")
             return True
