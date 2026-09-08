@@ -89,6 +89,29 @@ for _i, _a in enumerate(sys.argv):
 #     python3 build_c27_drone.py --tof 96x32
 #     ./scripts/launch_sim.sh nvidia
 #     python3 scanner/measure_rate.py
+# How often the rear tracking camera renders, in Hz.
+#
+# It reads face H, and face H is now the only thin face in the building: 37 of
+# its codes are read in exactly one frame where every other face reads
+# everything five to nine times. That is the same shape as face G's problem
+# before the hires went to 20 Hz, and the same cause. The two barcodes missed
+# on 2026-09-08 at 16:36 were both on H.
+#
+# There is room for it. The rear decoder runs at 28 per cent of the frame
+# interval on the 0.50 m aisle, where H is, against the hires' 43. It is the
+# wide aisles that bind: 54, 60 and 63 per cent, where a distant code cannot be
+# scaled down. At 12 Hz those become roughly 81, 90 and 95, which is tight but
+# under. At 16 they go over and the decoder starts shedding.
+#
+# The vehicle runs this camera at 30 fps.
+#
+# Left at 8 until a flight says otherwise, the same way the hires was.
+REAR_RATE = 8
+for _i, _a in enumerate(sys.argv):
+    if _a == "--rear-rate" and _i + 1 < len(sys.argv):
+        REAR_RATE = int(sys.argv[_i + 1])
+
+
 TOF_H_SAMPLES = 32
 TOF_V_SAMPLES = 8
 for _i, _a in enumerate(sys.argv):
@@ -285,7 +308,7 @@ tracking_front = camera_block(
 tracking_rear = camera_block(
     "camera_track_rear_link", "camera_track_rear_joint",
     -0.055, 0.0, -0.015, 0, 0, 3.14159,
-    fov=1.5708, width=1280, height=800, update_rate=8)
+    fov=1.5708, width=1280, height=800, update_rate=REAR_RATE)
 
 # The downward tracking camera doubles as the ArUco marker reader for drift
 # correction.
