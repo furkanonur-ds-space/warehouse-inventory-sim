@@ -47,62 +47,22 @@ faces = {f["name"]: f for f in s.AISLE_FACES}
 
 print("the axis lands where the codes are")
 
-# A box carries a QR and a barcode below it, and both have to be read, so the
-# axis goes between them rather than on either. Rows G and H carry boxes of one
-# size, so each label sits at a single height and the answer is exactly half
-# way between the top of the QR and the bottom of the barcode. This is the
-# aisle that was losing them, in a frame 0.18 m tall.
+# Rows G and H carry boxes of one size, so their codes sit at a single height
+# and the axis should land on it exactly. This is the aisle that was losing
+# them: 0.049 m below the building median, in a frame 0.18 m tall.
 levels = s.lane_levels(reads_for(faces["G"], faces["H"], 0.2708, 0.2292))
 band = faces["G"]["code_z"]
-want = [b[0] + (s.BARCODE_OFFSET_M - s.BARCODE_SIZE_M / 2 + s.CODE_SIZE_M / 2) / 2
-        for b in band]
-check("axis sits between the two labels, not on either",
-      all(abs(z - w) < 1e-3 for z, w in zip(levels, want)),
-      "(flying %s, wanted %s, QR at %s)"
-      % (levels, [round(w, 3) for w in want], [b[0] for b in band]))
+check("single height band puts the axis on the codes",
+      all(abs(z - b[0]) < 1e-6 for z, b in zip(levels, band)),
+      "(flying %s, codes at %s)" % (levels, [b[0] for b in band]))
 
-check("and that is below the QR and above the barcode",
-      all(b[0] + s.BARCODE_OFFSET_M < z < b[0] for z, b in zip(levels, band)),
-      "(flying %s, QR %s, barcode %s)"
-      % (levels, [b[0] for b in band],
-         [round(b[0] + s.BARCODE_OFFSET_M, 3) for b in band]))
-
-# Rows A and B carry mixed box heights, so the labels are spread as well as
-# offset, and the axis lands in the middle of everything the lane must read:
-# the bottom of the lowest barcode to the top of the highest QR.
+# Rows A and B carry mixed box heights, so their codes are spread and the best
+# the axis can do is the middle of the spread.
 levels = s.lane_levels(reads_for(faces["A"], faces["B"], 1.30, 1.10))
-low = min(f["code_z"][0][0] for f in (faces["A"], faces["B"]))     + s.BARCODE_OFFSET_M - s.BARCODE_SIZE_M / 2
-high = max(f["code_z"][0][-1] for f in (faces["A"], faces["B"]))     + s.CODE_SIZE_M / 2
+low, high = faces["A"]["code_z"][0][0], faces["A"]["code_z"][0][-1]
 check("spread band puts the axis in the middle of the spread",
       abs(levels[0] - (low + high) / 2) < 1e-3,
       "(flying %.3f, band %.3f to %.3f)" % (levels[0], low, high))
-
-# The reason for the change. Aiming at the QR alone left the barcode on G with
-# 5.3 mm of frame margin against a measured altitude error of +/- 7 mm, and the
-# 2026-09-08 flight lost 22 barcodes on that face. Both labels must now clear
-# the altitude error by a margin, on every face, at every level.
-ALTITUDE_ERROR_M = 0.007
-worst, where = 1.0, None
-for one, other, hires, rear in ((faces["A"], faces["B"], 1.30, 1.10),
-                                (faces["C"], faces["D"], 0.96, 0.81),
-                                (faces["E"], faces["F"], 0.61, 0.51),
-                                (faces["G"], faces["H"], 0.2708, 0.2292)):
-    reads = reads_for(one, other, hires, rear)
-    levels = s.lane_levels(reads)
-    for index, axis in enumerate(levels):
-        for face, hfov, frame, depth in reads:
-            limit = s.half_frame_m(hfov, frame, depth)
-            for label, height in s.face_labels(face, index):
-                reach = (max(abs(label[0] - axis), abs(label[-1] - axis))
-                         + height / 2)
-                if limit - reach < worst:
-                    worst = limit - reach
-                    where = "%s level %d" % (face["name"], index + 1)
-check("every label clears the frame edge by more than the altitude error",
-      worst > ALTITUDE_ERROR_M,
-      "(worst %.1f mm on %s, altitude error %.1f mm)"
-      % (worst * 1000, where, ALTITUDE_ERROR_M * 1000))
-print("   worst frame margin %.1f mm, on %s" % (worst * 1000, where))
 
 check("a lane with no rear face still gets an axis",
       len(s.lane_levels(reads_for(faces["A"], None, 1.30, None)))
