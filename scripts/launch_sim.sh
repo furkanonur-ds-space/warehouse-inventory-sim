@@ -44,6 +44,34 @@ fi
 # model file nobody thinks to open. So refuse, and say which state the model is
 # in and how to get out of it. DRIFT_TEST=1 is how you say you meant it.
 SDF="$PX4/Tools/simulation/gz/models/x500_c27/model.sdf"
+
+# The camera frame rate lives in the built model, not in the code that flies
+# it. Pull a change to build_c27_drone.py, forget to run it, and the vehicle
+# flies the model from before the change while every file in the checkout says
+# otherwise. That is a whole day of "it does not reproduce on my machine", and
+# the frame rate is exactly the setting it happened to: 10 Hz reads 409 of 432
+# barcodes and 20 Hz reads 431, with nothing in the repository to say which one
+# is installed.
+if [ -f "$SDF" ]; then
+    want=$("$PY" - "$HERE/scanner/build_c27_drone.py" <<'PYEOF'
+import re, sys
+src = open(sys.argv[1], encoding="utf-8").read()
+m = re.search(r"^HIRES_RATE = (\d+)", src, re.M)
+print(m.group(1) if m else "")
+PYEOF
+)
+    # The hires is the first camera in the model and the only one at its size.
+    have=$(grep -B 12 "1024" "$SDF" | grep -o "<update_rate>[0-9]*" | tail -1            | grep -o "[0-9]*$")
+    if [ -n "$want" ] && [ -n "$have" ] && [ "$want" != "$have" ]; then
+        echo "the installed model is out of date."
+        echo
+        echo "  hires camera: built at ${have} Hz, the checkout asks for ${want} Hz"
+        echo
+        echo "  rebuild it:   $PY scanner/build_c27_drone.py"
+        echo "  then start again."
+        exit 1
+    fi
+fi
 if [ -f "$SDF" ] && grep -q odom_covariance_topic "$SDF"; then
     if [ "${DRIFT_TEST:-0}" != "1" ]; then
         echo "the installed model is wired for a drift test."

@@ -73,6 +73,12 @@ COLUMNS = [
     "frames_dropped",
     "frames_too_old",
     "frame_age_median_s",
+    # How full the busiest decoder was, as a share of the frame interval. The
+    # column that says whether this machine had room, which is not the same
+    # question as whether it dropped anything: a run at 96 per cent drops
+    # almost nothing here and drops plenty on a slower machine.
+    "decode_duty_pct",
+    "decode_duty_where",
     # Localisation.
     "drift_correction",
     "marker_fixes",
@@ -101,6 +107,35 @@ def thinnest(sightings):
     worst = min(sightings.items(), key=lambda kv: (kv[1]["min"], -kv[1]["read_once"]))
     once = sum(row["read_once"] for row in sightings.values())
     return worst[0], worst[1]["min"], once
+
+
+def busiest(timing):
+    """
+    The decoder that came closest to not keeping up, and where.
+
+    Decode time against the interval between frames. Below 100 per cent the
+    decoder finishes one frame before the next arrives; at 100 it is handing
+    back exactly as fast as it is handed to, and every frame beyond that is
+    shed. The number to watch is not the frames dropped, which stays near zero
+    right up to the edge, but how much of the interval was being used: a run
+    at 96 per cent here drops almost nothing and drops plenty on a machine a
+    third slower.
+
+    Reported for the worst camera on the worst aisle, because that is the one
+    that gives way first.
+    """
+    worst, where = "", ""
+    for key, row in timing.items():
+        decode = row.get("decode_ms") or {}
+        arrival = row.get("arrival_gap_ms") or {}
+        if not decode.get("median") or not arrival.get("median"):
+            continue
+        duty = 100.0 * decode["median"] / arrival["median"]
+        if worst == "" or duty > worst:
+            worst, where = duty, key
+    if worst == "":
+        return "", ""
+    return round(worst), where
 
 
 def injected(path, nav):
@@ -152,6 +187,7 @@ def gather(source=OUT):
     age = nav.get("frame_age_s", {})
     frames = nav.get("frames", {})
     face, fewest, once = thinnest(nav.get("sightings_per_code", {}))
+    duty, where = busiest(nav.get("frame_timing", {}))
     error, path = injected(os.path.join(source, "drift_injected.csv"), nav)
 
     return {
@@ -180,6 +216,8 @@ def gather(source=OUT):
         "frames_dropped": sum(c.get("dropped", 0) for c in frames.values()),
         "frames_too_old": sum(c.get("too_old", 0) for c in frames.values()),
         "frame_age_median_s": age.get("median", ""),
+        "decode_duty_pct": duty,
+        "decode_duty_where": where,
         "drift_correction": config.get("drift_correction", ""),
         "marker_fixes": nav.get("marker_correction_count", ""),
         "loc_error_median_m": (nav.get("localization_error_m") or {}).get(
@@ -240,11 +278,28 @@ def main():
               % os.path.relpath(args.log, ROOT))
         return 0
 
-    new = not os.path.exists(args.log)
+    # A run appended under a header that no longer matches puts every value
+    # after the new column under the wrong name, and a spreadsheet gives no
+    # sign of it. So when a column is added, the file is rewritten with the new
+    # header and the old rows keep blanks where they have nothing to say.
     os.makedirs(os.path.dirname(os.path.abspath(args.log)), exist_ok=True)
+    header = []
+    if os.path.exists(args.log):
+        with open(args.log, encoding="utf-8", newline="") as handle:
+            header = next(csv.reader(handle), [])
+    if header and header != COLUMNS:
+        print("the log has %d columns and this writes %d; rewriting the header"
+              % (len(header), len(COLUMNS)))
+        with open(args.log, "w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=COLUMNS)
+            writer.writeheader()
+            for old_row in rows:
+                writer.writerow(dict((k, old_row.get(k, "")) for k in COLUMNS))
+        header = COLUMNS
+
     with open(args.log, "a", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=COLUMNS)
-        if new:
+        if not header:
             writer.writeheader()
         writer.writerow(row)
 
