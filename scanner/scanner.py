@@ -167,6 +167,11 @@ CODE_SIZE_M = LAYOUT.get("code_size_m", 0.072)
 # shelf. Reporting the surface instead put every one of 432 codes 0.016 m out
 # in x, with the sign following the face. Zero for a layout that does not say.
 CODE_PLANE_OFFSET_M = LAYOUT.get("code_plane_offset_m", 0.0)
+# A box carries a QR and a barcode, and they are not at the same height. Both
+# have to be in frame, so both decide where the axis goes. Defaulting the
+# offset to zero makes a layout that does not carry it behave as it did.
+BARCODE_OFFSET_M = LAYOUT.get("barcode_offset_m", 0.0)
+BARCODE_SIZE_M = LAYOUT.get("barcode_size_m", 0.0)
 
 
 def half_frame_m(hfov_deg, frame_px, depth):
@@ -1564,6 +1569,27 @@ def aisle_fits(width):
     return width / 2.0 - VEHICLE_HALF_SPAN >= AISLE_CLEARANCE_M
 
 
+def face_labels(face, index):
+    """
+    Every label a face carries at this level, as (band of centre heights, label
+    height). The QR band is what code_z records; the barcode rides a fixed
+    distance under each QR, so its band is the same one shifted.
+
+    Both are returned because both have to be read, and a label that is half in
+    frame is not read. Keeping them apart rather than merging into one band
+    matters: they are different heights, so a band that fits the frame for the
+    QR need not fit for the barcode, and the other way round.
+    """
+    band = face.get("code_z")
+    if not band or index >= len(band):
+        return []
+    qr = band[index]
+    labels = [(qr, CODE_SIZE_M)]
+    if BARCODE_SIZE_M:
+        labels.append(([z + BARCODE_OFFSET_M for z in qr], BARCODE_SIZE_M))
+    return labels
+
+
 def lane_levels(reads):
     """
     What altitude to fly at each level on this lane, and whether it is enough.
@@ -1597,32 +1623,37 @@ def lane_levels(reads):
     """
     levels = []
     for index, fallback in enumerate(FLIGHT_Z):
-        bands = [face["code_z"][index] for face, _, _, _ in reads
-                 if face.get("code_z")]
-        if len(bands) != len(reads):
+        labels = [face_labels(face, index) for face, _, _, _ in reads]
+        if not all(labels):
             # A layout that does not say where its codes are keeps the old
             # behaviour. Guessing would be worse than the median it replaces.
             levels.append(fallback)
             continue
 
-        # The outer two of the three figures a face carries: the lowest
-        # code and the highest. What has to fit the frame is the whole
-        # spread, not where most of them sit.
-        axis = (min(b[0] for b in bands) + max(b[-1] for b in bands)) / 2.0
+        # The top and bottom edges of everything the lane has to read, over
+        # both faces and both symbologies, and the axis half way between them.
+        # Edges rather than centres because what has to fit the frame is the
+        # whole label: the barcode is the lowest thing on the shelf and the
+        # QR the highest, and each contributes its own half height.
+        edges = [(band[0] - height / 2, band[-1] + height / 2)
+                 for face in labels for band, height in face]
+        low, high = min(e[0] for e in edges), max(e[1] for e in edges)
+        axis = (low + high) / 2.0
         levels.append(round(axis, 3))
 
         for face, hfov_deg, frame_px, depth in reads:
-            low, high = (face["code_z"][index][0],
-                         face["code_z"][index][-1])
-            reach = max(abs(low - axis), abs(high - axis)) + CODE_SIZE_M / 2
             limit = half_frame_m(hfov_deg, frame_px, depth)
-            if reach > limit:
-                print(f"[WARN] face {face.get('name')} level {index + 1}: its "
-                      f"codes span {high - low:.3f} m, and the camera sees "
-                      f"{2 * limit:.3f} m of shelf from {depth:.3f} m away. "
-                      f"{reach - limit:.3f} m of that band falls outside the "
-                      f"frame whatever the altitude, so this level cannot be "
-                      f"read completely in one pass.")
+            for band, height in face_labels(face, index):
+                reach = (max(abs(band[0] - axis), abs(band[-1] - axis))
+                         + height / 2)
+                if reach > limit:
+                    print(f"[WARN] face {face.get('name')} level {index + 1}: "
+                          f"its labels span {band[-1] - band[0] + height:.3f} "
+                          f"m, and the camera sees {2 * limit:.3f} m of shelf "
+                          f"from {depth:.3f} m away. {reach - limit:.3f} m of "
+                          f"that band falls outside the frame whatever the "
+                          f"altitude, so this level cannot be read completely "
+                          f"in one pass.")
     return levels
 
 
