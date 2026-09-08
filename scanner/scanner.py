@@ -168,6 +168,20 @@ CODE_SIZE_M = LAYOUT.get("code_size_m", 0.072)
 # shelf. Reporting the surface instead put every one of 432 codes 0.016 m out
 # in x, with the sign following the face. Zero for a layout that does not say.
 CODE_PLANE_OFFSET_M = LAYOUT.get("code_plane_offset_m", 0.0)
+CODE_MODULE_SIZE_M = LAYOUT.get("code_module_size_m", 0.0)
+
+# How much detail the decoder is given, in pixels per QR module.
+#
+# WeChat's detector has been measured on these labels down to 1.66 pixels a
+# module and is reliable from about 2.0. Four is that with the margin doubled,
+# and it is a ceiling rather than a target: a frame is only ever scaled down to
+# reach it, never up, so the aisles that resolve 2.06 and 1.76 are handed the
+# pixels they have and are not touched.
+#
+# What it buys is on the narrow aisle, where the camera is 0.21 m from the
+# shelf and a code covers 303 pixels. Decoding that took 118 ms of a 157 ms
+# frame interval, which is a decoder with no room to be given more frames.
+DECODE_TARGET_PX_PER_MODULE = 4.0
 
 
 def half_frame_m(hfov_deg, frame_px, depth):
@@ -616,6 +630,14 @@ class CameraDecoder:
                     # A copy, because the decoder is about to look at the same
                     # array and the writer thread will still be holding this.
                     recorder.offer(bgr.copy())
+                # Scaled to the detail the code needs rather than the
+                # detail the camera has. Done here and not in decode_qr so the
+                # recording above keeps every pixel the camera sent: what is
+                # being economised is decode time, not the evidence.
+                scale = decode_scale(depth, self.hfov_deg, bgr.shape[1])
+                if scale < 1.0:
+                    bgr = cv2.resize(bgr, None, fx=scale, fy=scale,
+                                     interpolation=cv2.INTER_AREA)
                 started = time.perf_counter()
                 hits = decode_qr(bgr, self)
                 # Recorded against the lane the frame was taken on, which
@@ -969,6 +991,32 @@ def detect_in_strips(frame, detector, strips=MAX_DECODE_STRIPS):
         for value, quad in zip(values, quads):
             sightings.append((value, quad, x1, x2))
     return sightings
+
+
+def decode_scale(depth, hfov_deg, frame_width):
+    """
+    How far a frame can be shrunk before the decoder starts to struggle.
+
+    A code is read from its modules, not its pixels, so what matters is how
+    many pixels cover one module. That follows from the distance: the same
+    label covers 303 pixels from 0.21 m and 51 from 1.24 m. Handing the
+    decoder all 303 is paying for detail it cannot use, and paying in the one
+    currency the narrow aisle has none of, which is time.
+
+    Returns a factor at or below 1.0, and exactly 1.0 whenever the frame
+    already has no detail to spare. A camera that does not know its distance
+    gets 1.0, because guessing here loses codes.
+    """
+    if not CODE_MODULE_SIZE_M or not depth or depth <= 0:
+        return 1.0
+    view = 2 * depth * math.tan(math.radians(hfov_deg) / 2)
+    if view <= 0:
+        return 1.0
+    modules = CODE_SIZE_M / CODE_MODULE_SIZE_M
+    px_per_module = CODE_SIZE_M / view * frame_width / modules
+    if px_per_module <= DECODE_TARGET_PX_PER_MODULE:
+        return 1.0
+    return DECODE_TARGET_PX_PER_MODULE / px_per_module
 
 
 def decode_qr(frame, cam):

@@ -36,6 +36,20 @@ import sys
 # test harness it could fail without.
 INJECT_DRIFT = "--drift" in sys.argv
 
+# How often the hires camera renders, in Hz. It is 10 because that is what the
+# machine can render three cameras at while PX4 flies in lockstep, and not
+# because a Starling's camera is slow. It decides how many looks a code gets:
+# on the narrow aisle a code is in view for 0.24 s, which is 2.4 frames at 10
+# Hz and is why face G reads 46 of its 108 codes in exactly one frame.
+#
+# Raising it costs wall clock and not accuracy. In lockstep, slower rendering
+# slows simulated time too, so the vehicle still sees the same frames per
+# metre; the flight just takes longer to watch.
+HIRES_RATE = 10
+for _i, _a in enumerate(sys.argv):
+    if _a == "--hires-rate" and _i + 1 < len(sys.argv):
+        HIRES_RATE = int(sys.argv[_i + 1])
+
 GZ_MODELS = os.path.expanduser('~/PX4-Autopilot/Tools/simulation/gz/models')
 model_name = "x500_c27"
 model_dir = os.path.join(GZ_MODELS, model_name)
@@ -177,7 +191,7 @@ def range_block(link_name, joint_name, x_off, y_off, z_off,
 hires_front = camera_block(
     "camera_hires_link", "camera_hires_joint",
     0.06, 0.0, 0.0, 0, 0, 0,
-    fov=1.0472, width=1024, height=768, update_rate=10)
+    fov=1.0472, width=1024, height=768, update_rate=HIRES_RATE)
 
 # --- AR0144 tracking cameras -------------------------------------------
 #

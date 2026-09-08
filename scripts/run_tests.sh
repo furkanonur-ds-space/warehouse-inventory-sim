@@ -63,6 +63,7 @@ run test_drift_correction.py
 # cost the narrowest aisle two codes a run: its frame is 0.18 m tall and its
 # codes sat 0.049 m below the axis.
 run test_framing.py
+run test_decode_scale.py
 
 # The report layer has geometry of its own now: a barcode reading carries a
 # pose and a pixel position, and turning those into a box is the scanner's
