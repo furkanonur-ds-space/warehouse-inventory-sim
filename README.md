@@ -18,19 +18,31 @@ the package names in CMakeLists.txt.
 
 ## State
 
-Stage 1 of 4. The plugin loads, subscribes to the simulated sensors, and
-reports what arrives. It sends nothing to any drone yet, so it is safe to run
-on its own.
+Stage 3 of 4. The loop is closed: sensors leave, motor commands come back and
+turn the rotors. It has not yet met a real VOXL2, and the flight controller
+driving it so far has been a stand-in.
 
 | stage | what it does | state |
 |---|---|---|
 | 1 | read the simulated sensors, report rates and values | **done** |
-| 2 | pack HIL_SENSOR and HIL_GPS, send over UDP 14560 | next |
-| 3 | receive HIL_ACTUATOR_CONTROLS, drive the rotors | |
-| 4 | send ODOMETRY on UDP 14570 for the VIO path | |
+| 2 | pack HIL_SENSOR and HIL_GPS, send over UDP 14560 | **done** |
+| 3 | receive HIL_ACTUATOR_CONTROLS, drive the rotors | **done** |
+| 4 | send ODOMETRY on UDP 14570 for the VIO path | next |
 
-Stage 2 can be tested without the drone: PX4 on this machine speaks the same
-HIL messages (`simulator_mavlink start -u <port>`).
+## Testing without a drone
+
+`scripts/fake_px4.py` stands in for the flight controller at the socket:
+it listens for HIL_SENSOR and answers with HIL_ACTUATOR_CONTROLS at 200 Hz,
+holding the motors at a fixed value. It does not fly the vehicle, which is
+the point: it isolates the bridge from the flight stack.
+
+    # terminal 1
+    python3 scripts/fake_px4.py --throttle 0.9 --seconds 4
+    # terminal 2
+    ./scripts/run_sim.sh 1200
+
+`scripts/check_stream.py` is the other half: it decodes the outgoing stream
+with pymavlink and checks the values, not only the rates.
 
 ## Build and run
 
@@ -40,7 +52,18 @@ Everything is local. No sudo, nothing installed system wide.
     ./scripts/run_sim.sh 1250      # 1250 steps, five seconds of sim time
     ./scripts/run_sim.sh           # until interrupted
 
-## Measured on 2026-09-24
+## Measured on 2026-09-24, stage 3
+
+Four seconds each, the same world, only the commanded throttle differing:
+
+    throttle 0.0    actuators 189 Hz   height 0.250 m to 0.227 m   (settles)
+    throttle 0.9    actuators 189 Hz   height 0.250 m to 40.02 m   (climbs)
+
+The height is read from Gazebo's own pose stream rather than from anything
+the bridge reports, so it is an independent witness that the commands
+reached the rotors.
+
+## Measured on 2026-09-24, stage 1
 
 Five seconds, headless, on this machine. The rates are the ones the document
 specifies, which is what stage 2 depends on:

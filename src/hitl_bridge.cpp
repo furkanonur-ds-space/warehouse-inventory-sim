@@ -16,6 +16,7 @@
 #include <gz/sim/System.hh>
 #include <gz/transport/Node.hh>
 
+#include <gz/msgs/actuators.pb.h>
 #include <gz/msgs/fluid_pressure.pb.h>
 #include <gz/msgs/imu.pb.h>
 #include <gz/msgs/magnetometer.pb.h>
@@ -34,6 +35,8 @@
 #include <iostream>
 #include <mutex>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include <common/mavlink.h>
 
@@ -77,8 +80,12 @@ class HitlBridge : public gz::sim::System,
 public:
   ~HitlBridge() override
   {
+    running_ = false;
+    // Closing the socket is what wakes the receive thread out of recvfrom.
     if (socket_ >= 0)
       close(socket_);
+    if (receiver_.joinable())
+      receiver_.join();
   }
 
   void Configure(const gz::sim::Entity &,
@@ -108,6 +115,27 @@ public:
     if (send_ && !OpenSocket(addr, remote_port, local_port))
       send_ = false;
 
+    // Motor commands arrive on the same socket the sensors leave by, which
+    // is why PX4 does not need to be told a port to answer on.
+    // The motor model builds this from the model name and its
+    // commandSubTopic, with no /model prefix, so publishing to
+    // /model/<name>/command/motor_speed reaches nobody. Nothing reports the
+    // mistake: the topic simply has no subscriber and the vehicle sits
+    // still while the commands arrive.
+    motor_topic_ = sdf->Get<std::string>(
+        "motor_topic", "/x500_voxl/command/motor_speed").first;
+    max_rot_velocity_ = sdf->Get<double>("max_rot_velocity", 1000.0).first;
+    motor_count_ = sdf->Get<int>("motor_count", 4).first;
+    if (send_)
+    {
+      motor_pub_ = node_.Advertise<gz::msgs::Actuators>(motor_topic_);
+      if (!motor_pub_)
+        std::cerr << "[hitl_bridge] ERROR could not advertise "
+                  << motor_topic_ << "\n";
+      running_ = true;
+      receiver_ = std::thread(&HitlBridge::ReceiveLoop, this);
+    }
+
     if (!imu_topic_.empty() &&
         !node_.Subscribe(imu_topic_, &HitlBridge::OnImu, this))
       Failed(imu_topic_);
@@ -123,9 +151,9 @@ public:
 
     if (send_)
       std::cout << "[hitl_bridge] stage 2: sending HIL_SENSOR and HIL_GPS to "
-                << addr << ":" << remote_port << "\n";
+                << addr << ":" << remote_port << std::endl;
     else
-      std::cout << "[hitl_bridge] stage 2: counting only, sending nothing\n";
+      std::cout << "[hitl_bridge] stage 2: counting only, sending nothing" << std::endl;
   }
 
   // Reporting is driven by simulated time, not the wall clock, so the rates
@@ -160,10 +188,19 @@ public:
               << Rate(mag_in_, elapsed, "mag") << Rate(baro_in_, elapsed, "baro")
               << Rate(gps_in_, elapsed, "gps") << " | out: "
               << Rate(hil_sensor_out_, elapsed, "HIL_SENSOR")
-              << Rate(hil_gps_out_, elapsed, "HIL_GPS");
+              << Rate(hil_gps_out_, elapsed, "HIL_GPS")
+              << "| back: " << Rate(actuators_in_, elapsed, "actuators");
+    if (!last_controls_.empty())
+    {
+      std::cout << " [";
+      for (size_t i = 0; i < last_controls_.size(); ++i)
+        std::cout << (i ? " " : "") << last_controls_[i];
+      std::cout << "] flags 0x" << std::hex << last_actuator_flags_
+                << std::dec;
+    }
     if (send_failures_ > 0)
       std::cout << " | send failures " << send_failures_;
-    std::cout << "\n";
+    std::cout << std::endl;
   }
 
 private:
@@ -202,6 +239,20 @@ private:
       }
     }
 
+    // Without a receive timeout the plugin cannot be shut down. The
+    // receive thread blocks in recvfrom, and closing the socket from
+    // another thread does not reliably wake it on Linux, so the destructor
+    // waits for a thread that never returns and the simulator hangs after
+    // finishing its run. This was not theoretical: three simulators were
+    // left behind before it was found.
+    timeval timeout{};
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 100000;  // 100 ms
+    if (setsockopt(socket_, SOL_SOCKET, SO_RCVTIMEO, &timeout,
+                   sizeof(timeout)) < 0)
+      std::cerr << "[hitl_bridge] WARNING could not set a receive timeout; "
+                   "shutdown may hang\n";
+
     std::memset(&remote_, 0, sizeof(remote_));
     remote_.sin_family = AF_INET;
     remote_.sin_port = htons(static_cast<uint16_t>(remote_port));
@@ -224,6 +275,67 @@ private:
                reinterpret_cast<const sockaddr *>(&remote_), sizeof(remote_));
     if (sent != static_cast<ssize_t>(length))
       ++send_failures_;
+  }
+
+  // PX4 answers on the socket the sensors arrive from, so this thread does
+  // nothing but block on that socket. It is a thread rather than a poll in
+  // PostUpdate because the motor stream runs at 200 Hz and a command that
+  // waits for the next physics step is a command that arrives late.
+  void ReceiveLoop()
+  {
+    uint8_t buffer[2048];
+    mavlink_message_t msg;
+    mavlink_status_t status;
+
+    while (running_)
+    {
+      sockaddr_in from{};
+      socklen_t from_len = sizeof(from);
+      const ssize_t bytes =
+          recvfrom(socket_, buffer, sizeof(buffer), 0,
+                   reinterpret_cast<sockaddr *>(&from), &from_len);
+      if (bytes <= 0)
+      {
+        if (!running_)
+          break;
+        continue;
+      }
+
+      for (ssize_t i = 0; i < bytes; ++i)
+      {
+        if (!mavlink_parse_char(MAVLINK_COMM_0, buffer[i], &msg, &status))
+          continue;
+        if (msg.msgid == MAVLINK_MSG_ID_HIL_ACTUATOR_CONTROLS)
+          OnActuatorControls(msg);
+      }
+    }
+  }
+
+  // PX4 sends each motor as a number from 0 to 1. The motor model wants a
+  // rotor velocity, and maxRotVelocity in the model says what 1 means.
+  void OnActuatorControls(const mavlink_message_t &msg)
+  {
+    mavlink_hil_actuator_controls_t controls;
+    mavlink_msg_hil_actuator_controls_decode(&msg, &controls);
+
+    gz::msgs::Actuators command;
+    for (int i = 0; i < motor_count_; ++i)
+    {
+      double normalised = controls.controls[i];
+      if (!std::isfinite(normalised) || normalised < 0.0)
+        normalised = 0.0;
+      if (normalised > 1.0)
+        normalised = 1.0;
+      command.add_velocity(normalised * max_rot_velocity_);
+    }
+
+    motor_pub_.Publish(command);
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    ++actuators_in_.total;
+    last_controls_.assign(controls.controls,
+                          controls.controls + motor_count_);
+    last_actuator_flags_ = controls.flags;
   }
 
   std::string Rate(const Counter &counter, double elapsed,
@@ -370,6 +482,16 @@ private:
   std::string imu_topic_, mag_topic_, baro_topic_, gps_topic_;
   Counter imu_in_, mag_in_, baro_in_, gps_in_;
   Counter hil_sensor_out_, hil_gps_out_;
+  Counter actuators_in_;
+
+  gz::transport::Node::Publisher motor_pub_;
+  std::string motor_topic_;
+  double max_rot_velocity_ = 1000.0;
+  int motor_count_ = 4;
+  std::vector<float> last_controls_;
+  uint32_t last_actuator_flags_ = 0;
+  std::thread receiver_;
+  std::atomic<bool> running_{false};
 
   Vec3 mag_;
   double baro_hpa_ = 0.0;

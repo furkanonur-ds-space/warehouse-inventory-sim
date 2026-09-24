@@ -37,6 +37,19 @@
       <baro_topic>/world/hitl_x500/model/x500_voxl/link/base_link/sensor/air_pressure_sensor/air_pressure</baro_topic>
       <gps_topic>/world/hitl_x500/model/x500_voxl/link/base_link/sensor/navsat_sensor/navsat</gps_topic>
       <report_every_s>1.0</report_every_s>
+
+      <!-- Where PX4 is. 127.0.0.1 is this machine; for a real VOXL2 over
+           USB-C it is either 127.0.0.1 with adb forwarding or the board's
+           own address, usually 192.168.101.2. -->
+      <mavlink_addr>127.0.0.1</mavlink_addr>
+      <mavlink_udp_remote_port>14560</mavlink_udp_remote_port>
+
+      <!-- What the motor model actually listens to: the model name and its
+           commandSubTopic, with no /model prefix. maxRotVelocity in the
+           model says what a command of 1.0 means. -->
+      <motor_topic>/x500_voxl/command/motor_speed</motor_topic>
+      <max_rot_velocity>1000.0</max_rot_velocity>
+      <motor_count>4</motor_count>
     </plugin>
 
     <!-- NavSat reports nothing without an origin on the earth. -->
