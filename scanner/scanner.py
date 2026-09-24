@@ -133,8 +133,19 @@ WAYPOINT_TOLERANCE = 0.4      # metres
 # The fix was not slowing down. It was the camera: 10 Hz to 20, which needed
 # decode cost cut first. Face G now reads no code only once. See
 # build_c27_drone.py HIRES_RATE for the whole of it.
-CRUISE_SPEED = 1.0             # m/s along an aisle
-CLIMB_SPEED = 0.15             # m/s when changing shelf level
+# How a leg is flown moved to flight.py, with the route, because it is the
+# other half that has to run on the vehicle. Re-exported here so the suites
+# and the rest of this file read as they did.
+from flight import (            # noqa: E402,F401
+    CRUISE_SPEED,
+    CLIMB_SPEED,
+    TIMEOUT_MARGIN,
+    SETPOINT_DT,
+    leg_plan,
+    leg_setpoints,
+    heading_sweep,
+)
+
 TURN_SETTLE_S = 3.0            # seconds held after a heading change
 SETTLE_TOLERANCE = 0.05        # metres of altitude error before a leg counts as settled
 # Metres of lateral error allowed before a leg starts. Tighter than
@@ -143,7 +154,6 @@ SETTLE_TOLERANCE = 0.05        # metres of altitude error before a leg counts as
 # the rear camera has only 0.05 m of margin at the distance it flies.
 SETTLE_LATERAL_M = 0.08
 SETTLE_TIMEOUT_S = 8.0         # seconds allowed for settling
-TIMEOUT_MARGIN = 20.0          # seconds of slack added to expected leg time
 
 # Vertical moves need their own, much slower rate. Measured with the horizontal
 # rate applied to both: a 0.65 m level change left the vehicle 0.65 m behind
@@ -1543,25 +1553,14 @@ async def hold_heading(drone, yaw_deg):
     hold_n, hold_e = current_pos["n"], current_pos["e"]
     hold_d = current_pos["d"]
     
-    start_yaw = current_yaw["deg"]
-    
-    # Calculate shortest path to target yaw
-    delta = (yaw_deg - start_yaw + 180) % 360 - 180
-    
-    # 30 degrees per second rotation rate
-    duration = abs(delta) / 30.0
-    if duration < 0.1:
-        duration = 0.1
-        
-    steps = int(duration / 0.1)
-    
-    for i in range(steps):
-        f = (i + 1) / steps
-        cur_target = start_yaw + delta * f
+    # The sweep itself is arithmetic and lives in flight.py, so the port can
+    # be checked against it without flying.
+    for cur_target in heading_sweep(current_yaw["deg"], yaw_deg):
         await send_setpoint(drone, hold_n, hold_e, hold_d, cur_target)
         await poll_camera()
-        await asyncio.sleep(0.1)
-        
+        await asyncio.sleep(SETPOINT_DT)
+
+
     # Settle
     elapsed = 0.0
     while elapsed < TURN_SETTLE_S:
@@ -1591,25 +1590,23 @@ async def goto_waypoint(drone, index, total, x, y, z, yaw_deg):
     start_n = current_pos["n"] + drift_offset["n"]
     start_e = current_pos["e"] + drift_offset["e"]
     start_d = current_pos["d"]
-    leg_length = math.sqrt((target_n - start_n) ** 2 +
-                           (target_e - start_e) ** 2 +
-                           (target_d - start_d) ** 2)
 
-    # A leg that is mostly vertical is a level change, and is flown slowly.
-    vertical_span = abs(target_d - start_d)
-    horizontal_span = math.sqrt((target_n - start_n) ** 2 +
-                                (target_e - start_e) ** 2)
-    is_climb = vertical_span > horizontal_span
-    speed = CLIMB_SPEED if is_climb else CRUISE_SPEED
+    # The shape of the leg is arithmetic and lives in flight.py, where the
+    # port can be checked against it without flying.
+    plan = leg_plan((start_n, start_e, start_d),
+                    (target_n, target_e, target_d))
+    leg_length = plan["length"]
+    is_climb = plan["is_climb"]
+    speed = plan["speed"]
 
     kind = "climb" if is_climb else "cruise"
     print(f"\n[WAYPOINT {index}/{total}] x={x:+.1f} y={y:+.1f} z={z:.2f} "
           f"heading {yaw_deg:+.0f}  {leg_length:.1f} m  {kind} at {speed} m/s")
 
-    dt = 0.1
+    dt = SETPOINT_DT
     travelled = 0.0
     elapsed = 0.0
-    max_time = leg_length / speed + TIMEOUT_MARGIN
+    max_time = plan["max_time"]
 
     # Altitude hold measures clean while stationary (3 mm bias, 1 cm spread),
     # so any vertical disturbance must come from the motion itself. Track it

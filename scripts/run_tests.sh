@@ -65,6 +65,12 @@ run test_drift_correction.py
 run test_framing.py
 run test_decode_scale.py
 
+# The leg arithmetic that moved to flight.py, against the formulas it was
+# moved out of: how fast a leg is flown, where the setpoint sits at each
+# tick, and how a heading change is swept. vehicle/ is checked against the
+# same functions, so a difference here is a difference there.
+run test_flight.py
+
 # The report layer has geometry of its own now: a barcode reading carries a
 # pose and a pixel position, and turning those into a box is the scanner's
 # arithmetic written against a different yaw convention. A sign error there
