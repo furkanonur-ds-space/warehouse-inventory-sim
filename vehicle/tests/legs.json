@@ -1,0 +1,26 @@
+{
+  "_comment": [
+    "The legs and turns both languages are asked to fly, so that neither",
+    "holds a list of its own. Chosen to include the cases where a port",
+    "goes wrong quietly: a leg of no length, a leg that finishes inside",
+    "one tick, a lane change that also steps up a level, and a turn that",
+    "wraps past 180 degrees, where Python's modulo and C's fmod disagree.",
+    "Positions are NED in metres, headings in degrees."
+  ],
+  "legs": [
+    { "what": "down an aisle", "start": [0.0, 0.0, -0.75], "target": [18.0, 0.0, -0.75] },
+    { "what": "up one level", "start": [0.0, 0.0, -0.75], "target": [0.0, 0.0, -2.45] },
+    { "what": "next lane and up a level", "start": [0.0, 0.0, -0.75], "target": [0.0, 4.26, -2.45] },
+    { "what": "nowhere at all", "start": [1.0, 2.0, -3.0], "target": [1.0, 2.0, -3.0] },
+    { "what": "shorter than one tick", "start": [0.0, 0.0, -0.75], "target": [0.05, 0.0, -0.75] },
+    { "what": "a real leg from the route", "start": [-8.4, -9.0, -0.696], "target": [-8.4, 9.0, -0.696] }
+  ],
+  "turns": [
+    { "what": "the half turn at the end of an aisle", "from": -90.0, "to": 90.0 },
+    { "what": "and back", "from": 90.0, "to": -90.0 },
+    { "what": "no turn at all", "from": 0.0, "to": 0.0 },
+    { "what": "the short way round", "from": 170.0, "to": -170.0 },
+    { "what": "across the wrap", "from": -179.0, "to": 179.0 },
+    { "what": "smaller than one tick", "from": 0.0, "to": 0.4 }
+  ]
+}

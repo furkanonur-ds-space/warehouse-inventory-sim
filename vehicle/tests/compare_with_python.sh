@@ -69,7 +69,30 @@ else
     failed=1
 fi
 
+# What the vehicle would actually command: the setpoint stream down each
+# leg and the yaw sweep through each turn. Both read tests/legs.json, so
+# neither is asked about a scenario the other never saw.
+LEGS_FILE="$HERE/tests/legs.json"
+"$HERE/build/flight_tool" "$LEGS_FILE" > /tmp/flight_c.txt 2> /dev/null
+c_status=$?
+"$PY" "$HERE/tests/emit_flight_python.py" "$LEGS_FILE" > /tmp/flight_py.txt 2> /dev/null
+py_status=$?
+
+if [ $c_status -ne 0 ] || [ $py_status -ne 0 ]; then
+    echo "FAIL the flight tools did not run (C $c_status, Python $py_status)"
+    failed=1
+else
+    commands=$(wc -l < /tmp/flight_c.txt)
+    if diff -u /tmp/flight_py.txt /tmp/flight_c.txt > /tmp/flight_diff.txt; then
+        echo "ok   the same $commands setpoints and yaw steps"
+    else
+        echo "FAIL the setpoints or yaw steps differ"
+        head -20 /tmp/flight_diff.txt
+        failed=1
+    fi
+fi
+
 if [ $failed -ne 0 ]; then
     exit 1
 fi
-echo "PASS both languages give the same route and say the same about it"
+echo "PASS both languages give the same route, fly it the same way, and say the same about it"

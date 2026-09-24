@@ -11,7 +11,10 @@ warehouse can be changed and reflown in an afternoon.
 ## What is here
 
     route.h / route.c     where the lanes are and in what order they are flown
+    flight.h / flight.c   how a leg is flown: setpoints and yaw sweeps
     main.c                prints the route, for the comparison test
+    flight_tool.c         prints the setpoints, for the same
+    tests/legs.json       the legs and turns both languages are asked to fly
     third_party/cJSON.*   JSON parsing, MIT, vendored
 
 cJSON is vendored rather than installed because `meshine` reads its own
@@ -36,6 +39,7 @@ value by value.
     ok   the same 24 waypoints
     ok   the same 4 remarks about the route
     ok   the same 8 camera standoffs and frame limits
+    ok   the same 671 setpoints and yaw steps
 
 The waypoints are the point. The other two are there because the waypoints
 alone were not enough, which was found rather than assumed.
@@ -58,6 +62,25 @@ A note for whoever changes this next: the first attempt at that check also
 passed, because the constant had been moved to route.h and the test was
 still editing route.c. A negative test that edits the wrong file proves
 nothing. Check that the file really changed before believing the result.
+
+The flight comparison was checked the same way, against four slips, and
+caught all four: the climb speed, the timeout margin, rounding the number of
+yaw steps instead of truncating it, and using plain `fmod` where Python's
+`%` was meant.
+
+That last one is the reason the file says so much about a modulo. Python's
+`%` takes the sign of the divisor and C's `fmod` takes the sign of the
+dividend, so a turn from 170 to -170 degrees comes out as 20 degrees in
+Python and -340 in C. The vehicle would have turned the long way round, in
+an aisle, at 30 degrees a second.
+
+## What is not covered
+
+None of this has flown since the split. The comparisons cover what can be
+worked out in advance: the same route, the same setpoints, the same turns.
+They say nothing about whether the vehicle settles, what the markers
+correct, or whether 432 codes still come back. That needs a scan, and a scan
+takes seventeen minutes.
 
 ## What is not here yet
 
