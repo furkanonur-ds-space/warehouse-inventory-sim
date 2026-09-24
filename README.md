@@ -18,16 +18,20 @@ the package names in CMakeLists.txt.
 
 ## State
 
-Stage 3 of 4. The loop is closed: sensors leave, motor commands come back and
-turn the rotors. It has not yet met a real VOXL2, and the flight controller
-driving it so far has been a stand-in.
+All four stages of the host side are written and tested against a stand-in
+flight controller. What has not happened yet is the part that matters: this
+has never been connected to a real VOXL2.
 
 | stage | what it does | state |
 |---|---|---|
 | 1 | read the simulated sensors, report rates and values | **done** |
 | 2 | pack HIL_SENSOR and HIL_GPS, send over UDP 14560 | **done** |
 | 3 | receive HIL_ACTUATOR_CONTROLS, drive the rotors | **done** |
-| 4 | send ODOMETRY on UDP 14570 for the VIO path | next |
+| 4 | send ODOMETRY on UDP 14570 for the VIO path | **done** |
+
+Next, when a drone is available and with the propellers off: point
+`mavlink_addr` at the board, start `voxl-px4-hitl` on it, and find out what
+this is still wrong about.
 
 ## Testing without a drone
 
@@ -51,6 +55,18 @@ Everything is local. No sudo, nothing installed system wide.
     ./scripts/build.sh
     ./scripts/run_sim.sh 1250      # 1250 steps, five seconds of sim time
     ./scripts/run_sim.sh           # until interrupted
+
+## Measured on 2026-09-24, stage 4
+
+    ODOMETRY 243 Hz, frames LOCAL_NED / BODY_FRD
+    at rest    z -0.250 m   roll -0.0 deg   pitch 0.0 deg   heading 90.0 deg
+    climbing   z -27.28 m   vz -13.97 m/s
+
+The heading is 90 degrees rather than 0 because the model sits with its nose
+along Gazebo's +x, which is east, and the message is in a north-referenced
+frame. PX4's own `GZBridge::rotateQuaternion` produces the same value from
+the same pose. An earlier version of the check called this a failure; the
+check was wrong, not the bridge.
 
 ## Measured on 2026-09-24, stage 3
 

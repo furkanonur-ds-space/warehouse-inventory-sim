@@ -50,6 +50,15 @@
       <motor_topic>/x500_voxl/command/motor_speed</motor_topic>
       <max_rot_velocity>1000.0</max_rot_velocity>
       <motor_count>4</motor_count>
+
+      <!-- The VIO path: ground truth pose as MAVLink ODOMETRY, which
+           voxl-hitl-vio-server reads on the drone and hands to
+           voxl-vision-hub in place of real VIO. -->
+      <en_vio_output>true</en_vio_output>
+      <vio_mavlink_addr>127.0.0.1</vio_mavlink_addr>
+      <vio_udp_remote_port>14570</vio_udp_remote_port>
+      <vio_update_rate>250</vio_update_rate>
+      <odometry_model>x500_voxl</odometry_model>
     </plugin>
 
     <!-- NavSat reports nothing without an origin on the earth. -->

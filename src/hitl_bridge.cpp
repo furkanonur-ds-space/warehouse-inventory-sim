@@ -13,7 +13,12 @@
 // holds one socket for all the sensors.
 
 #include <gz/plugin/Register.hh>
+#include <gz/sim/Link.hh>
+#include <gz/sim/Model.hh>
 #include <gz/sim/System.hh>
+#include <gz/sim/Util.hh>
+#include <gz/sim/components/Model.hh>
+#include <gz/sim/components/Name.hh>
 #include <gz/transport/Node.hh>
 
 #include <gz/msgs/actuators.pb.h>
@@ -61,6 +66,30 @@ constexpr uint32_t kFieldBaro = 0x1A00;   // 0b1101000000000
 // pressure itself.
 constexpr double kSeaLevelHpa = 1013.25;
 
+// Gazebo works in ENU with FLU bodies, PX4 in NED with FRD bodies. A vector
+// changes frame by swapping x and y and flipping z for the world, and by
+// flipping y and z for the body.
+inline gz::math::Vector3d EnuToNed(const gz::math::Vector3d &v)
+{
+  return {v.Y(), v.X(), -v.Z()};
+}
+
+inline gz::math::Vector3d FluToFrd(const gz::math::Vector3d &v)
+{
+  return {v.X(), -v.Y(), -v.Z()};
+}
+
+// An attitude takes both changes: the world turns ENU to NED, the body turns
+// FLU to FRD. As quaternions that is a fixed rotation on each side, the
+// same pair MAVROS applies.
+inline gz::math::Quaterniond EnuFluToNedFrd(const gz::math::Quaterniond &q)
+{
+  static const gz::math::Quaterniond kEnuToNed(0.0, M_SQRT1_2, M_SQRT1_2,
+                                               0.0);
+  static const gz::math::Quaterniond kFluToFrd(0.0, 1.0, 0.0, 0.0);
+  return kEnuToNed * q * kFluToFrd;
+}
+
 struct Vec3
 {
   double x = 0.0, y = 0.0, z = 0.0;
@@ -75,6 +104,7 @@ struct Counter
 
 class HitlBridge : public gz::sim::System,
                    public gz::sim::ISystemConfigure,
+                   public gz::sim::ISystemPreUpdate,
                    public gz::sim::ISystemPostUpdate
 {
 public:
@@ -86,11 +116,13 @@ public:
       close(socket_);
     if (receiver_.joinable())
       receiver_.join();
+    if (vio_socket_ >= 0)
+      close(vio_socket_);
   }
 
   void Configure(const gz::sim::Entity &,
                  const std::shared_ptr<const sdf::Element> &sdf,
-                 gz::sim::EntityComponentManager &,
+                 gz::sim::EntityComponentManager &ecm,
                  gz::sim::EventManager &) override
   {
     // Topic names come from the world file rather than being built here.
@@ -136,6 +168,26 @@ public:
       receiver_ = std::thread(&HitlBridge::ReceiveLoop, this);
     }
 
+    // The VIO path. On the aircraft this is what voxl-hitl-vio-server
+    // receives and feeds to voxl-vision-hub in place of real VIO, so the
+    // pose here is the simulator's ground truth: perfect, which is exactly
+    // what HITL cannot test about real VIO.
+    const std::string model_name =
+        sdf->Get<std::string>("odometry_model", "x500_voxl").first;
+    vio_enabled_ = sdf->Get<bool>("en_vio_output", false).first;
+    vio_rate_hz_ = sdf->Get<double>("vio_update_rate", 250.0).first;
+    const std::string vio_addr =
+        sdf->Get<std::string>("vio_mavlink_addr", "127.0.0.1").first;
+    const int vio_port = sdf->Get<int>("vio_udp_remote_port", 14570).first;
+
+    // The vehicle is not looked up here. A world plugin is configured while
+    // the world is still being built, before the models it contains exist,
+    // so this ran once against an empty world and disabled itself. The
+    // lookup happens on the first update instead.
+    odometry_model_ = model_name;
+    if (vio_enabled_)
+      vio_enabled_ = OpenVioSocket(vio_addr, vio_port);
+
     if (!imu_topic_.empty() &&
         !node_.Subscribe(imu_topic_, &HitlBridge::OnImu, this))
       Failed(imu_topic_);
@@ -149,11 +201,47 @@ public:
         !node_.Subscribe(gps_topic_, &HitlBridge::OnGps, this))
       Failed(gps_topic_);
 
+    // Flushed rather than buffered: output to a file is block buffered, and
+    // a run that hangs takes the buffer with it. The first time this plugin
+    // hung, it looked as though it had never started.
     if (send_)
-      std::cout << "[hitl_bridge] stage 2: sending HIL_SENSOR and HIL_GPS to "
-                << addr << ":" << remote_port << std::endl;
+      std::cout << "[hitl_bridge] sensors out to " << addr << ":"
+                << remote_port << ", motor commands back on the same socket"
+                << std::endl;
     else
-      std::cout << "[hitl_bridge] stage 2: counting only, sending nothing" << std::endl;
+      std::cout << "[hitl_bridge] counting only, sending nothing"
+                << std::endl;
+  }
+
+  // Only here for the lookup: this is the one callback that is handed an
+  // entity manager it may write to, and asking for velocities is a write.
+  void PreUpdate(const gz::sim::UpdateInfo &info,
+                 gz::sim::EntityComponentManager &ecm) override
+  {
+    if (!vio_enabled_ || body_ != gz::sim::kNullEntity)
+      return;
+
+    const gz::sim::Entity model = ecm.EntityByComponents(
+        gz::sim::components::Model(),
+        gz::sim::components::Name(odometry_model_));
+    if (model == gz::sim::kNullEntity)
+    {
+      // Give the world a moment to finish spawning before complaining.
+      const double now_s = std::chrono::duration<double>(info.simTime).count();
+      if (now_s > 2.0 && !odometry_warned_)
+      {
+        std::cerr << "[hitl_bridge] ERROR no model named " << odometry_model_
+                  << "; odometry will not be sent" << std::endl;
+        odometry_warned_ = true;
+      }
+      return;
+    }
+
+    // Velocities are not computed unless something asks for them.
+    body_ = gz::sim::Model(model).CanonicalLink(ecm);
+    gz::sim::Link(body_).EnableVelocityChecks(ecm, true);
+    std::cout << "[hitl_bridge] odometry follows " << odometry_model_
+              << std::endl;
   }
 
   // Reporting is driven by simulated time, not the wall clock, so the rates
@@ -164,7 +252,7 @@ public:
   // those stamps against each other, so they have to come from the same
   // clock that drives the physics rather than from this machine's.
   void PostUpdate(const gz::sim::UpdateInfo &info,
-                  const gz::sim::EntityComponentManager &) override
+                  const gz::sim::EntityComponentManager &ecm) override
   {
     if (info.paused)
       return;
@@ -172,6 +260,9 @@ public:
     const double now_s = std::chrono::duration<double>(info.simTime).count();
     sim_time_us_.store(
         static_cast<uint64_t>(std::llround(now_s * 1.0e6)));
+
+    if (vio_enabled_ && body_ != gz::sim::kNullEntity)
+      SendOdometry(now_s, ecm);
 
     if (last_report_s_ < 0.0)
     {
@@ -189,6 +280,7 @@ public:
               << Rate(gps_in_, elapsed, "gps") << " | out: "
               << Rate(hil_sensor_out_, elapsed, "HIL_SENSOR")
               << Rate(hil_gps_out_, elapsed, "HIL_GPS")
+              << Rate(odometry_out_, elapsed, "ODOMETRY")
               << "| back: " << Rate(actuators_in_, elapsed, "actuators");
     if (!last_controls_.empty())
     {
@@ -275,6 +367,88 @@ private:
                reinterpret_cast<const sockaddr *>(&remote_), sizeof(remote_));
     if (sent != static_cast<ssize_t>(length))
       ++send_failures_;
+  }
+
+  // The pose is taken from the world rather than from a sensor, so it is
+  // read here, in the update loop, rather than in a subscription.
+  void SendOdometry(double now_s, const gz::sim::EntityComponentManager &ecm)
+  {
+    if (now_s - last_vio_s_ < 1.0 / vio_rate_hz_)
+      return;
+    last_vio_s_ = now_s;
+
+    const gz::math::Pose3d pose = gz::sim::worldPose(body_, ecm);
+    const gz::sim::Link link(body_);
+    const auto world_v = link.WorldLinearVelocity(ecm);
+    const auto world_w = link.WorldAngularVelocity(ecm);
+    if (!world_v || !world_w)
+      return;
+
+    // Position and attitude are in the world frame, velocities in the body
+    // frame: that is what ODOMETRY's child_frame_id means.
+    const gz::math::Vector3d p = EnuToNed(pose.Pos());
+    const gz::math::Quaterniond q = EnuFluToNedFrd(pose.Rot());
+    const gz::math::Vector3d v =
+        FluToFrd(pose.Rot().RotateVectorReverse(*world_v));
+    const gz::math::Vector3d w =
+        FluToFrd(pose.Rot().RotateVectorReverse(*world_w));
+
+    mavlink_odometry_t odom{};
+    odom.time_usec = sim_time_us_.load();
+    odom.frame_id = MAV_FRAME_LOCAL_NED;
+    odom.child_frame_id = MAV_FRAME_BODY_FRD;
+    odom.x = static_cast<float>(p.X());
+    odom.y = static_cast<float>(p.Y());
+    odom.z = static_cast<float>(p.Z());
+    odom.q[0] = static_cast<float>(q.W());
+    odom.q[1] = static_cast<float>(q.X());
+    odom.q[2] = static_cast<float>(q.Y());
+    odom.q[3] = static_cast<float>(q.Z());
+    odom.vx = static_cast<float>(v.X());
+    odom.vy = static_cast<float>(v.Y());
+    odom.vz = static_cast<float>(v.Z());
+    odom.rollspeed = static_cast<float>(w.X());
+    odom.pitchspeed = static_cast<float>(w.Y());
+    odom.yawspeed = static_cast<float>(w.Z());
+    odom.estimator_type = MAV_ESTIMATOR_TYPE_VISION;
+    odom.quality = 100;
+
+    mavlink_message_t out;
+    mavlink_msg_odometry_encode(kSystemId, kComponentId, &out, &odom);
+
+    uint8_t buffer[MAVLINK_MAX_PACKET_LEN];
+    const uint16_t length = mavlink_msg_to_send_buffer(buffer, &out);
+    if (sendto(vio_socket_, buffer, length, 0,
+               reinterpret_cast<const sockaddr *>(&vio_remote_),
+               sizeof(vio_remote_)) != static_cast<ssize_t>(length))
+      ++send_failures_;
+    else
+      ++odometry_out_.total;
+  }
+
+  bool OpenVioSocket(const std::string &addr, int port)
+  {
+    vio_socket_ = socket(AF_INET, SOCK_DGRAM, 0);
+    if (vio_socket_ < 0)
+    {
+      std::cerr << "[hitl_bridge] ERROR could not open the VIO socket"
+                << std::endl;
+      return false;
+    }
+    std::memset(&vio_remote_, 0, sizeof(vio_remote_));
+    vio_remote_.sin_family = AF_INET;
+    vio_remote_.sin_port = htons(static_cast<uint16_t>(port));
+    if (inet_pton(AF_INET, addr.c_str(), &vio_remote_.sin_addr) != 1)
+    {
+      std::cerr << "[hitl_bridge] ERROR bad VIO address " << addr
+                << std::endl;
+      close(vio_socket_);
+      vio_socket_ = -1;
+      return false;
+    }
+    std::cout << "[hitl_bridge] odometry to " << addr << ":" << port
+              << " at " << vio_rate_hz_ << " Hz" << std::endl;
+    return true;
   }
 
   // PX4 answers on the socket the sensors arrive from, so this thread does
@@ -483,6 +657,16 @@ private:
   Counter imu_in_, mag_in_, baro_in_, gps_in_;
   Counter hil_sensor_out_, hil_gps_out_;
   Counter actuators_in_;
+  Counter odometry_out_;
+
+  bool vio_enabled_ = false;
+  double vio_rate_hz_ = 250.0;
+  double last_vio_s_ = -1.0;
+  gz::sim::Entity body_ = gz::sim::kNullEntity;
+  std::string odometry_model_;
+  bool odometry_warned_ = false;
+  int vio_socket_ = -1;
+  sockaddr_in vio_remote_{};
 
   gz::transport::Node::Publisher motor_pub_;
   std::string motor_topic_;
@@ -512,6 +696,7 @@ private:
 
 GZ_ADD_PLUGIN(hitl_bridge::HitlBridge, gz::sim::System,
               hitl_bridge::HitlBridge::ISystemConfigure,
+              hitl_bridge::HitlBridge::ISystemPreUpdate,
               hitl_bridge::HitlBridge::ISystemPostUpdate)
 
 GZ_ADD_PLUGIN_ALIAS(hitl_bridge::HitlBridge, "hitl_bridge::HitlBridge")
