@@ -11,6 +11,26 @@
 #ifndef ROUTE_H
 #define ROUTE_H
 
+/*
+ * Camera geometry. The vehicle's, not the warehouse's, and the same values
+ * as build_c27_drone.py. They live in the header because the route uses
+ * them to decide altitudes and the tools use them to report what each
+ * camera can see, and those two must not drift apart.
+ */
+#define HIRES_HFOV_DEG 60.0
+#define REAR_HFOV_DEG 90.0
+#define HIRES_FRAME_W 1024
+#define HIRES_FRAME_H 768
+#define REAR_FRAME_W 1280
+#define REAR_FRAME_H 800
+#define USABLE_FRAME 0.885
+
+/* Where each camera sits along the body: the hires looks forward from the
+ * front face, the rear camera back from the rear one, so each is nearer its
+ * own shelf than base_link is. */
+#define HIRES_MOUNT_X 0.06
+#define REAR_MOUNT_X (-0.055)
+
 #define ROUTE_MAX_FACES 64
 #define ROUTE_MAX_LEVELS 16
 #define ROUTE_MAX_NAME 32

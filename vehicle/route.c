@@ -14,23 +14,6 @@
 
 #include "third_party/cJSON.h"
 
-/* Camera geometry. In Python these sit beside the layout because they are
- * the vehicle's, not the warehouse's, and they are what decides how much
- * shelf a lane can see. Same values as build_c27_drone.py. */
-#define HIRES_HFOV_DEG 60.0
-#define REAR_HFOV_DEG 90.0
-#define HIRES_FRAME_W 1024
-#define HIRES_FRAME_H 768
-#define REAR_FRAME_W 1280
-#define REAR_FRAME_H 800
-#define USABLE_FRAME 0.885
-
-/* Where each camera sits along the body: the hires looks forward from the
- * front face, the rear camera back from the rear one, so each is nearer its
- * own shelf than base_link is. */
-#define HIRES_MOUNT_X 0.06
-#define REAR_MOUNT_X (-0.055)
-
 /* Room to leave between a propeller tip and a shelf. */
 #define AISLE_CLEARANCE_M 0.05
 
@@ -482,6 +465,39 @@ int route_build(const route_layout_t *layout, route_waypoint_t *out, int max,
 		}
 
 		lane_levels(layout, reads, n_reads, lanes[i].z);
+
+		/* Say when a lane flies somewhere other than the layout's own
+		 * altitudes. Printed in Python's wording and number format on
+		 * purpose: the port is checked by diffing what the two say as
+		 * well as where they fly, and a lane that chose its altitude
+		 * for a different reason would otherwise pass unnoticed. */
+		{
+			int differs = 0;
+			int level;
+
+			for (level = 0; level < layout->n_levels; level++)
+				if (lanes[i].z[level] != layout->flight_z[level])
+					differs = 1;
+			if (differs) {
+				fprintf(stderr, "[INFO] lane %s",
+					lanes[i].hires_face->name);
+				if (lanes[i].rear_face)
+					fprintf(stderr, "/%s",
+						lanes[i].rear_face->name);
+				fprintf(stderr, ": flying [");
+				for (level = 0; level < layout->n_levels; level++)
+					fprintf(stderr, "%s%g",
+						level ? ", " : "",
+						lanes[i].z[level]);
+				fprintf(stderr, "] rather than [");
+				for (level = 0; level < layout->n_levels; level++)
+					fprintf(stderr, "%s%g",
+						level ? ", " : "",
+						layout->flight_z[level]);
+				fprintf(stderr, "], to put the axis on the "
+						"codes\n");
+			}
+		}
 	}
 
 	for (i = 0; i < n_lanes; i++) {
