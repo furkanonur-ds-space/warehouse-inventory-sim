@@ -1,0 +1,94 @@
+<?xml version="1.0" ?>
+<!--
+  HITL world for the x500_voxl model.
+
+  The system plugins and the 4 ms physics step are the ones the ModalAI
+  document lists for this setup. The sensor topic names are passed to the
+  bridge explicitly: Gazebo builds them from the scoped name of each sensor,
+  so a renamed model would otherwise leave the bridge subscribed to nothing
+  with no error.
+-->
+<sdf version="1.9">
+  <world name="hitl_x500">
+
+    <physics name="250hz" type="ode">
+      <max_step_size>0.004</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <plugin filename="gz-sim-physics-system"
+            name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system"
+            name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-imu-system"
+            name="gz::sim::systems::Imu"/>
+    <plugin filename="gz-sim-air-pressure-system"
+            name="gz::sim::systems::AirPressure"/>
+    <plugin filename="gz-sim-magnetometer-system"
+            name="gz::sim::systems::Magnetometer"/>
+    <plugin filename="gz-sim-navsat-system"
+            name="gz::sim::systems::NavSat"/>
+
+    <plugin filename="hitl_bridge" name="hitl_bridge::HitlBridge">
+      <imu_topic>/world/hitl_x500/model/x500_voxl/link/base_link/sensor/imu_sensor/imu</imu_topic>
+      <mag_topic>/world/hitl_x500/model/x500_voxl/link/base_link/sensor/magnetometer_sensor/magnetometer</mag_topic>
+      <baro_topic>/world/hitl_x500/model/x500_voxl/link/base_link/sensor/air_pressure_sensor/air_pressure</baro_topic>
+      <gps_topic>/world/hitl_x500/model/x500_voxl/link/base_link/sensor/navsat_sensor/navsat</gps_topic>
+      <report_every_s>1.0</report_every_s>
+    </plugin>
+
+    <!-- NavSat reports nothing without an origin on the earth. -->
+    <spherical_coordinates>
+      <surface_model>EARTH_WGS84</surface_model>
+      <world_frame_orientation>ENU</world_frame_orientation>
+      <latitude_deg>39.925</latitude_deg>
+      <longitude_deg>32.837</longitude_deg>
+      <elevation>890</elevation>
+    </spherical_coordinates>
+
+    <gravity>0 0 -9.8066</gravity>
+    <magnetic_field>2.4e-05 1.5e-06 4.2e-05</magnetic_field>
+
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <include>
+      <uri>model://x500_voxl</uri>
+      <pose>0 0 0.25 0 0 0</pose>
+    </include>
+
+  </world>
+</sdf>
