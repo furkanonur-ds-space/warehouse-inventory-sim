@@ -292,6 +292,19 @@ class YoloDecoder(Decoder):
         self._save_all = save_all
         self._save_limit = save_limit
         self.saved_crops = 0
+        # The box side. `boxes_seen` is cartons the model located; `uncovered`
+        # is those with no decoded code inside them, summed over frames. Both
+        # are rates over frames, NOT a count of missed boxes - the same carton
+        # is counted once per frame that saw it. Turning these into a fault
+        # list needs the same box followed across frames, which is the step
+        # after this one.
+        self.boxes_seen = 0
+        self.boxes_uncovered = 0
+        self.frames_with_uncovered = 0
+        # This frame's boxes, for the caller to log beside the pose.
+        self.last_boxes: list[dict] = []
+        self.saved_box_frames = 0
+        self.box_frame_seen = 0
         self.seen = collections.Counter()      # by class: qr, barkod
         self.recovered = 0
         # Payloads THIS frame owes to the crop pass. Read by the caller right
@@ -304,6 +317,7 @@ class YoloDecoder(Decoder):
     def __call__(self, frame_bgr: np.ndarray):
         qrs, bars = super().__call__(frame_bgr)
         self.last_recovered = set()
+        self.last_boxes = []
         regions = self._finder(frame_bgr)
         self.yolo_ms = self._finder.ms
         for r in regions:
@@ -314,6 +328,10 @@ class YoloDecoder(Decoder):
 
         have = {p for p, _, _ in qrs} | {p for p, _, _ in bars}
         for region in regions:
+            if region["cls"] == code_finder.BOX_CLASS:
+                # Counted below, never cropped: a crop of a whole carton has
+                # nothing in it zbar wants and would cost a decode per box.
+                continue
             crop, origin, scale = code_finder.crop_for(
                 frame_bgr, region["box"], self._margin, self._min_side)
             if crop is None:
@@ -338,6 +356,15 @@ class YoloDecoder(Decoder):
                 self.last_recovered.add(payload)
                 bars.append((payload, code_finder.to_frame(poly, origin, scale),
                              quality))
+
+        # After the crop pass, so a box whose code only a crop read counts as
+        # covered. Doing it before would blame the locator's own successes.
+        polys = [poly for _, poly, _ in qrs] + [poly for _, poly, _ in bars]
+        self.last_boxes, uncovered = code_finder.coverage(regions, polys)
+        self.boxes_seen += len(self.last_boxes)
+        self.boxes_uncovered += uncovered
+        if uncovered:
+            self.frames_with_uncovered += 1
         return qrs, bars
 
     def _keep(self, crop, region, c_qrs, c_bars) -> None:
@@ -463,6 +490,16 @@ class Session:
         self.bar_hits = 0
         self.linked = 0
         self.via = collections.Counter()
+        # One line per frame that saw a carton: the boxes, and the pose the
+        # frame was taken from. Opened only when a run asks for it. This is
+        # the raw material for following one physical box across the frames
+        # that saw it, which is what turns a per-frame rate into a fault.
+        self.boxes_path: Path | None = None
+        self._boxes_fh = None
+        self.box_frames = 0
+        # Filled in by main() from the decoder, same live-reference trick as
+        # labels_seen: a summary flushed mid-flight is as current as the run.
+        self.box_stats: dict = {}
         # What the locator SAW, as opposed to what zbar then read: filled in
         # from the decoder at flush. seen far above read is a framing answer.
         self.labels_seen = collections.Counter()
@@ -538,8 +575,34 @@ class Session:
             # are invisible if the last one silently wins.
             rec["disagreements"].append(payload)
 
+    def open_boxes(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.boxes_path = path
+        self._boxes_fh = path.open("w", encoding="utf-8")
+
+    def record_boxes(self, frame_no, boxes, pose=None, taken_at=None,
+                     frame_size=None) -> None:
+        """The cartons this frame saw, with where the vehicle was."""
+        if self._boxes_fh is None or not boxes:
+            return
+        row = {"frame": frame_no, "camera_link": self.camera_link,
+               "boxes": boxes,
+               "uncovered": sum(1 for b in boxes if not b["covered"])}
+        if taken_at is not None:
+            row["sim_t"] = round(float(taken_at), 3)
+        if pose is not None:
+            row["uav"] = {"x": round(pose[0], 3), "y": round(pose[1], 3),
+                          "z": round(pose[2], 3)}
+            row["uav_yaw_deg"] = round(pose[3], 2)
+        if frame_size is not None:
+            row["frame_px"] = [int(frame_size[0]), int(frame_size[1])]
+        self._boxes_fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+        self.box_frames += 1
+
     def flush(self) -> None:
         self._fh.flush()
+        if self._boxes_fh is not None:
+            self._boxes_fh.flush()
         agree, disagree = self.tally()
         body = {
             "generated": datetime.now().isoformat(timespec="seconds"),
@@ -561,7 +624,8 @@ class Session:
             # will quietly report the wrong one.
             body["yolo"] = dict(self.yolo,
                                 labels_seen=dict(self.labels_seen),
-                                readings_by_pass=dict(self.via))
+                                readings_by_pass=dict(self.via),
+                                boxes=dict(self.box_stats))
         if self.frame_book is not None:
             # Before the boxes, because it is what says whether a missing box
             # is a missing frame.
@@ -585,6 +649,12 @@ class Session:
         return clean, len(self.boxes) - clean
 
     def close(self) -> None:
+        if self._boxes_fh is not None:
+            try:
+                self._boxes_fh.flush(); self._boxes_fh.close()
+            except Exception:
+                pass
+            self._boxes_fh = None
         self.flush()
         self._fh.close()
 
@@ -869,6 +939,72 @@ def replay_video(path: Path, args, decoder, linker, session) -> int:
     return 0
 
 
+def save_box_frame(frame, decoder, args, session) -> None:
+    """
+    A picture of what the box detector did, now and then.
+
+    STRIDED, not "the first N". A flight is 23000 frames and the first 400
+    qualifying ones are all the same twenty seconds of the first aisle, which
+    is the one part of the warehouse nobody has a question about. One in every
+    `stride` frames that carried an uncovered box spreads the sample over the
+    whole route instead.
+
+    Green where a code was decoded inside the box, red where none was. Red is
+    the normal case at distance and does not mean a miss; see BOX_CLASS in
+    code_finder.
+    """
+    out = getattr(args, "yolo_save_boxes", None)
+    if out is None or not decoder.last_boxes:
+        return
+    if decoder.saved_box_frames >= args.yolo_save_limit:
+        return
+    if not any(not b["covered"] for b in decoder.last_boxes):
+        return
+    decoder.box_frame_seen += 1
+    if decoder.box_frame_seen % max(1, args.yolo_save_stride):
+        return
+    try:
+        shot = frame.copy()
+        for b in decoder.last_boxes:
+            x0, y0, x1, y1 = (int(v) for v in b["box"])
+            colour = (0, 200, 0) if b["covered"] else (0, 0, 255)
+            cv2.rectangle(shot, (x0, y0), (x1, y1), colour, 2)
+            label(shot, f"{b['conf']:.2f}", (x0, max(12, y0 - 4)), colour)
+        out.mkdir(parents=True, exist_ok=True)
+        name = (f"{session.camera_link}_{session.frames:06d}"
+                f"_{sum(1 for b in decoder.last_boxes if not b['covered'])}"
+                f"of{len(decoder.last_boxes)}.jpg")
+        if cv2.imwrite(str(out / name), shot):
+            decoder.saved_box_frames += 1
+    except Exception:
+        pass
+
+
+class _BoxStats(dict):
+    """The box counters, read straight off the decoder whenever asked.
+
+    A dict rather than a snapshot because flush() runs every fifty frames and
+    a snapshot taken at startup would write zeroes into every summary a run
+    leaves behind before it lands.
+    """
+
+    def __init__(self, decoder):
+        super().__init__()
+        self._d = decoder
+
+    def _now(self) -> dict:
+        return {"located": self._d.boxes_seen,
+                "without_a_decoded_code": self._d.boxes_uncovered,
+                "frames_with_one": self._d.frames_with_uncovered}
+
+    def keys(self):   return self._now().keys()
+    def items(self):  return self._now().items()
+    def values(self): return self._now().values()
+    def __iter__(self):        return iter(self._now())
+    def __len__(self):         return len(self._now())
+    def __getitem__(self, k):  return self._now()[k]
+
+
 def via_of(decoder, payload: str):
     """
     Which pass read this code, or None when the run had no locator.
@@ -910,6 +1046,12 @@ def step(frame, decoder, linker, session, args, wait: int = 1,
             session.saved += 1
         except Exception:
             pass
+
+    if isinstance(decoder, YoloDecoder):
+        session.record_boxes(session.frames, decoder.last_boxes, pose=pose,
+                             taken_at=taken_at,
+                             frame_size=(frame.shape[1], frame.shape[0]))
+        save_box_frame(frame, decoder, args, session)
 
     qr_polys = [(payload, poly) for payload, poly, _ in qrs]
     drawn_bars = []
@@ -1026,7 +1168,20 @@ def main() -> int:
                     help="keep the crops that decoded too; a flight makes "
                          "thousands, so this is for a short replay")
     ap.add_argument("--yolo-save-limit", type=int, default=400,
-                    help="stop after this many crops (default 400)")
+                    help="stop after this many crops or box frames "
+                         "(default 400)")
+    ap.add_argument("--yolo-save-boxes", type=Path, metavar="DIR",
+                    help="write frames showing what the box detector found, "
+                         "green where a code decoded inside the box and red "
+                         "where none did. Strided over the whole flight")
+    ap.add_argument("--yolo-save-stride", type=int, default=25,
+                    help="keep one in this many frames that carried an "
+                         "uncovered box (default 25)")
+    ap.add_argument("--yolo-boxes-log", type=Path, metavar="PATH",
+                    help="one line per frame: the boxes, whether each carried "
+                         "a decoded code, and the pose the frame was taken "
+                         "from. This is what a later pass needs to follow one "
+                         "carton across frames")
     args = ap.parse_args()
 
     try:
@@ -1088,6 +1243,11 @@ def main() -> int:
         # The same Counter the decoder fills as it goes, not a copy, so a
         # summary flushed mid-flight is as current as the run is.
         session.labels_seen = decoder.seen
+        if args.yolo_boxes_log:
+            session.open_boxes(args.yolo_boxes_log)
+        # A live view of the decoder's own counters, so flush() writes the
+        # current ones rather than a copy taken at startup.
+        session.box_stats = _BoxStats(decoder)
 
     try:
         rc = replay(args, decoder, linker, session) if args.replay \
@@ -1110,9 +1270,21 @@ def main() -> int:
                             sorted(decoder.seen.items())) or "nothing"
             print(f"YOLO saw {seen} · "
                   f"{decoder.recovered} readings the full frame missed")
+            if decoder.boxes_seen:
+                print(f"boxes located {decoder.boxes_seen} over "
+                      f"{session.frames} frames · "
+                      f"{decoder.boxes_uncovered} carried no decoded code "
+                      f"({decoder.frames_with_uncovered} frames). "
+                      "A per-frame rate, not a miss list.")
             if decoder.saved_crops:
                 print(f"crops kept: {decoder.saved_crops} in "
                       f"{args.yolo_save_crops}")
+            if decoder.saved_box_frames:
+                print(f"box frames kept: {decoder.saved_box_frames} in "
+                      f"{args.yolo_save_boxes}")
+            if session.box_frames:
+                print(f"box log: {session.box_frames} frames -> "
+                      f"{session.boxes_path}")
         print(f"readings: {args.readings}")
         print(f"summary : {args.summary}")
     return rc

@@ -50,6 +50,20 @@ import numpy as np
 CODE_CLASSES = ("qr", "barkod")
 PLACARD_CLASS = "etiket"
 
+# The box itself. Not a code and never cropped for decoding - a crop of a
+# whole carton has nothing in it zbar wants. It is here to be COUNTED: a
+# reading tells you what was read, and only a box detector can tell you what
+# was there to read. In a warehouse that is not this one there is no ground
+# truth to score against, so the box count is the only denominator available.
+#
+# What it is not: a box seen in a frame with no code decoded in it is NOT a
+# missed code. A carton is visible from down the aisle long before its label
+# is readable, and this run reads 432 of 432 while most frames carry a box
+# with no code in them. The per-frame number is a rate, not a fault; the
+# fault, if there is one, only appears after the same physical box has been
+# followed across the frames that saw it.
+BOX_CLASS = "koli"
+
 DEFAULT_WEIGHTS = Path.home() / (
     "Desktop/warehouse_dataset/birlesik/model/yolo26s_640/weights/best.pt")
 
@@ -103,7 +117,8 @@ class CodeFinder:
                                   r.boxes.cls.tolist(),
                                   r.boxes.conf.tolist()):
             name = self._names[int(cls)]
-            if name not in CODE_CLASSES and name != PLACARD_CLASS:
+            if name not in CODE_CLASSES and name not in (PLACARD_CLASS,
+                                                          BOX_CLASS):
                 continue
             x0, y0, x1, y1 = box
             out.append({"cls": name, "conf": float(conf),
@@ -143,3 +158,39 @@ def to_frame(poly: np.ndarray, origin, scale: float) -> np.ndarray:
     """A polygon zbar returned in crop coordinates, put back in the frame."""
     return (np.asarray(poly, dtype=np.float32) / scale
             + np.asarray(origin, dtype=np.float32)).astype(np.int32)
+
+
+def covers(box, poly) -> bool:
+    """Is this decoded code inside that box?
+
+    The code's polygon CENTRE against the box, not an overlap test. A QR sits
+    on the face of its carton, so its centre is inside the carton's box
+    whenever it belongs to it; an overlap test would also tie a code to the
+    carton behind the one it is printed on, which is the pair most often in
+    the same frame.
+    """
+    x0, y0, x1, y1 = box
+    cx = float(sum(px for px, _ in poly)) / len(poly)
+    cy = float(sum(py for _, py in poly)) / len(poly)
+    return x0 <= cx <= x1 and y0 <= cy <= y1
+
+
+def coverage(regions: list[dict], polys) -> tuple[list[dict], int]:
+    """
+    Every box the model saw, each told whether a code was decoded inside it.
+
+    Returns the box records and how many of them carried no code. The count is
+    a per-frame rate and not a fault list: see BOX_CLASS above for why a box
+    without a code in one frame is the normal case and not a miss.
+    """
+    boxes = []
+    uncovered = 0
+    for r in regions:
+        if r["cls"] != BOX_CLASS:
+            continue
+        hit = any(covers(r["box"], poly) for poly in polys)
+        if not hit:
+            uncovered += 1
+        boxes.append({"box": [round(v, 1) for v in r["box"]],
+                      "conf": round(r["conf"], 3), "covered": hit})
+    return boxes, uncovered
