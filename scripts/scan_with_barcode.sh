@@ -82,17 +82,43 @@ if [ "$SAVE_FRAMES" != "0" ]; then
     echo "  keeping unread-barcode frames in out/barcode_frames"
 fi
 
+# YOLO=1 puts the trained locator in front of zbar: it finds the qr and
+# barkod labels and each one is read from its own upscaled crop, after the
+# ordinary full-frame pass. It can only add readings.
+#
+# It is not free on a live run. ultralytics must be in THIS venv (the one that
+# reaches gz-transport, so `.venv/bin/pip install ultralytics`, which pulls
+# torch), and every frame then costs about 6 ms of the same GPU that is
+# rendering the world - twice over in "both" mode. The reader already costs
+# the run a few per cent of its frames by being a second subscriber; measure
+# before trusting a live comparison, and prefer the replay A/B, which gives
+# both passes identical pixels:
+#
+#   PY=~/Desktop/warehouse_dataset/.venv/bin/python ./scripts/yolo_replay_ab.sh
+YOLO="${YOLO:-0}"
+if [ "$YOLO" != "0" ]; then
+    echo "  YOLO locating labels (weights: ${YOLO_WEIGHTS:-the dataset default})"
+fi
+
 start_barcode() {
     local link="$1" tag="$2"
     local shots=()
     if [ "$SAVE_FRAMES" != "0" ]; then
         shots=(--save-frames "$SHOTS")
     fi
+    local yolo=()
+    if [ "$YOLO" != "0" ]; then
+        yolo=(--yolo)
+        if [ -n "${YOLO_WEIGHTS:-}" ]; then
+            yolo+=(--yolo-weights "$YOLO_WEIGHTS")
+        fi
+    fi
     "$PY" "$HERE/perception/barcode_scanner.py" --headless \
         --topic "$BASE/$link/sensor/camera/image" \
         --readings "$HERE/out/barcode_readings_$tag.jsonl" \
         --summary  "$HERE/out/barcode_inventory_$tag.json" \
         ${shots+"${shots[@]}"} \
+        ${yolo+"${yolo[@]}"} \
         > "$HERE/out/barcode_$tag.log" 2>&1 &
     pids+=($!)
     echo "  barcode on $tag -> out/barcode_readings_$tag.jsonl (pid ${pids[-1]})"
