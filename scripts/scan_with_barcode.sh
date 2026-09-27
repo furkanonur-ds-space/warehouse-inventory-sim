@@ -75,6 +75,10 @@ pids=()
 
 SAVE_FRAMES="${SAVE_FRAMES:-0}"
 SHOTS="$HERE/out/barcode_frames"
+if [ "${SAVE_BOXES:-0}" != "0" ]; then
+    rm -rf "$HERE"/out/yolo_boxes_*
+    echo "  recording the box detector in out/yolo_boxes_<camera>[.jsonl]"
+fi
 if [ "${SAVE_CROPS:-0}" != "0" ]; then
     # Same reason the readings are cleared: crops from an older run would be
     # read as if they belonged to this one.
@@ -128,6 +132,15 @@ start_barcode() {
             if [ "${SAVE_CROPS_ALL:-0}" != "0" ]; then
                 yolo+=(--yolo-save-all)
             fi
+        fi
+        # SAVE_BOXES=1 records the box detector: a picture every so often of
+        # what it framed, and a line per frame with the boxes and the pose,
+        # which is what a later pass needs to follow one carton across the
+        # frames that saw it. The pictures are strided over the whole route
+        # rather than taken from the first aisle.
+        if [ "${SAVE_BOXES:-0}" != "0" ]; then
+            yolo+=(--yolo-save-boxes "$HERE/out/yolo_boxes_$tag"
+                   --yolo-boxes-log "$HERE/out/yolo_boxes_$tag.jsonl")
         fi
     fi
     "$PY" "$HERE/perception/barcode_scanner.py" --headless \

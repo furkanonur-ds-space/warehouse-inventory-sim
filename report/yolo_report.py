@@ -76,6 +76,7 @@ def collect(out: Path) -> dict:
     per_camera = []
     seen = Counter()
     by_pass = Counter()
+    box_totals = Counter()
     settings = None
 
     for path, body in summaries(out):
@@ -84,6 +85,9 @@ def collect(out: Path) -> dict:
             continue
         settings = settings or {k: y.get(k) for k in
                                 ("weights", "conf", "margin", "min_side_px")}
+        boxes = y.get("boxes") or {}
+        for k, v in boxes.items():
+            box_totals[k] += v
         cam_seen = Counter(y.get("labels_seen", {}))
         cam_pass = Counter(y.get("readings_by_pass", {}))
         seen += cam_seen
@@ -119,6 +123,7 @@ def collect(out: Path) -> dict:
         "settings": settings,
         "labels_seen": dict(seen),
         "readings_by_pass": dict(by_pass),
+        "boxes_detected": dict(box_totals),
         "boxes_linked": len(per_box),
         "boxes_recovered": recovered,
         "per_camera": per_camera,
@@ -166,6 +171,17 @@ def render_text(data: dict) -> str:
     for name, n in sorted(data["readings_by_pass"].items()):
         what = "full frame" if name == "frame" else "YOLO crop only"
         lines.append(f"  {name:8s} {n:6d}   {what}")
+    bd = data.get("boxes_detected") or {}
+    if bd:
+        lines += ["", "cartons the box detector found"]
+        lines.append(f"  located                {bd.get('located', 0)}")
+        lines.append(f"  with no decoded code   "
+                     f"{bd.get('without_a_decoded_code', 0)}"
+                     f"  (in {bd.get('frames_with_one', 0)} frames)")
+        lines.append("  NOTE a carton is counted once per frame that saw it, "
+                     "and is normally")
+        lines.append("       seen long before its code is readable. This is a "
+                     "rate, not a miss list.")
     lines += ["",
               f"boxes with a linked barcode : {data['boxes_linked']}",
               f"boxes owed to a crop        : {len(data['boxes_recovered'])}"]
