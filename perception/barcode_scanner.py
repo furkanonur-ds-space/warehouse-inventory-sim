@@ -284,10 +284,16 @@ class YoloDecoder(Decoder):
         self._min_side = min_side
         self.seen = collections.Counter()      # by class: qr, barkod
         self.recovered = 0
+        # Payloads THIS frame owes to the crop pass. Read by the caller right
+        # after the decode, so every reading can be filed with where it came
+        # from; without it a recovered code is a number in a summary and not
+        # a box anyone can go and look at.
+        self.last_recovered: set[str] = set()
         self.yolo_ms = 0.0
 
     def __call__(self, frame_bgr: np.ndarray):
         qrs, bars = super().__call__(frame_bgr)
+        self.last_recovered = set()
         regions = self._finder(frame_bgr)
         self.yolo_ms = self._finder.ms
         for r in regions:
@@ -310,6 +316,7 @@ class YoloDecoder(Decoder):
                     continue
                 have.add(payload)
                 self.recovered += 1
+                self.last_recovered.add(payload)
                 qrs.append((payload, code_finder.to_frame(poly, origin, scale),
                             quality))
             for payload, poly, quality in c_bars:
@@ -317,6 +324,7 @@ class YoloDecoder(Decoder):
                     continue
                 have.add(payload)
                 self.recovered += 1
+                self.last_recovered.add(payload)
                 bars.append((payload, code_finder.to_frame(poly, origin, scale),
                              quality))
         return qrs, bars
@@ -414,6 +422,13 @@ class Session:
         self.qr_hits = 0
         self.bar_hits = 0
         self.linked = 0
+        self.via = collections.Counter()
+        # What the locator SAW, as opposed to what zbar then read: filled in
+        # from the decoder at flush. seen far above read is a framing answer.
+        self.labels_seen = collections.Counter()
+        # Filled in by main() when the run has a locator; None when it does
+        # not, which is what the reports key off.
+        self.yolo: dict | None = None
         # Set by live(); a replay has no camera to account for.
         self.frame_book = None
         self.saved = 0
@@ -421,7 +436,8 @@ class Session:
         self._fh = readings.open("a")
 
     def record(self, payload, poly, quality, linked, dist, frame_no,
-               pose=None, frame_size=None, drop_m=None, taken_at=None) -> None:
+               pose=None, frame_size=None, drop_m=None, taken_at=None,
+               via=None) -> None:
         self.bar_hits += 1
         now = datetime.now().isoformat(timespec="seconds")
         poly = np.asarray(poly, dtype=float)
@@ -431,6 +447,13 @@ class Session:
             "polygon": [[round(float(x), 1), round(float(y), 1)] for x, y in poly],
             "linked_qr": linked, "link_error_m": dist,
         }
+        if via is not None:
+            # "frame" if the ordinary full-frame zbar pass read it, "crop" if
+            # only the YOLO-located crop did. The whole point of the locator
+            # is this column: it is what lets the report name the boxes the
+            # run would otherwise not have.
+            row["via"] = via
+            self.via[via] += 1
         # Where the bars sat in the frame and where the vehicle was when the
         # frame arrived. Everything a position needs, and nothing that decides
         # one: the geometry is done in report/barcode_inventory.py, which is
@@ -491,6 +514,14 @@ class Session:
             "unlinked_payloads": self.unlinked,
             "frames_saved": self.saved,
         }
+        if self.yolo is not None:
+            # Written whether or not the locator recovered anything: a run
+            # that used it and gained nothing is a result, and a report that
+            # cannot see the difference between that and a run without it
+            # will quietly report the wrong one.
+            body["yolo"] = dict(self.yolo,
+                                labels_seen=dict(self.labels_seen),
+                                readings_by_pass=dict(self.via))
         if self.frame_book is not None:
             # Before the boxes, because it is what says whether a missing box
             # is a missing frame.
@@ -798,6 +829,19 @@ def replay_video(path: Path, args, decoder, linker, session) -> int:
     return 0
 
 
+def via_of(decoder, payload: str):
+    """
+    Which pass read this code, or None when the run had no locator.
+
+    None rather than "frame" on a plain run, so the reports can tell a flight
+    that never used the locator from one that used it and recovered nothing.
+    Those mean opposite things and a default of "frame" would merge them.
+    """
+    if not isinstance(decoder, YoloDecoder):
+        return None
+    return "crop" if payload in decoder.last_recovered else "frame"
+
+
 def step(frame, decoder, linker, session, args, wait: int = 1,
          pose=None, taken_at=None) -> bool:
     """One frame: decode, link, record, draw. False means the user asked to stop."""
@@ -834,7 +878,8 @@ def step(frame, decoder, linker, session, args, wait: int = 1,
         session.record(payload, poly, quality, linked, dist, session.frames,
                        pose=pose,
                        frame_size=(frame.shape[1], frame.shape[0]),
-                       drop_m=linker.drop_m, taken_at=taken_at)
+                       drop_m=linker.drop_m, taken_at=taken_at,
+                       via=via_of(decoder, payload))
         drawn_bars.append((payload, poly, quality, linked, dist))
 
     now = time.perf_counter()
@@ -976,6 +1021,20 @@ def main() -> int:
         args.pose_topic = f"/world/{layout['world']}/dynamic_pose/info"
     source = str(args.replay) if args.replay else args.topic
     session = Session(args.readings, args.summary, source)
+    if args.yolo:
+        # Settings, not results: the results are counted as the run goes and
+        # merged in at flush. Kept in the summary so a report reading a
+        # finished flight can say what the locator was ASKED to do, which is
+        # the first thing anyone comparing two runs wants.
+        session.yolo = {
+            "weights": str(args.yolo_weights),
+            "conf": args.yolo_conf,
+            "margin": args.yolo_margin,
+            "min_side_px": args.yolo_min_side,
+        }
+        # The same Counter the decoder fills as it goes, not a copy, so a
+        # summary flushed mid-flight is as current as the run is.
+        session.labels_seen = decoder.seen
 
     try:
         rc = replay(args, decoder, linker, session) if args.replay \
