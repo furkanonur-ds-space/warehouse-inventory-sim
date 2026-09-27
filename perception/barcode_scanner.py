@@ -70,6 +70,7 @@ OUTPUTS (both under `out/`, neither touched by anything else):
 from __future__ import annotations
 
 import argparse
+import collections
 import json
 import math
 import os
@@ -89,6 +90,14 @@ sys.path.insert(0, str(REPO_ROOT / "warehouse"))
 
 import gen_labels as gl                      # noqa: E402  (world generator)
 from gen_world import LABEL_GAP              # noqa: E402
+
+# Sits beside this file, so it is already importable when this runs as a
+# script. Imported for its constants and crop helpers, which need nothing
+# installed: the YOLO itself is loaded only when --yolo asks for it, because
+# ultralytics is not in the venv that can reach gz-transport. See its
+# docstring.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import code_finder                           # noqa: E402
 
 LAYOUT = REPO_ROOT / "scanner" / "layout.json"
 CONFIG = REPO_ROOT / "warehouse" / "warehouse.yaml"
@@ -248,6 +257,69 @@ class Decoder:
 # short read is not a box that does not exist, it is a misread. The shape is
 # fixed by the generator, so checking it costs nothing and keeps them out.
 BARCODE_PAYLOAD = re.compile(r"^\d{4}$")
+
+
+class YoloDecoder(Decoder):
+    """
+    The same zbar, given crops a trained YOLO picked out, after the full frame.
+
+    The full-frame pass runs FIRST and unchanged, so this can only add
+    readings, never lose one. Whatever it found is then held against the
+    labels YOLO can see, and any label whose code is not already in hand gets
+    cropped out, upscaled and read on its own.
+
+    `seen` counts labels the model located; `recovered` counts codes that only
+    the crop pass read. A frame with seen > 0 and nothing read is a label that
+    WAS framed and could not be decoded - which is a different failure from
+    never framing it, and the reason the counters are kept apart.
+
+    See perception/code_finder.py for why this helps a small symbol and not a
+    clipped one.
+    """
+
+    def __init__(self, finder, margin: float, min_side: int):
+        super().__init__()
+        self._finder = finder
+        self._margin = margin
+        self._min_side = min_side
+        self.seen = collections.Counter()      # by class: qr, barkod
+        self.recovered = 0
+        self.yolo_ms = 0.0
+
+    def __call__(self, frame_bgr: np.ndarray):
+        qrs, bars = super().__call__(frame_bgr)
+        regions = self._finder(frame_bgr)
+        self.yolo_ms = self._finder.ms
+        for r in regions:
+            if r["cls"] in code_finder.CODE_CLASSES:
+                self.seen[r["cls"]] += 1
+        if not regions:
+            return qrs, bars
+
+        have = {p for p, _, _ in qrs} | {p for p, _, _ in bars}
+        for region in regions:
+            crop, origin, scale = code_finder.crop_for(
+                frame_bgr, region["box"], self._margin, self._min_side)
+            if crop is None:
+                continue
+            # Decoder.__call__ on the crop: one grey pass, one Otsu pass if no
+            # barcode came back. Exactly what the frame gets, on fewer pixels.
+            c_qrs, c_bars = super().__call__(crop)
+            for payload, poly, quality in c_qrs:
+                if payload in have:
+                    continue
+                have.add(payload)
+                self.recovered += 1
+                qrs.append((payload, code_finder.to_frame(poly, origin, scale),
+                            quality))
+            for payload, poly, quality in c_bars:
+                if payload in have:
+                    continue
+                have.add(payload)
+                self.recovered += 1
+                bars.append((payload, code_finder.to_frame(poly, origin, scale),
+                             quality))
+        return qrs, bars
 
 
 def polygon_of(result) -> np.ndarray:
@@ -841,6 +913,25 @@ def main() -> int:
     ap.add_argument("--flush-every", type=int, default=50,
                     help="write the summary every N frames, so a run that is "
                          "interrupted still leaves one")
+    ap.add_argument("--yolo", action="store_true",
+                    help="let a trained YOLO locate the labels and read each "
+                         "one from its own upscaled crop, after the ordinary "
+                         "full-frame pass. Adds readings, never removes one")
+    ap.add_argument("--yolo-weights", type=Path,
+                    default=code_finder.DEFAULT_WEIGHTS,
+                    help="where those weights are (default: with the dataset "
+                         "that trained them, outside this repository)")
+    ap.add_argument("--yolo-conf", type=float, default=code_finder.DEFAULT_CONF,
+                    help="confidence below which a label is not a label")
+    ap.add_argument("--yolo-margin", type=float,
+                    default=code_finder.DEFAULT_MARGIN,
+                    help="how much to grow a box before cropping, as a "
+                         "fraction of itself - this is the quiet zone")
+    ap.add_argument("--yolo-min-side", type=int,
+                    default=code_finder.DEFAULT_MIN_SIDE,
+                    help="upscale a crop until its long side reaches this")
+    ap.add_argument("--yolo-device", default="0",
+                    help="0 for the first GPU, or cpu")
     args = ap.parse_args()
 
     try:
@@ -850,6 +941,26 @@ def main() -> int:
         print("  .venv/bin/pip install pyzbar")
         print("It binds to libzbar, which is already present on this machine.")
         return 1
+
+    if args.yolo:
+        try:
+            finder = code_finder.CodeFinder(
+                args.yolo_weights, conf=args.yolo_conf,
+                device=args.yolo_device)
+        except FileNotFoundError as exc:
+            print(exc)
+            return 1
+        except ImportError:
+            print("ultralytics is not installed in this environment.")
+            print("  .venv/bin/pip install ultralytics")
+            print("It pulls torch. The simulator's venv is the one that can "
+                  "reach gz-transport, so a live run needs it THERE; a "
+                  "--replay run can use any venv that has pyzbar.")
+            return 1
+        decoder = YoloDecoder(finder, args.yolo_margin, args.yolo_min_side)
+        print(f"YOLO locating labels: {args.yolo_weights.name} "
+              f"conf {args.yolo_conf}, margin {args.yolo_margin}, "
+              f"crops upscaled to {args.yolo_min_side} px")
 
     cfg = yaml.safe_load(CONFIG.read_text())
     linker = Linker(cfg, args.tolerance)
@@ -877,6 +988,16 @@ def main() -> int:
         print(f"\n{session.frames} frames · {session.bar_hits} barcode readings "
               f"({session.linked} linked) · {len(session.boxes)} boxes")
         print(f"boxes consistent {agree}, conflicting {disagree}")
+        if isinstance(decoder, YoloDecoder):
+            # `seen` is labels located, `recovered` is codes that only the
+            # crop pass read. seen far above recovered means the labels are
+            # being framed and not decoded, which is a symbol problem; seen
+            # near zero means they are not being framed at all, which is a
+            # route problem. The two want opposite fixes.
+            seen = " ".join(f"{c} {n}" for c, n in
+                            sorted(decoder.seen.items())) or "nothing"
+            print(f"YOLO saw {seen} · "
+                  f"{decoder.recovered} readings the full frame missed")
         print(f"readings: {args.readings}")
         print(f"summary : {args.summary}")
     return rc
