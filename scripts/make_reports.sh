@@ -75,6 +75,12 @@ if ls out/barcode_readings*.jsonl >/dev/null 2>&1; then
   run report/view_inventory.py --inventory out/inventory_barcode.json \
       --code-type box_placard --out out/inventory_3d_barcode.html
   run report/barcode_vs_qr.py
+  # What the label locator did, when the run flew with one. Run
+  # unconditionally inside this block rather than guarded on a YOLO variable:
+  # the flag belongs to the flight and this is read afterwards, possibly in
+  # another shell, so the summary the flight left is the only honest witness
+  # to whether there was a locator. It says so itself when there was not.
+  run report/yolo_report.py --html out/yolo.html
 fi
 
 echo
