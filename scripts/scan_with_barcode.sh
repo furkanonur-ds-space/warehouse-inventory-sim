@@ -75,6 +75,12 @@ pids=()
 
 SAVE_FRAMES="${SAVE_FRAMES:-0}"
 SHOTS="$HERE/out/barcode_frames"
+if [ "${SAVE_CROPS:-0}" != "0" ]; then
+    # Same reason the readings are cleared: crops from an older run would be
+    # read as if they belonged to this one.
+    rm -rf "$HERE"/out/yolo_crops_*
+    echo "  keeping the crops the model framed in out/yolo_crops_<camera>"
+fi
 if [ "$SAVE_FRAMES" != "0" ]; then
     # Same reason the readings are cleared: frames from an older run would be
     # replayed as if they belonged to this one.
@@ -111,6 +117,17 @@ start_barcode() {
         yolo=(--yolo)
         if [ -n "${YOLO_WEIGHTS:-}" ]; then
             yolo+=(--yolo-weights "$YOLO_WEIGHTS")
+        fi
+        # SAVE_CROPS=1 keeps what the model framed, per camera, so the boxes
+        # can be looked at rather than counted. Failures only by default, and
+        # capped, for the same reason SAVE_FRAMES is capped: a flight locates
+        # thousands of labels and lossless crops of all of them are a video
+        # nobody asked for.
+        if [ "${SAVE_CROPS:-0}" != "0" ]; then
+            yolo+=(--yolo-save-crops "$HERE/out/yolo_crops_$tag")
+            if [ "${SAVE_CROPS_ALL:-0}" != "0" ]; then
+                yolo+=(--yolo-save-all)
+            fi
         fi
     fi
     "$PY" "$HERE/perception/barcode_scanner.py" --headless \

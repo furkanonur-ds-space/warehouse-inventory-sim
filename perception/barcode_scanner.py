@@ -277,11 +277,21 @@ class YoloDecoder(Decoder):
     clipped one.
     """
 
-    def __init__(self, finder, margin: float, min_side: int):
+    def __init__(self, finder, margin: float, min_side: int,
+                 save_dir: Path | None = None, save_all: bool = False,
+                 save_limit: int = 400):
         super().__init__()
         self._finder = finder
         self._margin = margin
         self._min_side = min_side
+        # Where the crops go, and how choosy to be about which. The default is
+        # the same bargain SAVE_FRAMES strikes: keep the ones that FAILED,
+        # because a crop that decoded has already told you everything it knows
+        # and a flight makes tens of thousands of those.
+        self._save_dir = save_dir
+        self._save_all = save_all
+        self._save_limit = save_limit
+        self.saved_crops = 0
         self.seen = collections.Counter()      # by class: qr, barkod
         self.recovered = 0
         # Payloads THIS frame owes to the crop pass. Read by the caller right
@@ -311,6 +321,7 @@ class YoloDecoder(Decoder):
             # Decoder.__call__ on the crop: one grey pass, one Otsu pass if no
             # barcode came back. Exactly what the frame gets, on fewer pixels.
             c_qrs, c_bars = super().__call__(crop)
+            self._keep(crop, region, c_qrs, c_bars)
             for payload, poly, quality in c_qrs:
                 if payload in have:
                     continue
@@ -328,6 +339,35 @@ class YoloDecoder(Decoder):
                 bars.append((payload, code_finder.to_frame(poly, origin, scale),
                              quality))
         return qrs, bars
+
+    def _keep(self, crop, region, c_qrs, c_bars) -> None:
+        """
+        Write the crop out, exactly as zbar was given it.
+
+        The point is to be able to LOOK at what the model framed. A count of
+        placards located says nothing about whether the model boxed a placard,
+        half a placard, or a shelf edge; one directory of crops settles it in
+        a minute. The filename carries the class, the confidence and the
+        verdict, so sorting the directory sorts by what happened.
+
+        Only the failures by default. A flight locates thousands of labels and
+        a crop that decoded is a crop nobody will open; the interesting ones
+        are those the model was sure about and zbar could not read.
+        """
+        if self._save_dir is None or self.saved_crops >= self._save_limit:
+            return
+        read = bool(c_qrs or c_bars)
+        if read and not self._save_all:
+            return
+        try:
+            self._save_dir.mkdir(parents=True, exist_ok=True)
+            name = (f"{self.saved_crops:05d}_{region['cls']}"
+                    f"_{region['conf']:.2f}_{'read' if read else 'unread'}.png")
+            if cv2.imwrite(str(self._save_dir / name), crop):
+                self.saved_crops += 1
+        except Exception:
+            # A debugging aid must never be able to end a flight.
+            pass
 
 
 def polygon_of(result) -> np.ndarray:
@@ -977,6 +1017,16 @@ def main() -> int:
                     help="upscale a crop until its long side reaches this")
     ap.add_argument("--yolo-device", default="0",
                     help="0 for the first GPU, or cpu")
+    ap.add_argument("--yolo-save-crops", type=Path, metavar="DIR",
+                    help="write out the crops the model framed, exactly as "
+                         "zbar was handed them, named by class, confidence "
+                         "and whether they decoded. Failures only, unless "
+                         "--yolo-save-all")
+    ap.add_argument("--yolo-save-all", action="store_true",
+                    help="keep the crops that decoded too; a flight makes "
+                         "thousands, so this is for a short replay")
+    ap.add_argument("--yolo-save-limit", type=int, default=400,
+                    help="stop after this many crops (default 400)")
     args = ap.parse_args()
 
     try:
@@ -1002,7 +1052,10 @@ def main() -> int:
                   "reach gz-transport, so a live run needs it THERE; a "
                   "--replay run can use any venv that has pyzbar.")
             return 1
-        decoder = YoloDecoder(finder, args.yolo_margin, args.yolo_min_side)
+        decoder = YoloDecoder(finder, args.yolo_margin, args.yolo_min_side,
+                              save_dir=args.yolo_save_crops,
+                              save_all=args.yolo_save_all,
+                              save_limit=args.yolo_save_limit)
         print(f"YOLO locating labels: {args.yolo_weights.name} "
               f"conf {args.yolo_conf}, margin {args.yolo_margin}, "
               f"crops upscaled to {args.yolo_min_side} px")
@@ -1057,6 +1110,9 @@ def main() -> int:
                             sorted(decoder.seen.items())) or "nothing"
             print(f"YOLO saw {seen} · "
                   f"{decoder.recovered} readings the full frame missed")
+            if decoder.saved_crops:
+                print(f"crops kept: {decoder.saved_crops} in "
+                      f"{args.yolo_save_crops}")
         print(f"readings: {args.readings}")
         print(f"summary : {args.summary}")
     return rc
