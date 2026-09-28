@@ -71,6 +71,11 @@ run test_decode_scale.py
 # puts every code on the wrong side of the aisle, and the shelf snap hides it.
 cd "$HERE/report" || exit 1
 run test_barcode_inventory.py
+# The carton warning, by subtraction: one carton's codes are removed from a
+# copy of the last run and the warning has to name that carton and no other.
+# Skips itself, rather than failing, on a checkout that has never flown with
+# SAVE_BOXES=1 and so has no box log to work from.
+run test_box_inventory.py
 
 if [ "$failed" -eq 0 ]; then
     echo "all suites passed"
