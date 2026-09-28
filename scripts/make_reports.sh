@@ -95,6 +95,14 @@ if ls out/yolo_boxes_*.jsonl >/dev/null 2>&1; then
   run report/box_inventory.py
   run report/view_inventory.py --inventory out/inventory_boxes.json \
       --out out/boxes_3d.html
+  # The experiment on its own page, when the world was built with cartons that
+  # carry no code. Twelve dots among nine hundred is not a picture anyone can
+  # read; scored against their own truth, the page answers one question.
+  if [ -s out/inventory_boxes_unlabelled.json ]; then
+    run report/view_inventory.py \
+        --inventory out/inventory_boxes_unlabelled.json \
+        --code-type box_unlabelled --out out/experiment_3d.html
+  fi
 fi
 
 echo

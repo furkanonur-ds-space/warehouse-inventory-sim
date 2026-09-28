@@ -470,6 +470,11 @@ def main() -> int:
                     help=f"how near a cluster must land to be called that "
                          f"carton (default {MATCH_M} m)")
     ap.add_argument("--json", type=Path, default=OUT / "box_report.json")
+    ap.add_argument("--experiment-inventory", type=Path,
+                    default=OUT / "inventory_boxes_unlabelled.json",
+                    help="just the cartons built with no code on them, so the "
+                         "viewer can draw the experiment on its own instead "
+                         "of hiding twelve dots among nine hundred")
     ap.add_argument("--inventory", type=Path,
                     default=OUT / "inventory_boxes.json",
                     help="the cartons in the inventory shape, so "
@@ -492,6 +497,25 @@ def main() -> int:
         print(f"written: {args.inventory}")
         print(f"  draw it: .venv/bin/python report/view_inventory.py "
               f"--inventory {args.inventory} --out out/boxes_3d.html")
+        bare = data.get("unlabelled") or {}
+        if bare.get("total"):
+            # Only the experiment's cartons, scored against only the
+            # experiment's truth. Drawn on its own the page answers one
+            # question - which of the twelve unreadable cartons the detector
+            # found, and where the one it missed is standing - instead of
+            # putting twelve dots among nine hundred.
+            names = {i["id"] for i in data["items"]}
+            items = [i for i in data["items"] if i["id"].startswith("UNLABELLED|")]
+            args.experiment_inventory.write_text(json.dumps({
+                "scan_date": data["generated"],
+                "sensor_configuration": "yolo box detector, unlabelled cartons",
+                "total_detected": len(items),
+                "items": items,
+            }, indent=2, ensure_ascii=False))
+            print(f"written: {args.experiment_inventory}")
+            print(f"  draw it: .venv/bin/python report/view_inventory.py "
+                  f"--inventory {args.experiment_inventory} "
+                  f"--code-type box_unlabelled --out out/experiment_3d.html")
     return 0
 
 
