@@ -86,6 +86,43 @@ DEFAULT_MARGIN = 0.35
 DEFAULT_MIN_SIDE = 320
 
 
+def require_device(device) -> None:
+    """
+    Refuse a GPU that is not there, NOW, rather than on the first frame.
+
+    This cost a flight on 2026-09-28. The driver was not ready, ultralytics
+    raised on the first frame it was given, and both readers died seconds
+    after the scan started - so the vehicle flew all 24 waypoints, the QR side
+    scored 420 of 420, and the barcode side left two empty files. Nothing said
+    anything was wrong until the reports were run.
+
+    The reader starts a few seconds BEFORE the scan does, so a check here is
+    seen while there is still nothing to lose.
+
+    There is deliberately no automatic fall back to the CPU. On 2026-09-17 a
+    silent CPU fallback in the training pipeline dropped it to 9 s a step and
+    locked the machine; here it would run the decoder far behind the camera
+    and quietly change every number the run reports. `--yolo-device cpu` is
+    there for anyone who means it.
+    """
+    if str(device).strip().lower() in ("cpu", "mps"):
+        return
+    import torch
+    if torch.cuda.is_available():
+        return
+    raise SystemExit(
+        f"DO NOT FLY: CUDA device '{device}' was asked for and torch cannot "
+        "see a GPU.\n"
+        "  torch.cuda.is_available() is False, so every frame would raise and "
+        "this reader\n"
+        "  would leave the flight with empty files - which is what happened on "
+        "2026-09-28.\n"
+        "  Check nvidia-smi. If it works, the driver was not ready yet: "
+        "restart and try again.\n"
+        "  To read on the CPU on purpose, and much slower than the camera: "
+        "--yolo-device cpu")
+
+
 class CodeFinder:
     """Where the labels are in a frame, according to the trained model."""
 
@@ -98,6 +135,7 @@ class CodeFinder:
                 f"no YOLO weights at {weights}\n"
                 "  they live with the dataset that trained them, not in this "
                 "repository; pass --yolo-weights to point somewhere else")
+        require_device(device)
         from ultralytics import YOLO          # lazy: see the module docstring
         self._model = YOLO(str(weights))
         self._names = self._model.names
