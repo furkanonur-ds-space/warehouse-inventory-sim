@@ -107,6 +107,22 @@ fi
 #   PY=~/Desktop/warehouse_dataset/.venv/bin/python ./scripts/yolo_replay_ab.sh
 YOLO="${YOLO:-0}"
 if [ "$YOLO" != "0" ]; then
+    # BEFORE ANYTHING IS LAUNCHED. On 2026-09-28 the driver was not ready,
+    # both readers raised on their first frame and died, and the vehicle flew
+    # the whole route anyway: 24 waypoints, 420 QRs, two empty barcode files,
+    # and nothing said so until the reports were run. Ten minutes for nothing.
+    # The check costs a second here and the flight is the expensive thing.
+    if ! "$PY" -c "
+import sys
+sys.path.insert(0, '$HERE/perception')
+import code_finder
+code_finder.require_device('${YOLO_DEVICE:-0}')
+"; then
+        echo
+        echo "not flying. Fix the GPU, or fly without the locator:"
+        echo "  SAVE_FRAMES=1 bash $0 ${MODE:-both}"
+        exit 1
+    fi
     echo "  YOLO locating labels (weights: ${YOLO_WEIGHTS:-the dataset default})"
 fi
 
@@ -121,6 +137,9 @@ start_barcode() {
         yolo=(--yolo)
         if [ -n "${YOLO_WEIGHTS:-}" ]; then
             yolo+=(--yolo-weights "$YOLO_WEIGHTS")
+        fi
+        if [ -n "${YOLO_DEVICE:-}" ]; then
+            yolo+=(--yolo-device "$YOLO_DEVICE")
         fi
         # SAVE_CROPS=1 keeps what the model framed, per camera, so the boxes
         # can be looked at rather than counted. Failures only by default, and
