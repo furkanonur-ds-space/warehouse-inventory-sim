@@ -215,15 +215,32 @@ def decoded_places(out: Path) -> list[tuple]:
 
 
 def true_cartons(path: Path = GROUND_TRUTH) -> list[dict]:
-    """Every carton that is really there, from its own QR label's pose."""
+    """
+    Every carton that is really there, from where its QR label sits.
+
+    `box_unlabelled` counts too, and this is the whole point of it. Those are
+    the cartons the world was generated WITHOUT codes on, for the experiment
+    that asks whether the detector finds a carton nothing can read. Leaving
+    them out would make the experiment score itself: the twelve would vanish
+    from the denominator and a detector that missed every one of them would
+    still read 100 per cent.
+
+    They carry no payload, so they are named by position instead. Nothing
+    downstream reads that name as something decoded - see the note about
+    assigned ids at the top of this file.
+    """
     truth = json.loads(Path(path).read_text())
     out = []
     for c in truth.get("codes", []):
-        if c.get("type") != "box_qr":
+        kind = c.get("type")
+        if kind not in ("box_qr", "box_unlabelled"):
             continue
         x, y, z = c["label_pose_xyzrpy"][:3]
-        out.append({"payload": c["payload"], "row": c.get("row"),
+        payload = c.get("payload") or (
+            f"UNLABELLED|{c.get('row')}|{c.get('bay'):02d}|{c.get('level')}")
+        out.append({"payload": payload, "row": c.get("row"),
                     "bay": c.get("bay"), "level": c.get("level"),
+                    "unlabelled": kind == "box_unlabelled",
                     "x": x, "y": y, "z": z})
     return out
 
@@ -292,6 +309,14 @@ def build(out_dir: Path, min_area: float, radius: float, limit: float,
     errors = sorted(d for _, d in pairing.values())
     found = {ti for ti, _ in pairing.values()}
 
+    # THE EXPERIMENT. Cartons the world was generated with no codes on. They
+    # cannot be read by anything, so the detector is the only thing that can
+    # report them at all, and the warning has to name every one it found. A
+    # world with none of them leaves this empty and it is not printed.
+    bare = [(i, c) for i, c in enumerate(cartons) if c.get("unlabelled")]
+    bare_found = [c["payload"] for i, c in bare if i in found]
+    bare_missed = [c["payload"] for i, c in bare if i not in found]
+
     # An unmatched cluster is one of two very different things and reporting
     # them as one number was misleading. The vehicle passes a face three
     # times, once per flight level, and both cameras see it, so the SAME
@@ -356,6 +381,11 @@ def build(out_dir: Path, min_area: float, radius: float, limit: float,
              for ci, c in enumerate(clusters)
              if ci in pairing and not c["read"]}),
         "code_radius_m": code_radius,
+        "unlabelled": {
+            "total": len(bare),
+            "detected": len(bare_found),
+            "not_detected": sorted(bare_missed),
+        },
         "items": items,
     }
 
@@ -401,6 +431,18 @@ def render(data: dict) -> str:
     lines.append("  level: cartons stand 0.40 m apart and a cluster is good "
                  "to 0.157 m, so it cannot")
     lines.append("  tell which of two neighbours went unread.")
+
+    bare = data.get("unlabelled") or {}
+    if bare.get("total"):
+        n, d = bare["total"], bare["detected"]
+        lines += ["",
+                  f"CARTONS WITH NO CODE PRINTED ON THEM (the experiment): "
+                  f"{d} of {n} detected",
+                  "  Nothing can read these, so the detector is the only "
+                  "thing that can report them."]
+        if bare["not_detected"]:
+            lines.append("  invisible to it: "
+                         + ", ".join(bare["not_detected"]))
 
     if data["missed"]:
         show = data["missed"][:15]
