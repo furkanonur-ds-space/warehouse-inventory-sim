@@ -509,7 +509,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": null,
+      "payload": "UNLABELLED|A|02|1",
       "caption": "SKU49098",
       "entity": "inventory::box_A_02_1_0",
       "row": "A",
@@ -1712,7 +1712,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": null,
+      "payload": "UNLABELLED|A|04|2",
       "caption": "SKU76891",
       "entity": "inventory::box_A_04_2_1",
       "row": "A",
@@ -2915,7 +2915,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": null,
+      "payload": "UNLABELLED|A|06|3",
       "caption": "SKU68242",
       "entity": "inventory::box_A_06_3_2",
       "row": "A",
@@ -6526,7 +6526,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": null,
+      "payload": "UNLABELLED|C|02|1",
       "caption": "SKU55670",
       "entity": "inventory::box_C_02_1_1",
       "row": "C",
@@ -7729,7 +7729,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": null,
+      "payload": "UNLABELLED|C|04|2",
       "caption": "SKU47587",
       "entity": "inventory::box_C_04_2_2",
       "row": "C",
@@ -8764,7 +8764,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": null,
+      "payload": "UNLABELLED|C|06|3",
       "caption": "SKU86147",
       "entity": "inventory::box_C_06_3_0",
       "row": "C",
@@ -12543,7 +12543,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": null,
+      "payload": "UNLABELLED|E|02|1",
       "caption": "SKU32801",
       "entity": "inventory::box_E_02_1_2",
       "row": "E",
@@ -13578,7 +13578,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": null,
+      "payload": "UNLABELLED|E|04|2",
       "caption": "SKU11476",
       "entity": "inventory::box_E_04_2_0",
       "row": "E",
@@ -14781,7 +14781,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": null,
+      "payload": "UNLABELLED|E|06|3",
       "caption": "SKU78420",
       "entity": "inventory::box_E_06_3_1",
       "row": "E",
@@ -18392,7 +18392,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": null,
+      "payload": "UNLABELLED|G|02|1",
       "caption": "SKU42276",
       "entity": "inventory::box_G_02_1_0",
       "row": "G",
@@ -19595,7 +19595,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": null,
+      "payload": "UNLABELLED|G|04|2",
       "caption": "SKU11682",
       "entity": "inventory::box_G_04_2_1",
       "row": "G",
@@ -20798,7 +20798,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": null,
+      "payload": "UNLABELLED|G|06|3",
       "caption": "SKU33363",
       "entity": "inventory::box_G_06_3_2",
       "row": "G",

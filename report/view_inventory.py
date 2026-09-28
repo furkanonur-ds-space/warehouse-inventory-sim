@@ -357,10 +357,14 @@ def main() -> int:
     ap.add_argument("--inventory", type=Path, default=INVENTORY)
     ap.add_argument("--ground-truth", type=Path, default=GROUND_TRUTH)
     ap.add_argument("--code-type", default="box_qr",
-                    choices=("box_qr", "box_placard"),
+                    choices=("box_qr", "box_placard", "box_unlabelled"),
                     help="which label this inventory was read from. A box "
                          "carries two, they say different things, and each is "
-                         "drawn against its own truth")
+                         "drawn against its own truth. box_unlabelled is the "
+                         "third case and carries no label at all: cartons "
+                         "built with no code on them, which only the box "
+                         "detector can report, drawn against their own truth "
+                         "so the twelve are not lost among nine hundred")
     ap.add_argument("--config", type=Path, default=CONFIG)
     ap.add_argument("--out", type=Path,
                     default=REPO_ROOT / "out" / "inventory_3d.html")

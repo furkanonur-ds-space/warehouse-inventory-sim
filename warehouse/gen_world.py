@@ -582,7 +582,12 @@ def inventory(cfg, rng, textures, manifest) -> str:
                         manifest.append({
                             "type": "box_unlabelled",
                             "symbology": None,
-                            "payload": None,
+                            # Okunacak bir kodu yok ama ADI olmak zorunda:
+                            # raporlar ve 3B görüntüleyici kayıtları payload
+                            # ile eşliyor. None bırakılınca deneyin kolileri
+                            # çizilemiyordu. Kod gibi görünmemesi için
+                            # bilerek QR yükünden farklı bir biçim.
+                            "payload": f"UNLABELLED|{rid}|{bi+1:02d}|{li+1}",
                             "caption": sku,
                             "entity": f"inventory::{link}",
                             "row": rid, "bay": bi + 1, "level": li + 1,
