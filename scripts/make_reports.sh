@@ -83,6 +83,20 @@ if ls out/barcode_readings*.jsonl >/dev/null 2>&1; then
   run report/yolo_report.py --html out/yolo.html
 fi
 
+# The box detector as an inventory of cartons, when the flight kept a box log.
+# Separate from the barcode block above because it answers a different
+# question: not what was read, but what was THERE to read. Its ids are
+# assigned by proximity to ground truth and are not something the flight
+# decoded, which is why it writes its own inventory name and is never fed to
+# validate_inventory.py.
+if ls out/yolo_boxes_*.jsonl >/dev/null 2>&1; then
+  echo
+  echo "-- box detector --"
+  run report/box_inventory.py
+  run report/view_inventory.py --inventory out/inventory_boxes.json \
+      --out out/boxes_3d.html
+fi
+
 echo
 if [ "$failed" -eq 0 ]; then
   echo "== all reports written to out/ =="
