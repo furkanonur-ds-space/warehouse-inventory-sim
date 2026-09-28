@@ -208,6 +208,37 @@ codes:
   # Bu taviz gerçek dünyada da yapılıyor: drone ile envanter sayan depolar
   # (Verity, Corvus, Gather AI) rafları büyütülmüş kodlarla yeniden
   # etiketliyor, tam da bu yüzden.
+  # DENEY: kodu basılmayacak kutular, yüz/göz/seviye/kutu.
+  #
+  # Kutu her şeyiyle yerinde durur, yalnız QR ve barkod görselleri basılmaz.
+  # Sorulan soru: kodun okunacak hiçbir hâli yokken kutu dedektörü o koliyi
+  # bulabiliyor mu? Bulursa "burada okunmamış bir şey var" uyarısı gerçek bir
+  # kaçağı yakalayabilir demektir; bulamazsa uyarı tam ihtiyaç duyulan anda
+  # sessiz kalır.
+  #
+  # Dört yüze eşit dağıtıldı, çünkü cevabın koridor genişliğine göre
+  # değişmesi bekleniyor: A 2.40 m, C 1.77, E 1.13, G 0.50. YOLO'nun 2026-09-27
+  # uçuşunda kaçırdığı sekiz kolinin altısı G'deydi, ikisi E'de; A, B, C, D,
+  # F ve H'de hiçbiri. Deney o eğilimi ya doğrulayacak ya çürütecek.
+  #
+  # Göz, seviye ve kutu indisi de kasten çeşitlendirildi: hep alt rafı ya da
+  # hep göz ortasını seçmek, cevabı yükseklikle karıştırır.
+  #
+  # BOŞ BIRAKINCA dünya eskisiyle bit bit aynı olur - md5 ile doğrulandı.
+  # Değiştirince setup_px4.sh ve simülatörün yeniden başlatılması şart.
+  unlabelled_boxes:
+    - A/02/1/0
+    - A/04/2/1
+    - A/06/3/2
+    - C/02/1/1
+    - C/04/2/2
+    - C/06/3/0
+    - E/02/1/2
+    - E/04/2/0
+    - E/06/3/1
+    - G/02/1/0
+    - G/04/2/1
+    - G/06/3/2
   box_label:
     # Etiket, QR'ın quiet zone'una göre boyutlandırılmış: 70 mm kod + her
     # kenarda 4 modül (11.2 mm) -> 92.4 mm alt sınır, 95 mm seçildi.

@@ -400,6 +400,33 @@ def racking(cfg) -> str:
     return "".join(out)
 
 
+def parse_unlabelled(spec) -> set:
+    """
+    "G/01/2/0" gibi seçicileri (yüz, göz, seviye, kutu) kümeye çevirir.
+
+    Deney için: kodu olmayan bir kutuyu kutu dedektörü buluyor mu? Kutunun
+    kendisi yerinde durur, yalnız QR ve barkod görselleri basılmaz.
+
+    Seçici yanlışsa SESSİZ GEÇİLMEZ. Yazım hatası olan bir seçici hiçbir
+    kutuyla eşleşmez, deney de "YOLO hepsini buldu" diye biter - ki o sonuç
+    deneyin kurulmadığının işaretidir, başarısının değil.
+    """
+    out = set()
+    for item in spec or []:
+        parts = str(item).split("/")
+        if len(parts) != 4:
+            raise SystemExit(
+                f"unlabelled_boxes: '{item}' dört parça olmalı: "
+                "yüz/göz/seviye/kutu, örnek G/01/2/0")
+        row, bay, level, idx = parts
+        try:
+            out.add((row.strip().upper(), int(bay), int(level), int(idx)))
+        except ValueError:
+            raise SystemExit(
+                f"unlabelled_boxes: '{item}' içinde sayı olmayan alan var")
+    return out
+
+
 def inventory(cfg, rng, textures, manifest) -> str:
     """Raflardaki kutular, üzerlerindeki QR etiketleri ve konum barkodları."""
     rk, bx, codes = cfg["racking"], cfg["boxes"], cfg["codes"]
@@ -407,6 +434,12 @@ def inventory(cfg, rng, textures, manifest) -> str:
     levels, x0 = rk["level_heights"], rk["x_origin"]
     ppm, maxpx = codes["texture_px_per_m"], codes["max_texture_px"]
     spec = codes["box_label"]
+    # Kodu basılmayacak kutular. warehouse.yaml'da
+    #   codes.unlabelled_boxes: ["G/01/2/0", "G/03/1/1", ...]
+    # biçiminde, yüz/göz/seviye/kutu. Boşsa hiçbir şey değişmez ve dünya
+    # eskisiyle bit bit aynı kalır.
+    unlabelled = parse_unlabelled(codes.get("unlabelled_boxes"))
+    n_bare = 0
     lw, lh = spec["label"]
     # QR'ın kendi etiketinin merkezine göre yüksekliği; caption şeridi
     # kalkınca sıfır olur, ama hesap etiketten okunur, varsayılmaz.
@@ -483,11 +516,22 @@ def inventory(cfg, rng, textures, manifest) -> str:
                     pc_caption = gl.placard_caption(box_index)
                     pc_tex = f"placard_{rid}{bi+1:02d}{li+1}{si}.png"
 
+                    # ETİKETSİZ KUTU. Deney için: kod hiç basılmamış bir
+                    # kutuyu YOLO buluyor mu? Kutu her şeyiyle aynı yerde
+                    # duruyor, yalnız QR ve barkod görselleri basılmıyor.
+                    #
+                    # rng ÇEKİLİŞLERİ YUKARIDA, BU KONTROLÜN ÖNÜNDE KALIYOR.
+                    # sku ve shade zaten çekildi; burada atlanan tek şey
+                    # görsel üretimi. Çekilişi atlasaydık ondan sonraki her
+                    # kutunun SKU'su ve rengi kayardı, dünya baştan aşağı
+                    # değişirdi ve iki koşu karşılaştırılamazdı.
+                    bare = (rid, bi + 1, li + 1, si) in unlabelled
                     img, module_m = gl.make_box_label(payload, sku, spec, ppm, maxpx)
-                    textures[tex] = img
                     pc_img, pc_module_m = gl.make_bay_placard(pc_payload, pc_caption,
                                                               pc_spec, ppm, maxpx)
-                    textures[pc_tex] = pc_img
+                    if not bare:
+                        textures[tex] = img
+                        textures[pc_tex] = pc_img
 
                     link = f"box_{rid}_{bi+1:02d}_{li+1}_{si}"
                     shade = rng.uniform(0.88, 1.06)
@@ -521,11 +565,35 @@ def inventory(cfg, rng, textures, manifest) -> str:
 
                     off = LABEL_STANDOFF * (1 if facing > 0 else -1)
                     rpy = facing_rpy(facing)
-                    out.append(label_visual("label", tex, (lw, lh),
-                                            (cx, y_label + off, qr_z, *rpy), "      "))
-                    out.append(label_visual("placard", pc_tex, (pw, ph),
-                                            (cx, y_label + off, pc_z, *rpy), "      "))
+                    if not bare:
+                        out.append(label_visual("label", tex, (lw, lh),
+                                                (cx, y_label + off, qr_z, *rpy), "      "))
+                        out.append(label_visual("placard", pc_tex, (pw, ph),
+                                                (cx, y_label + off, pc_z, *rpy), "      "))
                     out.append("    </link>\n")
+
+                    if bare:
+                        # Kutu yerinde duruyor ama okunacak hiçbir şeyi yok.
+                        # Yer gerçeğine yine de yazılır, ÇÜNKÜ VAR: envanter
+                        # raporları kod tipine göre süzdüğü için bu kayıt
+                        # onların sayısına girmez, ama kutuyu sayan rapor onu
+                        # buradan bilir. Yazmasak "hiç olmayan kutu" ile
+                        # "kodu olmayan kutu" ayırt edilemezdi.
+                        manifest.append({
+                            "type": "box_unlabelled",
+                            "symbology": None,
+                            "payload": None,
+                            "caption": sku,
+                            "entity": f"inventory::{link}",
+                            "row": rid, "bay": bi + 1, "level": li + 1,
+                            "label_pose_xyzrpy": [round(cx, 4), round(y_label + off, 4),
+                                                  round(qr_z, 4), *[round(v, 6) for v in rpy]],
+                            "label_size_m": [lw, lh],
+                            "normal": [0.0, float(facing), 0.0],
+                        })
+                        n_box += 1
+                        n_bare += 1
+                        continue
 
                     manifest.append({
                         "type": "box_qr",
@@ -557,6 +625,13 @@ def inventory(cfg, rng, textures, manifest) -> str:
 
     out.append("  </model>\n")
     print(f"  kutu           : {n_box}")
+    if n_bare:
+        print(f"  ETİKETSİZ      : {n_bare} kutu kodsuz basıldı (deney)")
+        if n_bare != len(unlabelled):
+            raise SystemExit(
+                f"unlabelled_boxes {len(unlabelled)} kutu istedi, {n_bare} "
+                "tanesi eşleşti - seçicilerden biri hiçbir kutuya denk "
+                "gelmiyor, deney kurulmadan uçulurdu")
     for aisle in rk["aisles"]:
         rows_here = [r["id"] for r in rk["rows"] if r["aisle"] == aisle["id"]]
         names = sorted(set().union(*(used_sizes[r] for r in rows_here)),
