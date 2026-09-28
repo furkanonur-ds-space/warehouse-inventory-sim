@@ -76,6 +76,27 @@ CLUSTER_M = 0.30
 # expected and is not a failure to find it.
 MATCH_M = 0.60
 
+# How near a DECODED code has to sit for a carton to count as read.
+#
+# Not the per-frame test it replaces. `covered` asks whether a code polygon
+# landed inside the carton's own pixels in that frame, and that fails whenever
+# the model does not box the carton at the moment its code is readable, which
+# is exactly when the carton fills the frame. On the 2026-09-27 flight, which
+# read 432 of 432, the per-frame test left 129 cartons looking unread. Matching
+# the two lists in three dimensions instead leaves 21.
+#
+# Measured on that flight, as the share of real cartons wrongly called unread:
+#     0.40 m   15.1 %
+#     0.50 m    2.6 %      <- this
+#     0.60 m    0.4 %
+#
+# It does not keep going down usefully. Cartons stand about 0.40 m apart, so a
+# radius past 0.5 m reaches the neighbour and a genuinely unread carton beside
+# a read one is quietly called read. With the cluster position itself good to
+# 0.157 m, the honest reading of this warning is AT BAY LEVEL: something in
+# this bay was not read. It cannot name which of two neighbours.
+CODE_RADIUS_M = 0.50
+
 
 def box_logs(out: Path) -> list[Path]:
     return sorted(out.glob("yolo_boxes_*.jsonl"))
@@ -165,6 +186,34 @@ def cluster(spots: list[dict], radius: float) -> list[dict]:
     return out
 
 
+def decoded_places(out: Path) -> list[tuple]:
+    """
+    Where the run actually read a code, from the inventories it wrote.
+
+    Both inventories, because the two labels fail independently: a carton
+    whose QR read and whose barcode did not has been read, and warning about
+    it would be false. Missing files are not an error - a flight with no
+    reader leaves none and then every carton is unread, which is true.
+    """
+    places = []
+    for name in ("inventory_barcode.json", "inventory_scanned.json"):
+        path = out / name
+        if not path.exists():
+            continue
+        try:
+            body = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            continue
+        for item in body.get("items", []):
+            try:
+                places.append((float(item["estimated_x"]),
+                               float(item["estimated_y"]),
+                               float(item["estimated_z"])))
+            except (KeyError, TypeError, ValueError):
+                continue
+    return places
+
+
 def true_cartons(path: Path = GROUND_TRUTH) -> list[dict]:
     """Every carton that is really there, from its own QR label's pose."""
     truth = json.loads(Path(path).read_text())
@@ -204,7 +253,8 @@ def match(clusters: list[dict], cartons: list[dict], limit: float):
     return out
 
 
-def build(out_dir: Path, min_area: float, radius: float, limit: float) -> dict:
+def build(out_dir: Path, min_area: float, radius: float, limit: float,
+          code_radius: float = CODE_RADIUS_M) -> dict:
     paths = box_logs(out_dir)
     if not paths:
         return {"used": False}
@@ -228,6 +278,16 @@ def build(out_dir: Path, min_area: float, radius: float, limit: float) -> dict:
     clusters = cluster(spots, radius)
     cartons = true_cartons()
     pairing = match(clusters, cartons, limit)
+
+    # THE WARNING. A carton the detector placed, with no code decoded anywhere
+    # near it, is one the run saw and did not read. In a warehouse with no
+    # ground truth this is the only thing that can raise a hand.
+    codes = decoded_places(out_dir)
+    for c in clusters:
+        near = min((math.dist((c["x"], c["y"], c["z"]), k) for k in codes),
+                   default=None)
+        c["code_m"] = round(near, 3) if near is not None else None
+        c["read"] = near is not None and near <= code_radius
 
     errors = sorted(d for _, d in pairing.values())
     found = {ti for ti, _ in pairing.values()}
@@ -262,6 +322,8 @@ def build(out_dir: Path, min_area: float, radius: float, limit: float) -> dict:
             "best_area_px": round(c["best_area"]),
             "best_conf": round(c["best_conf"], 3),
             "error_m": round(hit[1], 3) if hit else None,
+            "nearest_code_m": c["code_m"],
+            "read": c["read"],
         })
 
     return {
@@ -289,6 +351,11 @@ def build(out_dir: Path, min_area: float, radius: float, limit: float) -> dict:
         },
         "missed": sorted(c["payload"] for i, c in enumerate(cartons)
                          if i not in found),
+        "seen_but_not_read": sorted(
+            {cartons[pairing[ci][0]]["payload"]
+             for ci, c in enumerate(clusters)
+             if ci in pairing and not c["read"]}),
+        "code_radius_m": code_radius,
         "items": items,
     }
 
@@ -321,6 +388,20 @@ def render(data: dict) -> str:
                      f"p95 {pe['p95_m']} m, max {pe['max_m']} m")
         lines.append("  (placed at the shelf plane, so read this as a sanity "
                      "check, not a measurement)")
+    warn = data.get("seen_but_not_read") or []
+    lines += ["",
+              f"SEEN AND NOT READ: {len(warn)} cartons placed with no decoded "
+              f"code within {data['code_radius_m']} m"]
+    if warn:
+        show = warn[:15]
+        lines.append("  " + ", ".join(show)
+                     + (" ..." if len(warn) > len(show) else ""))
+    lines.append("  This is the warning a warehouse with no ground truth "
+                 "would act on. Read it at BAY")
+    lines.append("  level: cartons stand 0.40 m apart and a cluster is good "
+                 "to 0.157 m, so it cannot")
+    lines.append("  tell which of two neighbours went unread.")
+
     if data["missed"]:
         show = data["missed"][:15]
         lines += ["", "cartons the detector never saw:"]
@@ -340,6 +421,9 @@ def main() -> int:
     ap.add_argument("--cluster", type=float, default=CLUSTER_M,
                     help=f"sightings nearer than this are one carton "
                          f"(default {CLUSTER_M} m)")
+    ap.add_argument("--code-radius", type=float, default=CODE_RADIUS_M,
+                    help=f"a carton with no decoded code this near was seen "
+                         f"and not read (default {CODE_RADIUS_M} m)")
     ap.add_argument("--match", type=float, default=MATCH_M,
                     help=f"how near a cluster must land to be called that "
                          f"carton (default {MATCH_M} m)")
@@ -350,7 +434,8 @@ def main() -> int:
                          "view_inventory.py can draw them")
     args = ap.parse_args()
 
-    data = build(args.out_dir, args.min_area, args.cluster, args.match)
+    data = build(args.out_dir, args.min_area, args.cluster, args.match,
+                 args.code_radius)
     print(render(data))
     args.json.parent.mkdir(parents=True, exist_ok=True)
     args.json.write_text(json.dumps(data, indent=2, ensure_ascii=False))
