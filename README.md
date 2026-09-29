@@ -56,6 +56,25 @@ Everything is local. No sudo, nothing installed system wide.
     ./scripts/run_sim.sh 1250      # 1250 steps, five seconds of sim time
     ./scripts/run_sim.sh           # until interrupted
 
+Against a real board:
+
+    ./scripts/check_link.sh 192.168.101.2      # can this machine reach it
+    ./scripts/run_hitl.sh -i 192.168.101.2     # real time, until Ctrl+C
+    ./scripts/run_hitl.sh -i 192.168.101.2 -g  # with the Gazebo window
+
+`run_hitl.sh` writes the address into a generated copy of the world and
+checks that it arrived, since a world still pointed at 127.0.0.1 looks from
+here exactly like a board that is not answering. The board is answering
+when the bridge's report shows `| back: actuators` above 0 Hz.
+
+Under WSL2 the USB link is only visible if WSL shares Windows' network:
+`networkingMode=mirrored` under `[wsl2]` in `.wslconfig`, then
+`wsl --shutdown`. `check_link.sh` says so when the ping fails.
+
+What was checked against ModalAI's own sources before any board was
+connected, motor order and the range of a motor command, is in
+`docs/voxl2_compatibility.md`.
+
 ## Measured on 2026-09-24, stage 4
 
     ODOMETRY 243 Hz, frames LOCAL_NED / BODY_FRD
