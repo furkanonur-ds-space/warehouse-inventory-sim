@@ -231,6 +231,11 @@ codes:
   #
   # BOŞ BIRAKINCA dünya eskisiyle bit bit aynı olur - md5 ile doğrulandı.
   # Değiştirince setup_px4.sh ve simülatörün yeniden başlatılması şart.
+  #
+  # unlabelled_all: true -> 432 kutunun HİÇBİRİNE kod basılmaz, liste yok
+  # sayılır. Soru: hiçbir şey okunamazken YOLO depoyu tek başına sayabilir
+  # mi? false yapınca aşağıdaki liste aynen geri gelir.
+  unlabelled_all: false
   unlabelled_boxes:
     - A/03/3/0
     - A/04/3/0

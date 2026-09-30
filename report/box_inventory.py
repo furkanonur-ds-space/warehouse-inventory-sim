@@ -326,7 +326,8 @@ def true_cartons(path: Path = GROUND_TRUTH) -> list[dict]:
             continue
         x, y, z = c["label_pose_xyzrpy"][:3]
         payload = c.get("payload") or (
-            f"UNLABELLED|{c.get('row')}|{c.get('bay'):02d}|{c.get('level')}")
+            f"UNLABELLED|{c.get('row')}|{c.get('bay'):02d}|{c.get('level')}|"
+            f"{c.get('entity', '').rsplit('_', 1)[-1]}")
         z = heights.get(c.get("entity", "").split("::")[-1], z)
         out.append({"payload": payload, "row": c.get("row"),
                     "bay": c.get("bay"), "level": c.get("level"),

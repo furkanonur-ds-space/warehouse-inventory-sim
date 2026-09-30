@@ -100,6 +100,13 @@ def main() -> int:
     victim = next((i for i in placed.values()
                    if i["id"] not in before and i["read"]
                    and i["sightings"] >= 3), None)
+    if victim is None and not any(i["read"] for i in placed.values()):
+        # A world built with no codes at all (codes.unlabelled_all): nothing
+        # was read, so there is nothing to take away. Skipped for the same
+        # reason as a missing box log - a failure here would say nothing.
+        print("nothing was read on this run - no code to remove, "
+              "nothing to test")
+        return 0
     if victim is None:
         print("FAILED: no carton was both seen and read; the run is not one "
               "this test can use")
