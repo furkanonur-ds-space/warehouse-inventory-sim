@@ -50,19 +50,49 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from warehouse_model import GROUND_TRUTH, LAYOUT, REPO_ROOT, cameras
+from warehouse_model import (GROUND_TRUTH, LAYOUT, REPO_ROOT, WORLD_SDF,
+                             cameras, load_config)
 from barcode_inventory import LANE_MARGIN_M, faces_by_name, place
+import carton_edges
 
 OUT = REPO_ROOT / "out"
 
 # Below this a sighting is dropped. See the threshold note in the docstring.
 MIN_AREA_PX = 20000.0
+
+# A box nearer the frame's side edge than this is cut off by the frame, and
+# its centre is not the carton's: it sits between the carton's one visible
+# edge and the frame edge, which drags it towards the middle of the frame.
+# Measured on the 2026-09-29 flight, a box cut off on the left landed a median
+# 0.16-0.25 m to one side of its carton and one cut off on the right the same
+# distance to the other, on every face. 60 per cent of the front camera's boxes
+# and 26 per cent of the rear's are cut off like this, so dropping them costs
+# 64 cartons; they are kept for FINDING a carton and left out of WHERE it is.
+EDGE_PX = 3.0
+
+# How much further away than the face a box may look before it is not on the
+# face. The detector also boxes cartons deeper in the rack, seen through the
+# gap between two on the face, and the placement pins every box to the face's
+# plane - so a carton two metres back lands on the face beside a real one, as
+# a spurious cluster or as a wrong position for the real one. Its apparent
+# height gives it away: the shortest carton the warehouse stocks, standing on
+# the face, can look no shorter than it does at the face's own distance.
+#
+# Measured on the 2026-09-29 flight, as cartons more than 0.25 m out:
+#     no gate  101     1.15 to 1.5   74-76     2.0  86     3.0  101
+# Flat between 1.15 and 1.5, so the looser end is taken. It lifted cartons
+# found from 426 to 430 and the unlabelled ones from 15 to 16 of 16, because
+# the far boxes were also pulling real clusters off their cartons.
+# A box cut off at the top or bottom of the frame has no true height and is
+# not judged by it.
+RANGE_GATE = 1.5
 
 # Two sightings closer than this are the same carton. The boxes sit about
 # 0.40 m apart along a shelf, so this cannot reach the neighbour; it is
@@ -92,9 +122,18 @@ MATCH_M = 0.60
 #
 # It does not keep going down usefully. Cartons stand about 0.40 m apart, so a
 # radius past 0.5 m reaches the neighbour and a genuinely unread carton beside
-# a read one is quietly called read. With the cluster position itself good to
-# 0.157 m, the honest reading of this warning is AT BAY LEVEL: something in
-# this bay was not read. It cannot name which of two neighbours.
+# a read one is quietly called read. The honest reading of this warning is AT
+# BAY LEVEL: something in this bay was not read. It cannot name which of two
+# neighbours.
+#
+# The table above was measured when a cluster was good to 0.157 m. Since the
+# range gate and the cut boxes it is good to 0.06, and on the 2026-09-29
+# flight this radius then warns about 13 of the 16 cartons with no code and 3
+# that were read, against 14 and 1 before. Re-measured, nothing is simply
+# better: 0.35 m warns about all 16 and 23 read ones, 0.60 m about 10 and none,
+# and letting each code clear only the cluster nearest to it gives 16 and 7.
+# The distance is to where the codes were read, and a label is not at its
+# carton's middle, so a better cluster does not by itself make a better test.
 CODE_RADIUS_M = 0.50
 
 
@@ -116,6 +155,7 @@ def sightings(paths, min_area: float) -> tuple[list[dict], int]:
             if not line.strip():
                 continue
             row = json.loads(line)
+            frame_w, frame_h = row.get("frame_px") or (math.inf, math.inf)
             for b in row.get("boxes", []):
                 x0, y0, x1, y1 = b["box"]
                 area = (x1 - x0) * (y1 - y0)
@@ -130,6 +170,10 @@ def sightings(paths, min_area: float) -> tuple[list[dict], int]:
                     "frame_px": row.get("frame_px"),
                     "camera_link": row.get("camera_link", ""),
                     "centre": [(x0 + x1) / 2.0, (y0 + y1) / 2.0],
+                    "height_px": y1 - y0,
+                    "x_edges": [x0, x1],
+                    "cut_side": x0 < EDGE_PX or x1 > frame_w - EDGE_PX,
+                    "cut_top": y0 < EDGE_PX or y1 > frame_h - EDGE_PX,
                     "area": area,
                     "conf": b.get("conf", 0.0),
                     "covered": bool(b.get("covered")),
@@ -145,7 +189,29 @@ def geometry_of(layout_path: Path = LAYOUT) -> dict:
         "faces": faces_by_name(layout_path),
         "code_plane": layout.get("code_plane_offset_m", 0.0),
         "flight_z": layout["flight_z"],
+        "shortest_carton_m": shortest_carton_m(),
     }
+
+
+def shortest_carton_m() -> float:
+    """The lowest front face of any carton size, from warehouse.yaml."""
+    return min(s["dims"][2] for s in load_config()["boxes"]["sizes"])
+
+
+def too_far(s: dict, spot: dict, geometry: dict, gate: float) -> bool:
+    """
+    Whether a box looks too small to be standing on the face it was placed on.
+    See RANGE_GATE.
+    """
+    if s["cut_top"] or s["height_px"] <= 0:
+        return False
+    which = "rear" if "rear" in s.get("camera_link", "") else "hires"
+    spec = geometry["cameras"][which]
+    focal = (s["frame_px"][0] / 2) / math.tan(math.radians(spec["hfov_deg"]) / 2)
+    face = geometry["faces"][spot["shelf"]]
+    depth = abs(face["face_x"] - s["uav"]["x"]) - spec["mount_x"]
+    looks = geometry["shortest_carton_m"] * focal / s["height_px"]
+    return looks > gate * depth
 
 
 def cluster(spots: list[dict], radius: float) -> list[dict]:
@@ -157,6 +223,11 @@ def cluster(spots: list[dict], radius: float) -> list[dict]:
     ones belonging to a carton arrive together, and a carton the vehicle
     passes twice makes two clusters that both match it and the second is
     reported as a duplicate rather than silently merged.
+
+    A cluster sits where its whole boxes put it, and only where none of its
+    boxes is whole does it fall back on the cut ones. See EDGE_PX. Such a
+    cluster is moved again afterwards, by report/carton_edges.py, which is
+    why each keeps the sightings it was made of.
     """
     out: list[dict] = []
     r2 = radius * radius
@@ -170,16 +241,25 @@ def cluster(spots: list[dict], radius: float) -> list[dict]:
                 hit = c
                 break
         if hit is None:
-            out.append({"x": s["x"], "y": s["y"], "z": s["z"], "n": 1,
-                        "shelf": s["shelf"], "level": s["level"],
-                        "camera": s["camera"], "covered": int(s["covered"]),
-                        "best_area": s["area"], "best_conf": s["conf"]})
-            continue
-        n = hit["n"] + 1
-        hit["x"] += (s["x"] - hit["x"]) / n
-        hit["y"] += (s["y"] - hit["y"]) / n
-        hit["z"] += (s["z"] - hit["z"]) / n
-        hit["n"] = n
+            hit = {"n": 0, "all": [0.0, 0.0, 0.0], "whole": [0.0, 0.0, 0.0],
+                   "n_whole": 0, "members": [], "placed_by": "cut boxes",
+                   "shelf": s["shelf"], "level": s["level"],
+                   "camera": s["camera"], "covered": 0,
+                   "best_area": s["area"], "best_conf": s["conf"]}
+            out.append(hit)
+        hit["n"] += 1
+        hit["members"].append(s.get("sid"))
+        for i, k in enumerate("xyz"):
+            hit["all"][i] += s[k]
+        if not s.get("cut_side"):
+            hit["n_whole"] += 1
+            for i, k in enumerate("xyz"):
+                hit["whole"][i] += s[k]
+        total, n = ((hit["whole"], hit["n_whole"]) if hit["n_whole"]
+                    else (hit["all"], hit["n"]))
+        if hit["n_whole"]:
+            hit["placed_by"] = "whole boxes"
+        hit["x"], hit["y"], hit["z"] = (v / n for v in total)
         hit["covered"] += int(s["covered"])
         hit["best_area"] = max(hit["best_area"], s["area"])
         hit["best_conf"] = max(hit["best_conf"], s["conf"])
@@ -228,8 +308,17 @@ def true_cartons(path: Path = GROUND_TRUTH) -> list[dict]:
     They carry no payload, so they are named by position instead. Nothing
     downstream reads that name as something decoded - see the note about
     assigned ids at the top of this file.
+
+    THE HEIGHT IS THE CARTON'S, NOT THE LABEL'S. The detector boxes the
+    carton, so a cluster sits at the carton's middle, and the QR label is
+    stuck 0.06 m above it on a small carton and 0.12 m on a large one. Scored
+    against the label that difference came out as a constant error on every
+    carton on every face - about a third of the reported error and none of it
+    the detector's. The height is read from the generated world, where the
+    carton is built, and the label's is kept only if the world is missing.
     """
     truth = json.loads(Path(path).read_text())
+    heights = carton_heights()
     out = []
     for c in truth.get("codes", []):
         kind = c.get("type")
@@ -238,11 +327,22 @@ def true_cartons(path: Path = GROUND_TRUTH) -> list[dict]:
         x, y, z = c["label_pose_xyzrpy"][:3]
         payload = c.get("payload") or (
             f"UNLABELLED|{c.get('row')}|{c.get('bay'):02d}|{c.get('level')}")
+        z = heights.get(c.get("entity", "").split("::")[-1], z)
         out.append({"payload": payload, "row": c.get("row"),
                     "bay": c.get("bay"), "level": c.get("level"),
                     "unlabelled": kind == "box_unlabelled",
                     "x": x, "y": y, "z": z})
     return out
+
+
+def carton_heights(world: Path = WORLD_SDF) -> dict:
+    """The middle height of every carton body in the generated world."""
+    if not world.exists():
+        return {}
+    found = re.finditer(
+        r'<link name="(box_[^"]+)">\s*<visual name="body">\s*<pose>([^<]+)</pose>',
+        world.read_text())
+    return {m.group(1): float(m.group(2).split()[2]) for m in found}
 
 
 def match(clusters: list[dict], cartons: list[dict], limit: float):
@@ -271,7 +371,8 @@ def match(clusters: list[dict], cartons: list[dict], limit: float):
 
 
 def build(out_dir: Path, min_area: float, radius: float, limit: float,
-          code_radius: float = CODE_RADIUS_M) -> dict:
+          code_radius: float = CODE_RADIUS_M,
+          gate: float = RANGE_GATE) -> dict:
     paths = box_logs(out_dir)
     if not paths:
         return {"used": False}
@@ -279,7 +380,7 @@ def build(out_dir: Path, min_area: float, radius: float, limit: float,
     geometry = geometry_of()
     ground = min(geometry["flight_z"]) - LANE_MARGIN_M
     raw, dropped = sightings(paths, min_area)
-    spots, off_lane, unplaced = [], 0, 0
+    spots, placed_from, off_lane, unplaced, behind = [], [], 0, 0, 0
     for s in raw:
         uav = s.get("uav")
         if uav and uav.get("z", 0.0) < ground:
@@ -289,10 +390,19 @@ def build(out_dir: Path, min_area: float, radius: float, limit: float,
         if spot is None:
             unplaced += 1
             continue
-        spot.update(area=s["area"], conf=s["conf"], covered=s["covered"])
+        if too_far(s, spot, geometry, gate):
+            behind += 1
+            continue
+        spot.update(area=s["area"], conf=s["conf"], covered=s["covered"],
+                    cut_side=s["cut_side"], sid=len(spots))
         spots.append(spot)
+        placed_from.append(s)
 
     clusters = cluster(spots, radius)
+    corners, of_sid = carton_edges.corners(placed_from, spots, geometry,
+                                           EDGE_PX)
+    from_corners, of_corner = carton_edges.cartons_from(corners)
+    moved = carton_edges.replace(clusters, from_corners, of_corner, of_sid)
     cartons = true_cartons()
     pairing = match(clusters, cartons, limit)
 
@@ -346,6 +456,7 @@ def build(out_dir: Path, min_area: float, radius: float, limit: float,
             "sightings_with_a_code": c["covered"],
             "best_area_px": round(c["best_area"]),
             "best_conf": round(c["best_conf"], 3),
+            "placed_by": c["placed_by"],
             "error_m": round(hit[1], 3) if hit else None,
             "nearest_code_m": c["code_m"],
             "read": c["read"],
@@ -356,10 +467,24 @@ def build(out_dir: Path, min_area: float, radius: float, limit: float,
         "generated": datetime.now().isoformat(timespec="seconds"),
         "logs": [p.name for p in paths],
         "settings": {"min_area_px": min_area, "cluster_m": radius,
-                     "match_m": limit},
+                     "match_m": limit, "range_gate": gate,
+                     "edge_px": EDGE_PX},
         "sightings": {"kept": len(raw), "below_area": dropped,
                       "off_lane": off_lane, "unplaceable": unplaced,
+                      "behind_the_face": behind,
+                      "cut_by_frame_side": sum(1 for s in spots
+                                               if s["cut_side"]),
                       "placed": len(spots)},
+        "corners": {
+            "followed": len(corners),
+            "cartons_from_pairs": sum(1 for c in from_corners
+                                      if c["from"] == "pair"),
+            "cartons_from_one_corner": sum(1 for c in from_corners
+                                           if c["from"] != "pair"),
+            "clusters_never_seen_whole": sum(1 for c in clusters
+                                             if not c["n_whole"]),
+            "clusters_moved": moved,
+        },
         "cartons": {
             "clusters": len(clusters),
             "true_total": len(cartons),
@@ -401,7 +526,14 @@ def render(data: dict) -> str:
         "Cartons the box detector found",
         f"  sightings kept {sg['kept']} (dropped {sg['below_area']} under "
         f"{s['min_area_px']:.0f} px), placed {sg['placed']}",
+        f"  dropped {sg.get('behind_the_face', 0)} too small to be on the face "
+        f"(deeper in the rack); {sg.get('cut_by_frame_side', 0)} cut by the "
+        f"frame side, used to find but not to place",
         f"  clustered into {c['clusters']} cartons at {s['cluster_m']} m",
+        f"  {data['corners']['clusters_never_seen_whole']} never seen whole; "
+        f"{data['corners']['clusters_moved']} of them placed from "
+        f"{data['corners']['followed']} carton corners followed across "
+        f"frames",
         "",
         f"  FOUND {c['found']} of {c['true_total']} cartons  ({pct:.1f} %)",
         f"  never detected            {c['never_detected']}",
@@ -416,8 +548,8 @@ def render(data: dict) -> str:
     if pe["median_m"] is not None:
         lines.append(f"  position error median {pe['median_m']} m, "
                      f"p95 {pe['p95_m']} m, max {pe['max_m']} m")
-        lines.append("  (placed at the shelf plane, so read this as a sanity "
-                     "check, not a measurement)")
+        lines.append("  against the carton's middle; its depth is assumed at "
+                     "the shelf plane, not measured")
     warn = data.get("seen_but_not_read") or []
     lines += ["",
               f"SEEN AND NOT READ: {len(warn)} cartons placed with no decoded "
@@ -428,8 +560,8 @@ def render(data: dict) -> str:
                      + (" ..." if len(warn) > len(show) else ""))
     lines.append("  This is the warning a warehouse with no ground truth "
                  "would act on. Read it at BAY")
-    lines.append("  level: cartons stand 0.40 m apart and a cluster is good "
-                 "to 0.157 m, so it cannot")
+    lines.append("  level: cartons stand 0.40 m apart and a label is not at "
+                 "its carton's middle, so it cannot")
     lines.append("  tell which of two neighbours went unread.")
 
     bare = data.get("unlabelled") or {}
@@ -469,6 +601,9 @@ def main() -> int:
     ap.add_argument("--match", type=float, default=MATCH_M,
                     help=f"how near a cluster must land to be called that "
                          f"carton (default {MATCH_M} m)")
+    ap.add_argument("--range-gate", type=float, default=RANGE_GATE,
+                    help=f"drop a box that looks this many times further away "
+                         f"than the face (default {RANGE_GATE})")
     ap.add_argument("--json", type=Path, default=OUT / "box_report.json")
     ap.add_argument("--experiment-inventory", type=Path,
                     default=OUT / "inventory_boxes_unlabelled.json",
@@ -482,7 +617,7 @@ def main() -> int:
     args = ap.parse_args()
 
     data = build(args.out_dir, args.min_area, args.cluster, args.match,
-                 args.code_radius)
+                 args.code_radius, args.range_gate)
     print(render(data))
     args.json.parent.mkdir(parents=True, exist_ok=True)
     args.json.write_text(json.dumps(data, indent=2, ensure_ascii=False))
