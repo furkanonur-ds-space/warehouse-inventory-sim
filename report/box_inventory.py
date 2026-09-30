@@ -354,10 +354,16 @@ def match(clusters: list[dict], cartons: list[dict], limit: float):
     them in flight order lets an early, badly placed cluster claim a carton
     that a later and much closer one wanted, and the carton then reads as
     found at 0.5 m when it was found at 0.05.
+
+    Only on the face the cluster was placed on. The 0.50 m aisle puts the
+    carton across it inside the limit, and on 2026-09-30 clusters on face H
+    were being scored as G cartons.
     """
     pairs = []
     for ci, c in enumerate(clusters):
         for ti, t in enumerate(cartons):
+            if c["shelf"] != t["row"]:
+                continue
             d = math.dist((c["x"], c["y"], c["z"]), (t["x"], t["y"], t["z"]))
             if d <= limit:
                 pairs.append((d, ci, ti))
