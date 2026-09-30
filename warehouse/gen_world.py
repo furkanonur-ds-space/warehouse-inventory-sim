@@ -439,6 +439,9 @@ def inventory(cfg, rng, textures, manifest) -> str:
     # biçiminde, yüz/göz/seviye/kutu. Boşsa hiçbir şey değişmez ve dünya
     # eskisiyle bit bit aynı kalır.
     unlabelled = parse_unlabelled(codes.get("unlabelled_boxes"))
+    # Hepsi birden: deponun HİÇBİR kutusunda kod yok. Liste yerinde kalır ki
+    # anahtar kapanınca önceki deney aynen geri gelsin.
+    every = bool(codes.get("unlabelled_all"))
     n_bare = 0
     lw, lh = spec["label"]
     # QR'ın kendi etiketinin merkezine göre yüksekliği; caption şeridi
@@ -525,7 +528,7 @@ def inventory(cfg, rng, textures, manifest) -> str:
                     # görsel üretimi. Çekilişi atlasaydık ondan sonraki her
                     # kutunun SKU'su ve rengi kayardı, dünya baştan aşağı
                     # değişirdi ve iki koşu karşılaştırılamazdı.
-                    bare = (rid, bi + 1, li + 1, si) in unlabelled
+                    bare = every or (rid, bi + 1, li + 1, si) in unlabelled
                     img, module_m = gl.make_box_label(payload, sku, spec, ppm, maxpx)
                     pc_img, pc_module_m = gl.make_bay_placard(pc_payload, pc_caption,
                                                               pc_spec, ppm, maxpx)
@@ -587,7 +590,13 @@ def inventory(cfg, rng, textures, manifest) -> str:
                             # ile eşliyor. None bırakılınca deneyin kolileri
                             # çizilemiyordu. Kod gibi görünmemesi için
                             # bilerek QR yükünden farklı bir biçim.
-                            "payload": f"UNLABELLED|{rid}|{bi+1:02d}|{li+1}",
+                            #
+                            # Sondaki kutu sırası şart: bir gözün bir
+                            # seviyesinde üç kutu var. Onsuz 432 kodsuz kutu
+                            # 144 ada düşüyordu ve raporlar üçte birini
+                            # sayıyordu; 16'lık deneyde her seçici ayrı bir
+                            # gözdeydi, o yüzden görünmemişti.
+                            "payload": f"UNLABELLED|{rid}|{bi+1:02d}|{li+1}|{si}",
                             "caption": sku,
                             "entity": f"inventory::{link}",
                             "row": rid, "bay": bi + 1, "level": li + 1,
@@ -632,7 +641,7 @@ def inventory(cfg, rng, textures, manifest) -> str:
     print(f"  kutu           : {n_box}")
     if n_bare:
         print(f"  ETİKETSİZ      : {n_bare} kutu kodsuz basıldı (deney)")
-        if n_bare != len(unlabelled):
+        if not every and n_bare != len(unlabelled):
             raise SystemExit(
                 f"unlabelled_boxes {len(unlabelled)} kutu istedi, {n_bare} "
                 "tanesi eşleşti - seçicilerden biri hiçbir kutuya denk "

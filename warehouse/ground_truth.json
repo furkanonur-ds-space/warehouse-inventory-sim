@@ -1349,7 +1349,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": "UNLABELLED|A|03|3",
+      "payload": "UNLABELLED|A|03|3|0",
       "caption": "SKU27331",
       "entity": "inventory::box_A_03_3_0",
       "row": "A",
@@ -1824,7 +1824,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": "UNLABELLED|A|04|3",
+      "payload": "UNLABELLED|A|04|3|0",
       "caption": "SKU35924",
       "entity": "inventory::box_A_04_3_0",
       "row": "A",
@@ -3979,7 +3979,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": "UNLABELLED|B|03|1",
+      "payload": "UNLABELLED|B|03|1|0",
       "caption": "SKU34536",
       "entity": "inventory::box_B_03_1_0",
       "row": "B",
@@ -5574,7 +5574,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": "UNLABELLED|B|06|1",
+      "payload": "UNLABELLED|B|06|1|2",
       "caption": "SKU65825",
       "entity": "inventory::box_B_06_1_2",
       "row": "B",
@@ -7561,7 +7561,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": "UNLABELLED|C|04|1",
+      "payload": "UNLABELLED|C|04|1|2",
       "caption": "SKU15660",
       "entity": "inventory::box_C_04_1_2",
       "row": "C",
@@ -8260,7 +8260,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": "UNLABELLED|C|05|3",
+      "payload": "UNLABELLED|C|05|3|0",
       "caption": "SKU52257",
       "entity": "inventory::box_C_05_3_0",
       "row": "C",
@@ -9407,7 +9407,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": "UNLABELLED|D|02|1",
+      "payload": "UNLABELLED|D|02|1|0",
       "caption": "SKU21488",
       "entity": "inventory::box_D_02_1_0",
       "row": "D",
@@ -10386,7 +10386,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": "UNLABELLED|D|04|1",
+      "payload": "UNLABELLED|D|04|1|0",
       "caption": "SKU39081",
       "entity": "inventory::box_D_04_1_0",
       "row": "D",
@@ -12709,7 +12709,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": "UNLABELLED|E|02|3",
+      "payload": "UNLABELLED|E|02|3|0",
       "caption": "SKU57476",
       "entity": "inventory::box_E_02_3_0",
       "row": "E",
@@ -13968,7 +13968,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": "UNLABELLED|E|05|1",
+      "payload": "UNLABELLED|E|05|1|2",
       "caption": "SKU50919",
       "entity": "inventory::box_E_05_1_2",
       "row": "E",
@@ -16123,7 +16123,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": "UNLABELLED|F|03|2",
+      "payload": "UNLABELLED|F|03|2|2",
       "caption": "SKU16821",
       "entity": "inventory::box_F_03_2_2",
       "row": "F",
@@ -16486,7 +16486,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": "UNLABELLED|F|04|2",
+      "payload": "UNLABELLED|F|04|2|0",
       "caption": "SKU92692",
       "entity": "inventory::box_F_04_2_0",
       "row": "F",
@@ -18025,7 +18025,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": "UNLABELLED|G|01|2",
+      "payload": "UNLABELLED|G|01|2|1",
       "caption": "SKU24294",
       "entity": "inventory::box_G_01_2_1",
       "row": "G",
@@ -20684,7 +20684,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": "UNLABELLED|G|06|3",
+      "payload": "UNLABELLED|G|06|3|1",
       "caption": "SKU98278",
       "entity": "inventory::box_G_06_3_1",
       "row": "G",
@@ -20767,7 +20767,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": "UNLABELLED|H|01|1",
+      "payload": "UNLABELLED|H|01|1|0",
       "caption": "SKU66905",
       "entity": "inventory::box_H_01_1_0",
       "row": "H",
@@ -22530,7 +22530,7 @@
     {
       "type": "box_unlabelled",
       "symbology": null,
-      "payload": "UNLABELLED|H|04|2",
+      "payload": "UNLABELLED|H|04|2|2",
       "caption": "SKU63118",
       "entity": "inventory::box_H_04_2_2",
       "row": "H",
