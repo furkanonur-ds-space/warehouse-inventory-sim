@@ -252,6 +252,14 @@ def main() -> int:
         rows.extend(got)
         per_camera[camera_of(name)] += len(got)
     if not rows:
+        # The reader flew and read nothing. The inventory left in out/ is then
+        # the PREVIOUS flight's, and everything downstream would take it for
+        # this one's: on the 2026-09-30 flight over a world with no codes at
+        # all, box_inventory.py read 416 stale codes from it and called 411
+        # unread cartons read. Nothing read is an answer; an old file is not.
+        if args.out.exists():
+            args.out.unlink()
+            print("removed %s: it was from an earlier flight" % args.out)
         raise SystemExit("no barcode readings in %s" % ", ".join(names))
 
     inv = build(rows, args.ground_truth)
