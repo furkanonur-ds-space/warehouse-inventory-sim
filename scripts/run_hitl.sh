@@ -58,6 +58,11 @@ if ! grep -q "<mavlink_addr>$ADDR</mavlink_addr>" "$WORLD"; then
   exit 1
 fi
 
+# Keep Gazebo's own discovery on this machine. It finds the GUI and the
+# server by multicast, and with WSL sharing Windows' network (mirrored mode,
+# which the board needs) there is no route for it: "Exception sending a
+# multicast message: Network is unreachable". PX4 starts Gazebo the same way.
+export GZ_IP=127.0.0.1
 export GZ_SIM_SYSTEM_PLUGIN_PATH="$ROOT/build:$GZ_SIM_SYSTEM_PLUGIN_PATH"
 export GZ_SIM_RESOURCE_PATH="$ROOT/models:$HOME/PX4-Autopilot/Tools/simulation/gz/models:$GZ_SIM_RESOURCE_PATH"
 

@@ -292,6 +292,8 @@ public:
     }
     if (send_failures_ > 0)
       std::cout << " | send failures " << send_failures_;
+    if (stale_stamps_ > 0)
+      std::cout << " | stale stamps dropped " << stale_stamps_;
     std::cout << std::endl;
   }
 
@@ -373,7 +375,11 @@ private:
   // read here, in the update loop, rather than in a subscription.
   void SendOdometry(double now_s, const gz::sim::EntityComponentManager &ecm)
   {
-    if (now_s - last_vio_s_ < 1.0 / vio_rate_hz_)
+    // A small allowance under the period, because the physics step and the
+    // period are the same 4 ms and floating point does not always agree:
+    // without it, every other step looked a hair too early and the stream
+    // ran at 126 Hz instead of 250.
+    if (now_s - last_vio_s_ < 1.0 / vio_rate_hz_ - 1e-6)
       return;
     last_vio_s_ = now_s;
 
@@ -524,6 +530,14 @@ private:
     return name + " " + std::to_string(static_cast<int>(hz + 0.5)) + " Hz  ";
   }
 
+  // A sensor message's header stamp, which Gazebo sets to the simulated
+  // time the sample was taken, in microseconds.
+  static uint64_t StampMicros(const gz::msgs::Header &header)
+  {
+    return static_cast<uint64_t>(header.stamp().sec()) * 1000000ULL +
+           static_cast<uint64_t>(header.stamp().nsec()) / 1000ULL;
+  }
+
   // The IMU is the fastest sensor and the one PX4 paces itself by, so it
   // carries the message. Magnetometer and barometer ride along on the
   // messages that follow their own arrivals, marked in fields_updated, and
@@ -535,8 +549,22 @@ private:
     if (!send_)
       return;
 
+    // Stamped with the sample's own time, not the update loop's. The loop
+    // clock only moves once a physics step, so two IMU samples that arrive
+    // in the same step used to leave with the same stamp, and PX4 on this
+    // machine, which takes its whole sense of time from these stamps,
+    // refused the second as a timestamp error and never reached its shell.
+    // A stamp that does not move forward is dropped rather than sent.
+    const uint64_t stamp = StampMicros(msg.header());
+    if (stamp <= last_imu_stamp_)
+    {
+      ++stale_stamps_;
+      return;
+    }
+    last_imu_stamp_ = stamp;
+
     mavlink_hil_sensor_t hil{};
-    hil.time_usec = sim_time_us_.load();
+    hil.time_usec = stamp;
     hil.id = 0;
 
     // Gazebo's body frame is FLU, PX4's is FRD.
@@ -602,8 +630,17 @@ private:
     if (!send_)
       return;
 
+    // The sample's own time, for the same reason as the IMU.
+    const uint64_t stamp = StampMicros(msg.header());
+    if (stamp <= last_gps_stamp_)
+    {
+      ++stale_stamps_;
+      return;
+    }
+    last_gps_stamp_ = stamp;
+
     mavlink_hil_gps_t gps{};
-    gps.time_usec = sim_time_us_.load();
+    gps.time_usec = stamp;
     gps.fix_type = 3;  // 3D fix
     gps.lat = static_cast<int32_t>(std::llround(msg.latitude_deg() * 1e7));
     gps.lon = static_cast<int32_t>(std::llround(msg.longitude_deg() * 1e7));
@@ -658,6 +695,10 @@ private:
   Counter hil_sensor_out_, hil_gps_out_;
   Counter actuators_in_;
   Counter odometry_out_;
+
+  uint64_t last_imu_stamp_ = 0;
+  uint64_t last_gps_stamp_ = 0;
+  uint64_t stale_stamps_ = 0;
 
   bool vio_enabled_ = false;
   double vio_rate_hz_ = 250.0;

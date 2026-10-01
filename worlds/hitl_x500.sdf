@@ -71,7 +71,13 @@
     </spherical_coordinates>
 
     <gravity>0 0 -9.8066</gravity>
-    <magnetic_field>2.4e-05 1.5e-06 4.2e-05</magnetic_field>
+    <!-- From PX4's own World Magnetic Model tables for the latitude and
+         longitude above, by scripts/magnetic_field.py: declination 6.17,
+         inclination 58.15, 48136 nT, written ENU. PX4 compares the
+         magnetometer against that model to find north, so this has to
+         agree with it. The first version pointed east and up, which would
+         have put the heading about 90 degrees out. -->
+    <magnetic_field>2.7321e-06 2.5255e-05 -4.0888e-05</magnetic_field>
 
     <light type="directional" name="sun">
       <cast_shadows>true</cast_shadows>

@@ -75,6 +75,38 @@ What was checked against ModalAI's own sources before any board was
 connected, motor order and the range of a motor command, is in
 `docs/voxl2_compatibility.md`.
 
+## Rehearsed against real PX4 on 2026-10-01
+
+`scripts/rehearse_px4.sh` starts PX4's own flight stack on this machine,
+standing where the board will stand: no simulator of its own, HIL messages
+over UDP 14560, the same bridge on the other side. Armed, took off, held a
+steady hover, landed on command.
+
+The landing bounced two or three times before it settled. Not yet
+explained. The likeliest suspect is that the rehearsal flies PX4's generic
+none_iris parameters on the x500_voxl model, so hover thrust and the land
+detector are tuned for a different airframe; the board will fly ModalAI's
+HITL parameters, which were written for this model. That is a suspicion,
+not a measurement.
+
+Three faults turned up on the way, any one of which would have stopped the
+first flight on the board:
+
+- **Timestamps.** Messages were stamped with the update loop's clock, which
+  moves once a physics step, so two IMU samples could leave with the same
+  stamp. PX4 takes its sense of time from these stamps and refused the
+  second one. Each message now carries its own sample time; 999 in a row
+  checked, every gap exactly 4000 us.
+- **The magnetic field.** The world's field pointed east and up at a
+  northern latitude, which would have put the heading about 90 degrees out.
+  It now comes from PX4's own World Magnetic Model tables for the world's
+  latitude and longitude, by `scripts/magnetic_field.py`, and PX4's
+  magnetometer checks pass with nothing relaxed.
+- **Gazebo discovery.** With WSL in mirrored networking, which the board
+  needs, Gazebo's multicast discovery has no route and the GUI cannot find
+  the server. `GZ_IP=127.0.0.1` keeps it on this machine, as PX4 itself
+  does.
+
 ## Measured on 2026-09-24, stage 4
 
     ODOMETRY 243 Hz, frames LOCAL_NED / BODY_FRD
