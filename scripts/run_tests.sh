@@ -76,6 +76,14 @@ run test_barcode_inventory.py
 # Skips itself, rather than failing, on a checkout that has never flown with
 # SAVE_BOXES=1 and so has no box log to work from.
 run test_box_inventory.py
+# The stressed-world report, over an invented run whose answer is known.
+run test_stress_report.py
+
+# The stressed world itself: no carton inside another, in the rack, on its
+# deck, out of the vehicle's way, labels on its face, and the clean world
+# unchanged when it is off.
+cd "$HERE/warehouse" || exit 1
+run test_stress.py
 
 if [ "$failed" -eq 0 ]; then
     echo "all suites passed"

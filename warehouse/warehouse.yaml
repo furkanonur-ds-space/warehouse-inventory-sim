@@ -191,6 +191,52 @@ boxes:
     - {name: "L", dims: [0.80, 0.60, 0.50]}
   front_gap: 0.02
 
+# -------------------------------------------------------- zorlu senaryo
+# Kusursuz depoyu bozar: koliler içe/dışa kaymış, yana kaymış, dönmüş,
+# devrilmiş, bazı gözler boş. Kod: warehouse/stress.py (neden böyle
+# kurulduğu orada).
+#
+# HER KOLİYE EN FAZLA BİR BOZULMA. Bozulmalar farklı kolilere dağıtılır ve
+# her kolinin ne aldığı ground_truth.json'da `stress` alanına yazılır; tek
+# uçuş report/stress_report.py ile bozulma türüne ve seviyesine göre ayrılır.
+# Bozulmasız kalanlar (`none`) aynı uçuşun kontrol grubu.
+#
+# Her listenin elemanları seviyelerdir: 1 hafif, 2 orta, 3 ağır. Bir
+# bozulmayı kaldırmak için listesini boşalt. `empty`'deki sayı büyüklük değil,
+# döngüde kaç boş göz hücresi olacağıdır.
+#
+#   push_in   m    koli rafın arkasına doğru (ön yüzü raf kenarından uzaklaşır)
+#   pull_out  m    koli koridora doğru; 0.02'den fazlası raf kenarını aşar
+#   slide     m    koşu boyunca sola/sağa (işaret rastgele)
+#   yaw       deg  dikey eksende dönme (işaret rastgele)
+#   tilt      deg  öne/arkaya devrilme, bir alt kenarı tablada (işaret rastgele)
+#   empty          koli yok
+#
+# ARAÇ PAYI. Dışarı taşan bir koli aracın koridordaki payını yer. Her yüzün
+# uçuş mesafesi ve aracın yarı açıklığı scanner/layout.json'dan okunur
+# (yalnız okunur); pay `min_side_clearance`'ın altına inecekse koli o
+# bozulmayı almaz, başka bir hücre alır. Hücreler asla küçültülmez. Bir
+# hücre bir yüzde hiçbir koliye sığmazsa üretici uyarır (G/H'de pull_out L3
+# beklenen uyarıdır: orada araç payı zaten 0.105 m).
+#
+# KAPALIYKEN dünya bit bit eskisiyle aynı (md5 ile doğrulandı). Değiştirince
+# setup_px4.sh ve simülatörün yeniden başlatılması şart.
+stress:
+  enabled: false
+  seed: 20261002
+  min_side_clearance: 0.05
+  # Döngüdeki bozulmasız hücre sayısı. 15 bozulma hücresi + 1 boş göz + 8
+  # kontrol = 24; yüz başına 54 koli bu döngüyü ~2.2 kez tüketir, yani her
+  # hücre her yüze ~2 kez, depoda ~17 kez düşer.
+  control_cells: 8
+  arms:
+    push_in:  [0.05, 0.12, 0.25]
+    pull_out: [0.03, 0.06, 0.10]
+    slide:    [0.02, 0.05, 0.10]
+    yaw:      [4, 8, 15]
+    tilt:     [3, 6, 10]
+    empty:    [1]
+
 # ---------------------------------------------------------------- kodlar
 codes:
   texture_px_per_m: 2400

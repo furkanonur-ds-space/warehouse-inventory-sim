@@ -27,6 +27,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import gen_labels as gl  # noqa: E402
+import stress as sx  # noqa: E402
 import numpy as np  # noqa: E402
 from PIL import Image  # noqa: E402
 
@@ -458,6 +459,13 @@ def inventory(cfg, rng, textures, manifest) -> str:
     aisle_width = {a["id"]: a["width"] for a in rk["aisles"]}
     clearance = bx.get("aisle_clearance", 0.0)
 
+    # ZORLU SENARYO (warehouse/stress.py). Kapalıyken hiçbir şey çekilmez ve
+    # aşağıdaki her satır eskisiyle aynı metni üretir.
+    st = cfg.get("stress") or {}
+    assigner = sx.Assigner(cfg) if st.get("enabled") else None
+    caps = (sx.face_caps(cfg, PROJECT_ROOT / st.get("layout", "scanner/layout.json"))
+            if assigner else {})
+
     out = ['  <model name="inventory">\n    <static>true</static>\n'
            + model_pose_tag(world_yaw_rad(cfg))]
     n_box = 0
@@ -507,6 +515,29 @@ def inventory(cfg, rng, textures, manifest) -> str:
                         y_label = cy - dy / 2
                     cz = z + dz / 2
 
+                    # Bu koliye düşen bozulma. Komşuya ve dikmeye en fazla
+                    # aradaki boşluğun yarısı kadar yaklaşabilir; komşu da
+                    # öbür yarıyı kullanabilsin diye.
+                    cell = sx.CONTROL
+                    if assigner:
+                        room = gap / 2 - sx.MARGIN_M
+                        slot = sx.Slot(
+                            x_lo=cx - dx / 2 - room, x_hi=cx + dx / 2 + room,
+                            y_back=y0 if facing > 0 else y0 + depth,
+                            y_face=y_face, facing=facing,
+                            max_protrusion=caps[rid]["max_protrusion"])
+                        listed = (rid, bi + 1, li + 1, si) in unlabelled
+
+                        def ok(c, _d=(dx, dy, dz), _s=slot, _listed=listed,
+                               _c=(cx, cy, cz), _z=z):
+                            if c.arm == "empty":
+                                # Listedeki kodsuz koli deneyin parçası; onu
+                                # rafdan almak o deneyi bozar.
+                                return not _listed
+                            return sx.fits(sx.place(c, _c, _d, facing, _z), _d, _s)
+
+                        cell = assigner.pick(rid, ok)
+
                     sku = f"SKU{rng.randint(10000, 99999)}"
                     payload = gl.box_payload(sku, rid, bi + 1, li + 1)
                     tex = f"box_{rid}{bi+1:02d}{li+1}{si}.png"
@@ -529,20 +560,55 @@ def inventory(cfg, rng, textures, manifest) -> str:
                     # kutunun SKU'su ve rengi kayardı, dünya baştan aşağı
                     # değişirdi ve iki koşu karşılaştırılamazdı.
                     bare = every or (rid, bi + 1, li + 1, si) in unlabelled
+                    gone = cell.arm == "empty"
                     img, module_m = gl.make_box_label(payload, sku, spec, ppm, maxpx)
                     pc_img, pc_module_m = gl.make_bay_placard(pc_payload, pc_caption,
                                                               pc_spec, ppm, maxpx)
-                    if not bare:
+                    if not bare and not gone:
                         textures[tex] = img
                         textures[pc_tex] = pc_img
 
                     link = f"box_{rid}_{bi+1:02d}_{li+1}_{si}"
                     shade = rng.uniform(0.88, 1.06)
                     cardboard = tuple(min(1.0, c * shade) for c in (0.68, 0.52, 0.34))
+                    tag = {"stress": cell.record()} if assigner else {}
+
+                    if gone:
+                        # BOŞ GÖZ. Koli rafta yok; bütün çekilişler yukarıda
+                        # yapıldı, sıra numarası da harcanıyor ki sonraki
+                        # kolilerin barkodları temiz dünyadakiyle aynı kalsın.
+                        # Yer gerçeğine yine yazılır: "burada bir şey gördüm"
+                        # diyen bir rapor bu kayda bakıp hayalet koli
+                        # olduğunu anlayabilsin.
+                        rpy = facing_rpy(facing)
+                        manifest.append({
+                            "type": "box_absent",
+                            "symbology": None,
+                            "payload": f"ABSENT|{rid}|{bi+1:02d}|{li+1}|{si}",
+                            "caption": sku,
+                            "entity": f"inventory::{link}",
+                            "row": rid, "bay": bi + 1, "level": li + 1,
+                            "label_pose_xyzrpy": [round(cx, 4), round(cy + facing * dy / 2, 4),
+                                                  round(cz, 4), *[round(v, 6) for v in rpy]],
+                            "label_size_m": [dx, dz],
+                            "normal": [0.0, float(facing), 0.0],
+                            **tag,
+                        })
+                        n_box += 1
+                        continue
+
+                    if cell.arm == "none":
+                        placed = None
+                        body_pose = (cx, cy, cz)
+                    else:
+                        placed = sx.place(cell, (cx, cy, cz), (dx, dy, dz), facing, z)
+                        # +0.0: -0.0 SDF'e "-0" diye yazılıyordu
+                        body_pose = tuple(float(v) + 0.0 for v in
+                                          (*placed.centre, *sx.mat_to_rpy(placed.rot)))
 
                     out.append(f'    <link name="{link}">\n')
-                    out.append(box_visual("body", (dx, dy, dz), (cx, cy, cz), cardboard, "      "))
-                    out.append(box_collision("body_c", (dx, dy, dz), (cx, cy, cz), "      "))
+                    out.append(box_visual("body", (dx, dy, dz), body_pose, cardboard, "      "))
+                    out.append(box_collision("body_c", (dx, dy, dz), body_pose, "      "))
 
                     # QR SEMBOLÜ kutu merkezinin sabit bir yüksekliğinde
                     # durur, barkod da onun altına asılır.
@@ -568,11 +634,22 @@ def inventory(cfg, rng, textures, manifest) -> str:
 
                     off = LABEL_STANDOFF * (1 if facing > 0 else -1)
                     rpy = facing_rpy(facing)
+                    qr_xyz = (cx, y_label + off, qr_z)
+                    pc_xyz = (cx, y_label + off, pc_z)
+                    normal = (0.0, float(facing), 0.0)
+                    if placed is not None:
+                        # Etiketler kolinin yüzüne yapışık: kolinin merkezine
+                        # göre yerleri ve yönelimleri koliyle birlikte döner.
+                        qr_xyz = tuple(placed.point(np.subtract(qr_xyz, (cx, cy, cz))))
+                        pc_xyz = tuple(placed.point(np.subtract(pc_xyz, (cx, cy, cz))))
+                        rpy = tuple(v + 0.0 for v in
+                                    sx.mat_to_rpy(placed.rot @ sx.rpy_to_mat(*rpy)))
+                        normal = tuple(float(v) for v in placed.rot @ np.array(normal))
                     if not bare:
                         out.append(label_visual("label", tex, (lw, lh),
-                                                (cx, y_label + off, qr_z, *rpy), "      "))
+                                                (*qr_xyz, *rpy), "      "))
                         out.append(label_visual("placard", pc_tex, (pw, ph),
-                                                (cx, y_label + off, pc_z, *rpy), "      "))
+                                                (*pc_xyz, *rpy), "      "))
                     out.append("    </link>\n")
 
                     if bare:
@@ -600,10 +677,11 @@ def inventory(cfg, rng, textures, manifest) -> str:
                             "caption": sku,
                             "entity": f"inventory::{link}",
                             "row": rid, "bay": bi + 1, "level": li + 1,
-                            "label_pose_xyzrpy": [round(cx, 4), round(y_label + off, 4),
-                                                  round(qr_z, 4), *[round(v, 6) for v in rpy]],
+                            "label_pose_xyzrpy": [*[round(float(v), 4) for v in qr_xyz],
+                                                  *[round(v, 6) for v in rpy]],
                             "label_size_m": [lw, lh],
-                            "normal": [0.0, float(facing), 0.0],
+                            "normal": [round(v, 6) for v in normal],
+                            **tag,
                         })
                         n_box += 1
                         n_bare += 1
@@ -616,11 +694,12 @@ def inventory(cfg, rng, textures, manifest) -> str:
                         "caption": sku,
                         "entity": f"inventory::{link}",
                         "row": rid, "bay": bi + 1, "level": li + 1,
-                        "label_pose_xyzrpy": [round(cx, 4), round(y_label + off, 4),
-                                              round(qr_z, 4), *[round(v, 6) for v in rpy]],
+                        "label_pose_xyzrpy": [*[round(float(v), 4) for v in qr_xyz],
+                                              *[round(v, 6) for v in rpy]],
                         "label_size_m": [lw, lh],
                         "module_size_m": round(module_m, 6),
-                        "normal": [0.0, float(facing), 0.0],
+                        "normal": [round(v, 6) for v in normal],
+                        **tag,
                     })
                     manifest.append({
                         "type": "box_placard",
@@ -629,16 +708,24 @@ def inventory(cfg, rng, textures, manifest) -> str:
                         "caption": pc_caption,
                         "entity": f"inventory::{link}",
                         "row": rid, "bay": bi + 1, "level": li + 1,
-                        "label_pose_xyzrpy": [round(cx, 4), round(y_label + off, 4),
-                                              round(pc_z, 4), *[round(v, 6) for v in rpy]],
+                        "label_pose_xyzrpy": [*[round(float(v), 4) for v in pc_xyz],
+                                              *[round(v, 6) for v in rpy]],
                         "label_size_m": [pw, ph],
                         "module_size_m": round(pc_module_m, 6),
-                        "normal": [0.0, float(facing), 0.0],
+                        "normal": [round(v, 6) for v in normal],
+                        **tag,
                     })
                     n_box += 1
 
     out.append("  </model>\n")
     print(f"  kutu           : {n_box}")
+    if assigner:
+        print(f"  ZORLU SENARYO  : tohum {st['seed']}, araç payı en az "
+              f"{st.get('min_side_clearance', 0.05):.3f} m")
+        for f, c in caps.items():
+            print(f"    {f}: koridora en fazla {c['max_protrusion']*1000:+.0f} mm taşabilir "
+                  f"(standoff {c['standoff']:.3f}, yarı açıklık {c['half_span']:.3f})")
+        print("\n".join(assigner.summary()))
     if n_bare:
         print(f"  ETİKETSİZ      : {n_bare} kutu kodsuz basıldı (deney)")
         if not every and n_bare != len(unlabelled):
@@ -880,9 +967,13 @@ def main() -> int:
     tex_bytes = sum((tex_dir / n).stat().st_size for n in textures)
     print(f"  toplam kod     : {len(manifest)}")
     print(f"  doku           : {len(textures)} dosya, {tex_bytes/1e6:.1f} MB")
-    print(f"\n  {world_path.relative_to(PROJECT_ROOT)}")
-    print(f"  {gt_path.relative_to(PROJECT_ROOT)}")
-    print(f"  {mm_path.relative_to(PROJECT_ROOT)}  (Furkan'ın biçiminde)")
+    def shown(path: Path) -> Path:
+        # --out depo dışında ya da göreli verilince relative_to patlıyordu.
+        path = path.resolve()
+        return path.relative_to(PROJECT_ROOT) if path.is_relative_to(PROJECT_ROOT) else path
+    print(f"\n  {shown(world_path)}")
+    print(f"  {shown(gt_path)}")
+    print(f"  {shown(mm_path)}  (Furkan'ın biçiminde)")
     return 0
 
 

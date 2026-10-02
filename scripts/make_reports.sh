@@ -105,6 +105,13 @@ if ls out/yolo_boxes_*.jsonl >/dev/null 2>&1; then
   fi
 fi
 
+# The stressed warehouse, split by what was done to each carton. Last, because
+# it reads what the blocks above wrote. It says so and exits cleanly on a world
+# built without stress, so it needs no guard of its own.
+echo
+echo "-- stress --"
+run report/stress_report.py
+
 echo
 if [ "$failed" -eq 0 ]; then
   echo "== all reports written to out/ =="
