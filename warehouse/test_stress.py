@@ -29,6 +29,16 @@ Etiket kusurları ayrı bir grup olarak, aynı dünyanın ikinci bir üretiminde
  12. Eğik etiket kolinin ön yüzünün içinde ve yazdığı açıda dönmüş.
  13. Eski etiketler yüzün içinde, asıl etiketlerin altında, onlara binmiyor
      ve depoda olmayan bir şey söylüyor.
+
+Biçim ve renk, üçüncü bir üretimde:
+ 14. Kolinin modelinde her üçgen dışa bakıyor (ters sarılmış yüzü Gazebo
+     çizmez, koli kameradan görünmez olurdu).
+ 15. Şişme ve çukur yazdığı derinlikte, yüzün kenarında sıfır; şişen yüz
+     aracın payını min_side_clearance'ın altına indirmiyor.
+ 16. Kıvrık etiketin her köşesi yüzeyin LABEL_STANDOFF önünde: yüzü izliyor,
+     ne içine giriyor ne havada duruyor.
+ 17. Beyaz ve koyu koli yazdığı renkte, baskılı koli dokulu; öbür her koli
+     temiz dünyadakiyle harfi harfine aynı.
 """
 from __future__ import annotations
 
@@ -214,6 +224,106 @@ def check_labels(cfg, sdf_off, tex_off, sdf_on, man_on, tex_on) -> dict:
     return seen
 
 
+def read_obj(text: str):
+    v = np.array([[float(t) for t in l.split()[1:4]] for l in text.splitlines() if l.startswith("v ")])
+    vt = np.array([[float(t) for t in l.split()[1:3]] for l in text.splitlines() if l.startswith("vt ")])
+    f = [[int(t.split("/")[0]) - 1 for t in l.split()[1:4]] for l in text.splitlines() if l.startswith("f ")]
+    return v, vt, f
+
+
+def check_shapes(cfg, sdf_off, sdf_on, man_on, tex_on) -> dict:
+    L_off, L_on = links(sdf_off), links(sdf_on)
+    rows = {r["id"]: r for r in cfg["racking"]["rows"]}
+    layout = json.loads(LAYOUT.read_text())
+    half = layout["vehicle_half_span"]
+    need = cfg["stress"].get("min_side_clearance", 0.05)
+    standoff = {f["name"]: f.get("standoff", layout["shelf_standoff"]) for f in layout["aisle_faces"]}
+    front_gap = cfg["boxes"]["front_gap"]
+    tags = {c["entity"].split("::")[1]: c["stress"] for c in man_on if "stress" in c}
+    seen = {}
+    for name, rec in L_on.items():
+        st = tags[name]
+        arm = st["arm"]
+        seen[arm] = seen.get(arm, 0) + 1
+        _, rid, bay, lev, si = name.split("_")
+        stem = f"{rid}{bay}{lev}{si}"
+        facing = rows[rid]["facing"]
+        dx, dy, dz = rec["size"]
+        # 17
+        if arm == "none":
+            check(rec["text"] == L_off[name]["text"], f"{name}: kontrol kolisi değişmiş")
+            continue
+        check(rec["body"][:3] == L_off[name]["body"][:3], f"{name}: biçim bozulmasında koli yer değiştirmiş")
+        if arm == "colour":
+            kind = st.get("kind")
+            if kind in ("white", "dark"):
+                want = " ".join(gw.fmt(c) for c in sx.COLOUR_RGB[kind]) + " 1"
+                check(rec["diffuse"] == want, f"{name}: {kind} koli rengi {rec['diffuse']}")
+                continue
+            check(f"print_{stem}.png" in tex_on, f"{name}: baskılı kolinin dokusu yok")
+        mesh = tex_on.get(f"mesh:carton_{stem}.obj")
+        check(mesh is not None, f"{name}: {arm} kolisinin modeli yok")
+        if mesh is None:
+            continue
+        v, vt, faces = read_obj(mesh)
+        # 14 - centre is the box centre in mesh coordinates
+        bad = 0
+        for a, b, c in faces:
+            n = np.cross(v[b] - v[a], v[c] - v[a])
+            if np.dot(n, (v[a] + v[b] + v[c]) / 3) <= 0:
+                bad += 1
+        check(bad == 0, f"{name}: {bad} üçgen içe bakıyor")
+        # 15 - the front face is the first grid carton_obj writes; picked by
+        # position instead it would also take the side faces' front corners.
+        nu, nv = sx.FRONT_GRID
+        n_front = (nu + 1) * (nv + 1)
+        front = v[:n_front]
+        check(np.all(facing * front[:, 1] > dy / 2 - 0.05), f"{name}: ön yüz ızgarası ön yüzde değil")
+        d = facing * front[:, 1] - dy / 2
+        edge = (np.abs(np.abs(front[:, 0]) - dx / 2) < 1e-6) | (np.abs(np.abs(front[:, 2]) - dz / 2) < 1e-6)
+        check(np.abs(d[edge]).max() < 1e-6, f"{name}: ön yüzün kenarı yerinden oynamış")
+        if arm == "bulge":
+            check(abs(d.max() - st["value"]) < 1e-4 and d.min() > -1e-9,
+                  f"{name}: şişme {d.max():.4f}, istenen {st['value']}")
+            prot = d.max() - front_gap
+            check(standoff[rid] - half - prot >= need - TOL, f"{name}: şişme aracın payını yiyor")
+        elif arm == "dent":
+            check(-st["value"] - 1e-6 <= d.min() <= -0.8 * st["value"] and d.max() < 1e-9,
+                  f"{name}: çukur {d.min():.4f}, istenen -{st['value']}")
+        elif arm == "colour":
+            check(np.allclose(d, 0, atol=1e-9), f"{name}: baskılı kolinin yüzü düz değil")
+            uv_front = vt[:n_front]
+            check(uv_front[:, 0].max() <= sx.PRINT_U + 1e-6, f"{name}: baskı dokusu taşıyor")
+        # 16 - curved labels lie LABEL_STANDOFF in front of the surface
+        if arm in ("bulge", "dent") and rec["label"] is not None:
+            grid = front[np.lexsort((front[:, 0], front[:, 2]))]
+            check(len(grid) == n_front, f"{name}: ön yüz ızgarası {len(grid)} köşe")
+            if len(grid) == n_front:
+                xs = np.linspace(-dx / 2, dx / 2, nu + 1)
+                zs = np.linspace(-dz / 2, dz / 2, nv + 1)
+                H = (facing * grid[:, 1] - dy / 2).reshape(nv + 1, nu + 1)
+
+                def surf(x, z):
+                    i = np.clip(np.searchsorted(xs, x) - 1, 0, nu - 1)
+                    j = np.clip(np.searchsorted(zs, z) - 1, 0, nv - 1)
+                    tx, tz = (x - xs[i]) / (xs[i + 1] - xs[i]), (z - zs[j]) / (zs[j + 1] - zs[j])
+                    return ((1 - tx) * (1 - tz) * H[j, i] + tx * (1 - tz) * H[j, i + 1]
+                            + (1 - tx) * tz * H[j + 1, i] + tx * tz * H[j + 1, i + 1])
+                c = np.array(rec["body"][:3])
+                for key in ("label", "placard"):
+                    lm = tex_on.get(f"mesh:lab_{stem}_{key}.obj")
+                    check(lm is not None, f"{name}/{key}: kıvrık etiket modeli yok")
+                    if lm is None:
+                        continue
+                    lv, _, _ = read_obj(lm)
+                    pose = rec["visuals"][key]
+                    world = np.array(pose[:3]) + lv @ rpy_mat(*pose[3:]).T - c
+                    gapm = facing * world[:, 1] - dy / 2 - np.array([surf(x, z) for x, z in world[:, [0, 2]]])
+                    check(np.abs(gapm - gw.LABEL_STANDOFF).max() < 1.5e-3,
+                          f"{name}/{key}: etiket yüzeyden {gapm.min()*1000:.1f}..{gapm.max()*1000:.1f} mm")
+    return seen
+
+
 def main() -> int:
     base_cfg = gl._load_cfg(CONFIG)
     off_cfg = copy.deepcopy(base_cfg)
@@ -224,16 +334,21 @@ def main() -> int:
     lab_cfg = copy.deepcopy(base_cfg)
     lab_cfg["stress"]["enabled"] = True
     lab_cfg["stress"]["use"] = list(sx.LABEL_ARMS)
+    shp_cfg = copy.deepcopy(base_cfg)
+    shp_cfg["stress"]["enabled"] = True
+    shp_cfg["stress"]["use"] = list(sx.SHAPE_ARMS)
 
     import contextlib, io
     with contextlib.redirect_stdout(io.StringIO()):
         sdf_off, man_off, tex_off = gw.build(off_cfg)
         sdf_on, man_on, _ = gw.build(on_cfg)
         sdf_lab, man_lab, tex_lab = gw.build(lab_cfg)
+        sdf_shp, man_shp, tex_shp = gw.build(shp_cfg)
 
     # 1
     check(not any("stress" in c for c in man_off), "kapalı dünyada stress alanı var")
     seen_lab = check_labels(base_cfg, sdf_off, tex_off, sdf_lab, man_lab, tex_lab)
+    seen_shp = check_shapes(shp_cfg, sdf_off, sdf_shp, man_shp, tex_shp)
 
     L_off, L_on = links(sdf_off), links(sdf_on)
     by_entity = {}
@@ -357,6 +472,7 @@ def main() -> int:
     print(f"{n_box} koli, {len(absent)} boş göz; bozulmalar: "
           + ", ".join(f"{a} {n}" for a, n in sorted(arms_seen.items())))
     print("etiket kusurları: " + ", ".join(f"{a} {n}" for a, n in sorted(seen_lab.items())))
+    print("biçim ve renk: " + ", ".join(f"{a} {n}" for a, n in sorted(seen_shp.items())))
     if failures:
         for f in failures[:40]:
             print("  HATA:", f)

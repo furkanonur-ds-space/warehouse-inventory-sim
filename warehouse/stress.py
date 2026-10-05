@@ -44,16 +44,26 @@ import numpy as np
 GEOMETRY_ARMS = ("push_in", "pull_out", "slide", "yaw", "tilt", "empty")
 #: Etiketlere yapılanlar; koli yerinde ve dimdik durur.
 LABEL_ARMS = ("fade", "smudge", "tear", "wrinkle", "skew", "decoy")
+#: Kolinin kendi biçimi ve görünüşü: şişmiş, ezik, başka renk.
+SHAPE_ARMS = ("bulge", "dent", "colour")
 #: Sırası raporun da sırası. YENİ BOZULMALAR SONA EKLENİR: hücre döngüsü bu
 #: sırayla kurulduğu için araya giren bir ad, aynı `use` listesiyle üretilmiş
 #: eski bir dünyayı bile değiştirirdi.
-ARMS = GEOMETRY_ARMS + LABEL_ARMS
+ARMS = GEOMETRY_ARMS + LABEL_ARMS + SHAPE_ARMS
 
 #: Birimi: raporda ve yer gerçeğinde değerin yanında yazılır.
 UNITS = {"push_in": "m", "pull_out": "m", "slide": "m",
          "yaw": "deg", "tilt": "deg", "empty": "", "none": "",
          "fade": "contrast", "smudge": "cover", "tear": "cover",
-         "wrinkle": "module", "skew": "deg", "decoy": "set"}
+         "wrinkle": "module", "skew": "deg", "decoy": "set",
+         "bulge": "m", "dent": "m", "colour": "kind"}
+
+#: colour hücresinin değeri bir tür, büyüklük değil.
+COLOURS = {1: "white", 2: "printed", 3: "dark"}
+#: Beyaz ve koyu kolinin rengi. Beyaz: çift oluklu beyaz mukavva; koyu:
+#: siyah baskılı ya da ıslanmış karton. İkisi de etiketle kontrastı değiştirir:
+#: beyazda etiketin kenarı kaybolur, koyuda koli çerçevenin içinde kararır.
+COLOUR_RGB = {"white": (0.90, 0.89, 0.86), "dark": (0.13, 0.12, 0.12)}
 
 #: İşaretli bozulmalar: sola/sağa, öne/arkaya rastgele.
 SIGNED = {"slide", "yaw", "tilt", "skew"}
@@ -459,3 +469,183 @@ def rect(cx, cz, w, h, centre=None, angle=0.0):
     c, s = math.cos(angle), math.sin(angle)
     return [(ox + (x - ox) * c - (z - oz) * s, oz + (x - ox) * s + (z - oz) * c)
             for x, z in pts]
+
+
+# ------------------------------------------------------- koli biçimi ve rengi
+#
+# Şişme ve ezik, kolinin ÖN YÜZÜNÜ eğer; koli kendi modelini alır (kutu
+# primitifi eğilemez). Yüz, bir yüzey fonksiyonuyla verilir: f(x, z) ön
+# yüzün o noktada koridora doğru ne kadar çıktığı (eksi: içeri göçtüğü),
+# kolinin merkezine göre x (koşu boyunca) ve z (yukarı). Kenarlarda f = 0,
+# böylece ön yüz yan yüzlere boşluksuz bağlanır. Etiketler aynı f'yi izler:
+# düz bir etiket bombeli bir yüze yapıştırılınca onunla birlikte kıvrılır.
+
+def surface(cell: Cell, dims, rng):
+    """(f, ayrıntı) - f(x, z) dizi alır dizi döndürür; ayrıntı yer gerçeği için."""
+    dx, _, dz = dims
+    v = cell.value
+    if cell.arm == "bulge":
+        # İçi dolu bir kolinin ön yüzü ortasından şişer: kenarda sıfır, ortada v.
+        def f(x, z):
+            return v * (1 - (2 * x / dx) ** 2) * (1 - (2 * z / dz) ** 2)
+        return f, {}
+    if cell.arm == "dent":
+        # Bir yere çarpılmış: yuvarlak bir çukur, rastgele bir yerde. Kenara
+        # doğru sönen bir pencereyle çarpılır ki yüz kenarda düz kalsın.
+        x0 = rng.uniform(-0.3, 0.3) * dx
+        z0 = rng.uniform(-0.3, 0.3) * dz
+        r = rng.uniform(0.25, 0.40) * min(dx, dz)
+
+        def f(x, z):
+            win = (1 - (2 * x / dx) ** 8) * (1 - (2 * z / dz) ** 8)
+            return -v * np.exp(-((x - x0) ** 2 + (z - z0) ** 2) / (2 * (r / 2) ** 2)) * win
+        return f, {"dent_at": [round(float(x0), 4), round(float(z0), 4)],
+                   "dent_radius_m": round(float(r), 4)}
+    return (lambda x, z: np.zeros_like(np.asarray(x, dtype=float))), {}
+
+
+def _obj(verts, uvs, tris, header: str) -> str:
+    """Düzgün gölgeli OBJ: köşe normalleri üçgen normallerinin ortalaması."""
+    v = np.asarray(verts, dtype=float)
+    n = np.zeros_like(v)
+    for a, b, c in tris:
+        n[[a, b, c]] += np.cross(v[b] - v[a], v[c] - v[a])
+    n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
+    lines = [f"# {header}"]
+    lines += [f"v {x:.5f} {y:.5f} {z:.5f}" for x, y, z in v]
+    lines += [f"vt {u:.5f} {w:.5f}" for u, w in uvs]
+    lines += [f"vn {x:.5f} {y:.5f} {z:.5f}" for x, y, z in n]
+    lines += [f"f {a+1}/{a+1}/{a+1} {b+1}/{b+1}/{b+1} {c+1}/{c+1}/{c+1}" for a, b, c in tris]
+    return "\n".join(lines) + "\n"
+
+
+def _grid(nu, nv, point, uv, verts, uvs, tris, outward):
+    """Bir yüzü nu x nv kareye böler; üçgenler dışa bakacak sırayla eklenir.
+
+    Sıra önemli: Gazebo arkası dönük üçgeni çizmez, ters sarılmış bir yüz
+    kameradan görünmez olurdu. Her üçgenin normali `outward` ile
+    karşılaştırılıp gerekirse çevrilir, sıra varsayılmaz.
+    """
+    base = len(verts)
+    for j in range(nv + 1):
+        for i in range(nu + 1):
+            a, b = i / nu, j / nv
+            verts.append(point(a, b))
+            uvs.append(uv(a, b))
+    for j in range(nv):
+        for i in range(nu):
+            q = [base + j * (nu + 1) + i, base + j * (nu + 1) + i + 1,
+                 base + (j + 1) * (nu + 1) + i + 1, base + (j + 1) * (nu + 1) + i]
+            for t in ((q[0], q[1], q[2]), (q[0], q[2], q[3])):
+                pa, pb, pc = (np.asarray(verts[k]) for k in t)
+                if np.dot(np.cross(pb - pa, pc - pa), outward(pa, pb, pc)) < 0:
+                    t = (t[0], t[2], t[1])
+                tris.append(t)
+
+
+#: Ön yüzün ızgarası. 24 x 18: XS kolide 13 x 16 mm'lik kareler, en büyük
+#: şişmede bile yüzey eğrisinden sapma bir milimetrenin altında.
+FRONT_GRID = (24, 18)
+#: Baskılı dokuda ön yüze ayrılan pay; geri kalanı öbür yüzlerin düz rengi.
+PRINT_U = 0.75
+
+
+def carton_obj(dims, facing: int, f, printed: bool = False) -> str:
+    """Kolinin modeli, kendi merkezinde: ön yüzü f ile eğilmiş, öbürleri düz."""
+    dx, dy, dz = dims
+    hx, hy, hz = dx / 2, dy / 2, dz / 2
+    verts, uvs, tris = [], [], []
+    flat = (lambda a, b: (0.5 * (1 + PRINT_U), 0.5))
+    centre = np.zeros(3)
+
+    def away(pa, pb, pc):
+        return (pa + pb + pc) / 3 - centre
+
+    # Ön yüz: koridora bakan, y = facing * hy, f kadar dışarı. Doku, koridordan
+    # bakana göre düz okunsun diye u, bakanın sağına doğru büyür.
+    def front(a, b):
+        x, z = -hx + a * dx, -hz + b * dz
+        return (x, facing * (hy + float(f(x, z))), z)
+
+    def front_uv(a, b):
+        u = (1 - a) if facing > 0 else a
+        return (u * PRINT_U, b) if printed else flat(a, b)
+
+    _grid(*FRONT_GRID, front, front_uv, verts, uvs, tris, away)
+    # Arka ve yanlar düz: kamera onları ancak açıdan görür.
+    _grid(1, 1, lambda a, b: (-hx + a * dx, -facing * hy, -hz + b * dz), flat,
+          verts, uvs, tris, away)
+    for sx_ in (-1, 1):
+        _grid(1, 1, lambda a, b, s=sx_: (s * hx, -hy + a * dy, -hz + b * dz), flat,
+              verts, uvs, tris, away)
+    for sz in (-1, 1):
+        _grid(1, 1, lambda a, b, s=sz: (-hx + a * dx, -hy + b * dy, s * hz), flat,
+              verts, uvs, tris, away)
+    return _obj(verts, uvs, tris, f"koli {dx}x{dy}x{dz}, ön yüz {'+y' if facing > 0 else '-y'}")
+
+
+#: Eğri etiketin ızgarası.
+LABEL_GRID = (16, 12)
+
+
+def label_obj(w: float, h: float, lift) -> str:
+    """Kıvrılmış etiket: etiket_quad.obj ile aynı çerçeve ve UV, gerçek boyda.
+
+    lift(u, v): etiketin kendi düzleminde (u sağa, v yukarı, metre) yüzeyin
+    etiket merkezine göre ne kadar dışarıda olduğu. Ölçek 1 ile kullanılır;
+    ölçeklenseydi kıvrım da ölçeklenirdi.
+    """
+    verts, uvs, tris = [], [], []
+
+    def pt(a, b):
+        u, v = (a - 0.5) * w, (b - 0.5) * h
+        return (u, v, float(lift(u, v)))
+
+    _grid(*LABEL_GRID, pt, lambda a, b: (a, b), verts, uvs, tris,
+          lambda pa, pb, pc: np.array([0.0, 0.0, 1.0]))
+    return _obj(verts, uvs, tris, f"kıvrık etiket {w}x{h}")
+
+
+#: Baskılı kolilerin marka adları. Uydurma: gerçek bir markaya benzemesin.
+BRANDS = ("NORDVIK", "ALTAY", "KORUNA", "MERIDA", "TUNDRA", "SELVA", "OKAPI", "VESTA")
+
+
+def print_texture(rng, dims):
+    """Baskılı kolinin dokusu: renkli zemin, marka yazısı, şeritler, ürün barkodu.
+
+    Ürün barkodu bilerek ÇÖZÜLEMEZ: çubuklar rastgele, başı ve sonu yok. Gerçek
+    kolilerde ürün barkodu vardır ve YOLO'nun barkod sınıfı onu görecektir;
+    sorulan şey o kutunun dedektörü ve sayımı şaşırtıp şaşırtmadığı, zbar'ın
+    başka bir numara okuması değil (o, decoy'un sorusu).
+    """
+    from PIL import Image, ImageDraw
+    import gen_labels as gl
+    dx, _, dz = dims
+    W = 768
+    w_front = int(W * PRINT_U)
+    H = max(64, int(w_front * dz / dx))
+    base = tuple(int(c) for c in rng.integers(40, 230, 3))
+    ink = tuple(255 - c for c in base)
+    img = Image.new("RGB", (W, H), base)
+    d = ImageDraw.Draw(img)
+    # Öbür yüzlerin düz rengi: dokunun sağ şeridi.
+    d.rectangle([w_front, 0, W, H], fill=base)
+    # Şeritler.
+    for k in range(int(rng.integers(2, 5))):
+        y = int(rng.uniform(0, H))
+        d.rectangle([0, y, w_front, y + int(H * rng.uniform(0.03, 0.08))], fill=ink)
+    # Marka adı, üst yarıda büyük.
+    name = BRANDS[int(rng.integers(len(BRANDS)))]
+    font = gl._font(int(H * 0.22))
+    d.text((int(w_front * 0.06), int(H * 0.06)), name, fill=ink, font=font)
+    # Ürün barkodu, bir alt köşede.
+    bx = int(w_front * rng.choice([0.06, 0.70]))
+    by, bw, bh = int(H * 0.68), int(w_front * 0.22), int(H * 0.22)
+    d.rectangle([bx - 6, by - 6, bx + bw + 6, by + bh + 6], fill=(250, 250, 250))
+    x = bx
+    while x < bx + bw:
+        t = int(rng.integers(1, 5))
+        if rng.random() < 0.55:
+            d.rectangle([x, by, min(bx + bw, x + t), by + bh], fill=(10, 10, 10))
+        x += t + int(rng.integers(1, 4))
+    return img, {"brand": name, "base_rgb": list(base)}

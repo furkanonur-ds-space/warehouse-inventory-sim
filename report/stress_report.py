@@ -67,7 +67,8 @@ OUT = REPO_ROOT / "out"
 PHANTOM_M = 0.16
 
 ARM_ORDER = ("none", "push_in", "pull_out", "slide", "yaw", "tilt", "empty",
-             "fade", "smudge", "tear", "wrinkle", "skew", "decoy")
+             "fade", "smudge", "tear", "wrinkle", "skew", "decoy",
+             "bulge", "dent", "colour")
 
 
 def cell_key(tag: dict) -> tuple:
@@ -78,6 +79,9 @@ def cell_key(tag: dict) -> tuple:
 def cell_name(tag: dict) -> str:
     if tag["arm"] in ("none", "empty"):
         return tag["arm"]
+    if tag["arm"] == "colour" and tag.get("kind"):
+        # A kind, not a level: "colour L2" would say nothing.
+        return f"colour {tag['kind']}"
     return f"{tag['arm']} L{tag['level']}"
 
 

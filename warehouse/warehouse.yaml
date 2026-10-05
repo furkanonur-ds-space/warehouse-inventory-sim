@@ -231,9 +231,10 @@ stress:
   control_cells: 8
   # BU UÇUŞTA AÇIK OLANLAR. Bir uçuşa sığacak kadar hücre olsun diye gruplar
   # ayrı uçulur; değerler aşağıda kalır. Liste değişince dünya değişir.
-  #   2026-10-05 uçuşu: [push_in, pull_out, slide, yaw, tilt, empty]
-  #     (bu listeyle aynı tohum o dünyayı md5'iyle aynen verir)
-  use: [fade, smudge, tear, wrinkle, skew, decoy]
+  #   2026-10-05 sabah: [push_in, pull_out, slide, yaw, tilt, empty]
+  #   2026-10-05 öğle:  [fade, smudge, tear, wrinkle, skew, decoy]
+  #     (her liste, aynı tohumla o dünyayı md5'iyle aynen verir)
+  use: [bulge, dent, colour]
   arms:
     # --- koli
     push_in:  [0.05, 0.12, 0.25]
@@ -273,6 +274,18 @@ stress:
     wrinkle:  [0.25, 0.40, 0.60]
     skew:     [5, 12, 25]
     decoy:    [1, 2, 3]
+    # --- kolinin biçimi ve görünüşü. Koli yerinde ve dimdik; etiketler
+    # eğri yüzü izler, onunla kıvrılır.
+    #   bulge   ön yüzün ortadan şişmesi (m). Koridora çıkar: aracın payına
+    #           karşı sınanır, G/H'de 55 mm'ye kadar sığar.
+    #   dent    ön yüzde rastgele bir yerde yuvarlak çukur, derinliği (m).
+    #           Çukur etiketin üstüne de denk gelebilir.
+    #   colour  seviye değil TÜR: 1 beyaz, 2 baskılı (marka yazısı, şerit,
+    #           okunamayan bir ürün barkodu), 3 koyu. YOLO'nun soru işareti:
+    #           kahverengi olmayan koliyi koli sayıyor mu.
+    bulge:    [0.010, 0.020, 0.035]
+    dent:     [0.010, 0.025, 0.040]
+    colour:   [1, 2, 3]
 
 # ---------------------------------------------------------------- kodlar
 codes:

@@ -164,6 +164,28 @@ def box_visual(name: str, size, xyz, rgb, ind="        ") -> str:
 """
 
 
+def mesh_visual(name: str, mesh: str, xyz, rgb, texture: str | None = None,
+                ind="        ") -> str:
+    """Kendi modeliyle çizilen koli: eğri ön yüz ya da baskılı doku."""
+    r, g, b = (1.0, 1.0, 1.0) if texture else rgb
+    albedo = (f"\n{ind}      <albedo_map>model://{ASSET_MODEL}/materials/textures/"
+              f"{texture}</albedo_map>") if texture else ""
+    return f"""{ind}<visual name="{name}">
+{ind}  <pose>{pose(*xyz)}</pose>
+{ind}  <geometry><mesh><uri>model://{ASSET_MODEL}/meshes/{mesh}</uri></mesh></geometry>
+{ind}  <material>
+{ind}    <ambient>{fmt(r*0.5)} {fmt(g*0.5)} {fmt(b*0.5)} 1</ambient>
+{ind}    <diffuse>{fmt(r)} {fmt(g)} {fmt(b)} 1</diffuse>
+{ind}    <specular>0.05 0.05 0.05 1</specular>
+{ind}    <pbr><metal>{albedo}
+{ind}      <metalness>0.0</metalness>
+{ind}      <roughness>0.9</roughness>
+{ind}    </metal></pbr>
+{ind}  </material>
+{ind}</visual>
+"""
+
+
 def box_collision(name: str, size, xyz, ind="        ") -> str:
     return f"""{ind}<collision name="{name}">
 {ind}  <pose>{pose(*xyz)}</pose>
@@ -172,16 +194,22 @@ def box_collision(name: str, size, xyz, ind="        ") -> str:
 """
 
 
-def label_visual(name: str, texture: str, size_wh, xyz_rpy, ind="        ") -> str:
+def label_visual(name: str, texture: str, size_wh, xyz_rpy, ind="        ",
+                 mesh: str | None = None) -> str:
     """Etiket quad'ı. Metalness 0 / roughness 1: kod üzerinde parlama olursa
-    okunmaz, o yüzden tamamen mat."""
+    okunmaz, o yüzden tamamen mat.
+
+    `mesh` verilirse etiket o modelle çizilir, gerçek boyunda (ölçek 1): eğri
+    bir yüze yapışmış, onunla kıvrılmış etiket (stress.label_obj)."""
     w, h = size_wh
+    uri = mesh or "label_quad.obj"
+    scale = "1 1 1" if mesh else f"{fmt(w)} {fmt(h)} 1"
     return f"""{ind}<visual name="{name}">
 {ind}  <pose>{pose(*xyz_rpy)}</pose>
 {ind}  <geometry>
 {ind}    <mesh>
-{ind}      <uri>model://{ASSET_MODEL}/meshes/label_quad.obj</uri>
-{ind}      <scale>{fmt(w)} {fmt(h)} 1</scale>
+{ind}      <uri>model://{ASSET_MODEL}/meshes/{uri}</uri>
+{ind}      <scale>{scale}</scale>
 {ind}    </mesh>
 {ind}  </geometry>
 {ind}  <material>
@@ -580,6 +608,11 @@ def inventory(cfg, rng, textures, manifest) -> str:
                                          for d in decoy_layout(int(c.value), _c[0], _p,
                                                                lw, lh, pw, ph)], *_f)
                                 return True
+                            if c.arm == "bulge":
+                                # Şişen yüz koridora çıkar: aracın payını yer.
+                                return c.value - bx["front_gap"] <= _s.max_protrusion
+                            if c.arm in sx.SHAPE_ARMS:
+                                return True
                             return sx.fits(sx.place(c, _c, _d, facing, _z), _d, _s)
 
                         cell = assigner.pick(rid, ok)
@@ -659,8 +692,40 @@ def inventory(cfg, rng, textures, manifest) -> str:
                         body_pose = tuple(float(v) + 0.0 for v in
                                           (*placed.centre, *sx.mat_to_rpy(placed.rot)))
 
+                    # BİÇİM VE RENK. Şişme ve ezik kolinin ön yüzünü eğer, koli
+                    # kendi modelini alır; baskılı koli dokulu bir model alır;
+                    # beyaz ve koyu yalnız rengini değiştirir. Çarpışma her
+                    # durumda düz kutu: şişme payı fits()'te araca karşı
+                    # sınandı.
+                    stem = f"{rid}{bi+1:02d}{li+1}{si}"
+                    shape_f = None
+                    body_xml = None
+                    if cell.arm in ("bulge", "dent"):
+                        shape_f, extra = sx.surface(cell, (dx, dy, dz), assigner.tex_rng)
+                        tag["stress"].update(extra)
+                        mesh = f"carton_{stem}.obj"
+                        textures[f"mesh:{mesh}"] = sx.carton_obj((dx, dy, dz), facing, shape_f)
+                        body_xml = mesh_visual("body", mesh, body_pose, cardboard, ind="      ")
+                    elif cell.arm == "colour":
+                        kind = sx.COLOURS[int(cell.value)]
+                        tag["stress"]["kind"] = kind
+                        if kind == "printed":
+                            pimg, extra = sx.print_texture(assigner.tex_rng, (dx, dy, dz))
+                            tag["stress"].update(extra)
+                            mesh = f"carton_{stem}.obj"
+                            ptex = f"print_{stem}.png"
+                            textures[ptex] = pimg
+                            textures[f"mesh:{mesh}"] = sx.carton_obj(
+                                (dx, dy, dz), facing, sx.surface(sx.CONTROL, (dx, dy, dz), None)[0],
+                                printed=True)
+                            body_xml = mesh_visual("body", mesh, body_pose, cardboard,
+                                                   texture=ptex, ind="      ")
+                        else:
+                            cardboard = sx.COLOUR_RGB[kind]
+
                     out.append(f'    <link name="{link}">\n')
-                    out.append(box_visual("body", (dx, dy, dz), body_pose, cardboard, "      "))
+                    out.append(body_xml or box_visual("body", (dx, dy, dz), body_pose,
+                                                      cardboard, "      "))
                     out.append(box_collision("body_c", (dx, dy, dz), body_pose, "      "))
 
                     # QR SEMBOLÜ kutu merkezinin sabit bir yüksekliğinde
@@ -737,11 +802,29 @@ def inventory(cfg, rng, textures, manifest) -> str:
                             textures[dtex] = dimg
                             decoys.append({**d, "payload": dp, "tex": dtex, "symbology": sym,
                                            "xyz": (d["x"], y_label + off, d["z"])})
+                    lab_mesh = {"label": None, "placard": None}
+                    if shape_f is not None:
+                        # Etiketler eğri yüze yapışık: merkezleri yüzeyin o
+                        # noktadaki yerine çıkar ya da iner, kendileri de
+                        # yüzeyle kıvrılır. Etiketin u ekseni, koridora +y'de
+                        # bakan yüzde -x'e döşeli (FACE_POS_Y).
+                        moved = []
+                        for key, xyz, (w_, h_) in (("label", qr_xyz, (lw, lh)),
+                                                   ("placard", pc_xyz, (pw, ph))):
+                            zr = xyz[2] - cz
+                            at = float(shape_f(0.0, zr))
+                            mesh = f"lab_{stem}_{key}.obj"
+                            textures[f"mesh:{mesh}"] = sx.label_obj(
+                                w_, h_, lambda u, v, _z=zr, _a=at:
+                                float(shape_f(-facing * u, _z + v)) - _a)
+                            lab_mesh[key] = mesh
+                            moved.append((xyz[0], xyz[1] + facing * at, xyz[2]))
+                        qr_xyz, pc_xyz = moved
                     if not bare:
                         out.append(label_visual("label", tex, (lw, lh),
-                                                (*qr_xyz, *rpy), "      "))
+                                                (*qr_xyz, *rpy), "      ", mesh=lab_mesh["label"]))
                         out.append(label_visual("placard", pc_tex, (pw, ph),
-                                                (*pc_xyz, *rpy), "      "))
+                                                (*pc_xyz, *rpy), "      ", mesh=lab_mesh["placard"]))
                         for d in decoys:
                             out.append(label_visual(f"decoy_{d['kind']}", d["tex"],
                                                     (d["w"], d["h"]), (*d["xyz"], *rpy), "      "))
@@ -1044,6 +1127,9 @@ def main() -> int:
     # eski dokuları temizle: tohum veya yerleşim değişince artık dosyalar kalmasın
     for old in tex_dir.glob("*.png"):
         old.unlink()
+    # kolilere özel modeller de (şişmiş/ezik/baskılı koli, kıvrık etiket)
+    for old in list(mesh_dir.glob("carton_*.obj")) + list(mesh_dir.glob("lab_*.obj")):
+        old.unlink()
 
     (assets / "model.config").write_text(MODEL_CONFIG)
     (assets / "model.sdf").write_text(ASSET_STUB_SDF)
@@ -1051,7 +1137,10 @@ def main() -> int:
     (mesh_dir / "floor_tile.obj").write_text(floor_mesh_obj(
         cfg["building"]["length"], cfg["building"]["width"], FLOOR_TILE_M))
     for name, img in textures.items():
-        img.save(tex_dir / name, optimize=True)
+        if name.startswith("mesh:"):
+            (mesh_dir / name[5:]).write_text(img)
+        else:
+            img.save(tex_dir / name, optimize=True)
 
     world_path = args.out / "gz" / "worlds" / "warehouse.sdf"
     world_path.write_text(sdf)
@@ -1073,9 +1162,12 @@ def main() -> int:
         "codes": manifest,
     }, indent=2, ensure_ascii=False))
 
-    tex_bytes = sum((tex_dir / n).stat().st_size for n in textures)
+    images = [n for n in textures if not n.startswith("mesh:")]
+    tex_bytes = sum((tex_dir / n).stat().st_size for n in images)
     print(f"  toplam kod     : {len(manifest)}")
-    print(f"  doku           : {len(textures)} dosya, {tex_bytes/1e6:.1f} MB")
+    print(f"  doku           : {len(images)} dosya, {tex_bytes/1e6:.1f} MB")
+    if len(images) < len(textures):
+        print(f"  koli modeli    : {len(textures) - len(images)} dosya")
     def shown(path: Path) -> Path:
         # --out depo dışında ya da göreli verilince relative_to patlıyordu.
         path = path.resolve()
