@@ -27,8 +27,12 @@ so the push_in rows say how far the face-plane assumption is from the truth.
 
 EMPTY SLOTS have nothing to read. What they can show is a phantom: a carton
 cluster the detector placed where no carton is. Counted from every cluster in
-box_report.json, matched or not, on the same face within PHANTOM_M of the
-empty spot in-plane.
+box_report.json, matched or not, on the same face and shelf level within
+PHANTOM_M of the empty spot ALONG THE RUN. Height is left out on purpose: the
+spot is the middle of a carton that is not there, and a cluster is placed at
+the middle of whatever was boxed, which is not the same height. Judged in
+the full plane the count moved with every fix to the height and said nothing
+about phantoms.
 
 Reads only: ground truth and the JSON a run leaves in out/. Nothing from
 scanner/ is imported.
@@ -49,7 +53,7 @@ from warehouse_model import (GROUND_TRUTH, REPO_ROOT, load_config,  # noqa: E402
 
 OUT = REPO_ROOT / "out"
 
-#: How near a cluster must sit to an empty spot, in-plane, to be its phantom.
+#: How near a cluster must sit to an empty spot, along the run, to be its phantom.
 #: Half the narrowest carton (XS, 0.32 m): nearer than that and the cluster is
 #: on the empty spot, not on the neighbour beside it.
 PHANTOM_M = 0.16
@@ -148,10 +152,14 @@ def build(truth_path: Path, out_dir: Path, cfg: dict) -> dict:
             b["kind"] = "absent"
             near = []
             for k in clusters:
-                if k.get("shelf") != c["row"]:
+                if k.get("shelf") != c["row"] or k.get("level") != c["level"]:
                     continue
-                inplane, _ = split_error(k, xyz, depth_ax, run_ax)
-                if inplane <= PHANTOM_M:
+                try:
+                    along = ((float(k["estimated_x"]) - xyz[0]) * run_ax[0]
+                             + (float(k["estimated_y"]) - xyz[1]) * run_ax[1])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if abs(along) <= PHANTOM_M:
                     near.append(k.get("id"))
             b["phantoms"] = near
 

@@ -293,17 +293,59 @@ def flight_altitudes(path: Path = LAYOUT) -> list[float]:
 # read from the model itself whenever it can be found.
 CAMERA_FALLBACK = {
     "hires": {"link": "camera_hires_link", "frame_px": (1024, 768),
-              "hfov_deg": 60.0, "mount_x": 0.06},
+              "hfov_deg": 60.0, "mount_x": 0.06, "mount_z": 0.0},
     "rear": {"link": "camera_track_rear_link", "frame_px": (1280, 800),
-             "hfov_deg": 90.0, "mount_x": 0.055},
+             "hfov_deg": 90.0, "mount_x": 0.055, "mount_z": -0.015},
 }
+# How far base_link, which the cameras hang from, sits above the model's own
+# origin, which is the pose the readers record. starling2_base puts it 0.06 m
+# up. Left out, every camera was filed 0.06 m lower than it flew and every
+# barcode and carton with it: the barcode's whole 0.06 m height error on the
+# 2026-10-05 flight, 59 mm on the hires and 44 on the rear, whose mount is
+# 0.015 m below base_link.
+BASE_LINK_Z_FALLBACK = 0.06
 
 _CAM_LINK = re.compile(
     r'<link name="(camera_hires_link|camera_track_rear_link)">'
-    r'.*?<pose>([^<]*)</pose>'
     r'.*?<horizontal_fov>([^<]*)</horizontal_fov>'
     r'.*?<width>([^<]*)</width>\s*<height>([^<]*)</height>',
     re.S)
+# The mount is the JOINT's pose relative to base_link. The link's own pose is
+# zero relative to its joint, and the old pattern, which wanted a bare <pose>
+# inside the link, never matched this model at all: every value came from the
+# fallback, which is why the missing height went unnoticed.
+_CAM_JOINT = re.compile(
+    r'<joint name="(camera_hires|camera_track_rear)_joint"[^>]*>'
+    r'.*?<pose[^>]*>([^<]*)</pose>', re.S)
+_INCLUDE = re.compile(
+    r"<include[^>]*>\s*<uri>(?:model://)?([^<]+)</uri>(?:\s*<pose[^>]*>([^<]*)</pose>)?",
+    re.S)
+_MODEL_POSE = re.compile(r"<model name=[^>]*>\s*<pose[^>]*>([^<]*)</pose>", re.S)
+
+
+def base_link_z(model: str, models_dir: Path = GZ_MODELS, top: bool = True):
+    """
+    Height of base_link above the origin of `model`, following merged includes.
+
+    The top model's own <pose> is replaced by the spawn pose, so it is not
+    counted; an included model's is, because merging places its links by it.
+    None when no model on the way down has a base_link.
+    """
+    path = Path(models_dir) / model / "model.sdf"
+    if not path.exists():
+        return None
+    text = path.read_text()
+    own = 0.0
+    if not top:
+        m = _MODEL_POSE.search(text)
+        own = float(m.group(1).split()[2]) if m else 0.0
+    if '<link name="base_link">' in text:
+        return own
+    for uri, pose in _INCLUDE.findall(text):
+        below = base_link_z(uri.strip(), models_dir, top=False)
+        if below is not None:
+            return own + (float(pose.split()[2]) if pose else 0.0) + below
+    return None
 
 
 def cameras(model: str | None = None, models_dir: Path = GZ_MODELS) -> dict:
@@ -316,8 +358,14 @@ def cameras(model: str | None = None, models_dir: Path = GZ_MODELS) -> dict:
     matters too - the lens sits ahead of or behind the vehicle centre, and the
     distance that decides what it resolves is the lens to the shelf, not the
     airframe to the shelf.
+
+    `lens_z` is how far the lens sits above the pose the readers record: the
+    base_link height plus the camera's own mount.
     """
     out = {name: dict(spec) for name, spec in CAMERA_FALLBACK.items()}
+    base = BASE_LINK_Z_FALLBACK
+    for spec in out.values():
+        spec["lens_z"] = base + spec["mount_z"]
     if model is None:
         try:
             model = json.loads(Path(LAYOUT).read_text())["model"]
@@ -326,19 +374,29 @@ def cameras(model: str | None = None, models_dir: Path = GZ_MODELS) -> dict:
     path = Path(models_dir) / model / "model.sdf"
     if not path.exists():
         return out
+    text = path.read_text()
+    found = base_link_z(model, models_dir)
+    base = found if found is not None else base
     by_link = {spec["link"]: name for name, spec in out.items()}
-    for link, pose, fov, width, height in _CAM_LINK.findall(path.read_text()):
+    for link, fov, width, height in _CAM_LINK.findall(text):
         name = by_link.get(link)
         if name is None:
             continue
-        out[name] = {
-            "link": link,
+        out[name].update({
             "frame_px": (int(float(width)), int(float(height))),
             "hfov_deg": math.degrees(float(fov)),
-            # Either sign means the same thing: displaced towards the face it
-            # reads, so it stands that much closer than the airframe does.
-            "mount_x": abs(float(pose.split()[0])),
-        }
+        })
+    for joint, pose in _CAM_JOINT.findall(text):
+        name = by_link.get(f"{joint}_link")
+        if name is None:
+            continue
+        x, _, z = (float(v) for v in pose.split()[:3])
+        # Either sign means the same thing: displaced towards the face it
+        # reads, so it stands that much closer than the airframe does.
+        out[name]["mount_x"] = abs(x)
+        out[name]["mount_z"] = z
+    for spec in out.values():
+        spec["lens_z"] = base + spec["mount_z"]
     return out
 
 

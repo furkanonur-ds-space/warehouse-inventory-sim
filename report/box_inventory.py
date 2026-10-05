@@ -92,7 +92,25 @@ EDGE_PX = 3.0
 # the far boxes were also pulling real clusters off their cartons.
 # A box cut off at the top or bottom of the frame has no true height and is
 # not judged by it.
-RANGE_GATE = 1.5
+#
+# A MARGIN IN METRES, NOT A RATIO (2026-10-05). The ratio above was 1.5 times
+# the face distance, and the face distance runs from 0.25 m in the narrowest
+# aisle to over a metre in the widest. So it allowed 0.12 m of depth on faces
+# G and H and over 0.5 m on A and B: a carton pushed 0.25 m into the rack in
+# the narrow aisle looked "behind the face" and was thrown away, while in the
+# wide one the back of the island still passed. The stressed flight lost 6 of
+# its pushed-in cartons this way, all on G and H. What the gate is really
+# asking is how deep into the rack a carton on THIS face can stand, which is
+# a length and the same everywhere: the deepest push the stressed world
+# makes is 0.25 m, so 0.30 m.
+#
+# Measured, cartons found (pushed-in ones missed), the same box logs re-scored:
+#                 ratio 1.5       +0.25 m       +0.30 m      +0.50 m
+#   10-05 stress  403 (6)         405 (2)       407 (0)      407 (0)
+#   09-29 clean   424             423           423          423
+#   09-30 clean   422             425           425          425
+# Spurious clusters moved by at most 3 either way.
+RANGE_MARGIN_M = 0.30
 
 # Two sightings closer than this are the same carton. The boxes sit about
 # 0.40 m apart along a shelf, so this cannot reach the neighbour; it is
@@ -198,10 +216,10 @@ def shortest_carton_m() -> float:
     return min(s["dims"][2] for s in load_config()["boxes"]["sizes"])
 
 
-def too_far(s: dict, spot: dict, geometry: dict, gate: float) -> bool:
+def too_far(s: dict, spot: dict, geometry: dict, margin: float) -> bool:
     """
     Whether a box looks too small to be standing on the face it was placed on.
-    See RANGE_GATE.
+    See RANGE_MARGIN_M.
     """
     if s["cut_top"] or s["height_px"] <= 0:
         return False
@@ -211,7 +229,7 @@ def too_far(s: dict, spot: dict, geometry: dict, gate: float) -> bool:
     face = geometry["faces"][spot["shelf"]]
     depth = abs(face["face_x"] - s["uav"]["x"]) - spec["mount_x"]
     looks = geometry["shortest_carton_m"] * focal / s["height_px"]
-    return looks > gate * depth
+    return looks > depth + margin
 
 
 def cluster(spots: list[dict], radius: float) -> list[dict]:
@@ -379,7 +397,7 @@ def match(clusters: list[dict], cartons: list[dict], limit: float):
 
 def build(out_dir: Path, min_area: float, radius: float, limit: float,
           code_radius: float = CODE_RADIUS_M,
-          gate: float = RANGE_GATE) -> dict:
+          margin: float = RANGE_MARGIN_M) -> dict:
     paths = box_logs(out_dir)
     if not paths:
         return {"used": False}
@@ -397,7 +415,7 @@ def build(out_dir: Path, min_area: float, radius: float, limit: float,
         if spot is None:
             unplaced += 1
             continue
-        if too_far(s, spot, geometry, gate):
+        if too_far(s, spot, geometry, margin):
             behind += 1
             continue
         spot.update(area=s["area"], conf=s["conf"], covered=s["covered"],
@@ -474,7 +492,7 @@ def build(out_dir: Path, min_area: float, radius: float, limit: float,
         "generated": datetime.now().isoformat(timespec="seconds"),
         "logs": [p.name for p in paths],
         "settings": {"min_area_px": min_area, "cluster_m": radius,
-                     "match_m": limit, "range_gate": gate,
+                     "match_m": limit, "range_margin_m": margin,
                      "edge_px": EDGE_PX},
         "sightings": {"kept": len(raw), "below_area": dropped,
                       "off_lane": off_lane, "unplaceable": unplaced,
@@ -608,9 +626,9 @@ def main() -> int:
     ap.add_argument("--match", type=float, default=MATCH_M,
                     help=f"how near a cluster must land to be called that "
                          f"carton (default {MATCH_M} m)")
-    ap.add_argument("--range-gate", type=float, default=RANGE_GATE,
-                    help=f"drop a box that looks this many times further away "
-                         f"than the face (default {RANGE_GATE})")
+    ap.add_argument("--range-margin", type=float, default=RANGE_MARGIN_M,
+                    help=f"drop a box that looks this many metres further "
+                         f"away than the face (default {RANGE_MARGIN_M})")
     ap.add_argument("--json", type=Path, default=OUT / "box_report.json")
     ap.add_argument("--experiment-inventory", type=Path,
                     default=OUT / "inventory_boxes_unlabelled.json",
@@ -624,7 +642,7 @@ def main() -> int:
     args = ap.parse_args()
 
     data = build(args.out_dir, args.min_area, args.cluster, args.match,
-                 args.code_radius, args.range_gate)
+                 args.code_radius, args.range_margin)
     print(render(data))
     args.json.parent.mkdir(parents=True, exist_ok=True)
     args.json.write_text(json.dumps(data, indent=2, ensure_ascii=False))

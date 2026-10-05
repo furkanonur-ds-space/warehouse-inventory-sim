@@ -24,6 +24,8 @@ standoff and the frame both change with the width.
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import math
 import os
@@ -32,14 +34,34 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import barcode_inventory as bi                                   # noqa: E402
-from warehouse_model import GROUND_TRUTH, LAYOUT, cameras        # noqa: E402
+from warehouse_model import CONFIG, LAYOUT, REPO_ROOT, cameras   # noqa: E402
+
+sys.path.insert(0, str(REPO_ROOT / "warehouse"))
+import gen_labels as gl                                          # noqa: E402
+import gen_world as gw                                           # noqa: E402
 
 TOLERANCE_M = 0.005
+
+# Where each lens sits above the pose the readers record, read off the model
+# BY HAND rather than through cameras(): starling2_base's <pose>0 0 0.06</pose>
+# puts base_link 0.06 m above the model origin, and build_c27_drone.py mounts
+# the hires at z 0.0 and the rear at -0.015 from base_link. The synthetic
+# readings below take lens_z from cameras() as place() does, so on their own
+# they would agree with a place() that got it wrong - which is how a 0.06 m
+# height error went unseen until the 2026-10-05 flight measured it.
+EXPECTED_LENS_Z = {"hires": 0.060, "rear": 0.045}
 
 
 def load():
     layout = json.loads(open(LAYOUT).read())
-    codes = json.load(open(GROUND_TRUTH, encoding="utf-8"))["codes"]
+    # The CLEAN world, built here, not the installed ground truth: when the
+    # stressed world (warehouse/stress.py) is installed its labels are pushed
+    # in and turned on purpose, and this checks the geometry, not what a
+    # disturbance does to it.
+    cfg = gl._load_cfg(CONFIG)
+    cfg.setdefault("stress", {})["enabled"] = False
+    with contextlib.redirect_stdout(io.StringIO()):
+        _, codes, _ = gw.build(cfg)
     faces = {f["name"]: f for f in layout["aisle_faces"] if "name" in f}
     geometry = {"cameras": cameras(), "faces": faces,
                 "code_plane": layout.get("code_plane_offset_m", 0.0),
@@ -73,7 +95,10 @@ def synthesise(codes, geometry, layout, row, bay, level, which, lane_x, index=0)
     depth = abs(face["face_x"] - ux) - spec["mount_x"] + geometry["code_plane"]
     lateral = (by - uy) * right_y + (bx - ux) * right_x
     bearing = math.atan2(lateral, depth)
-    elevation = math.atan2(-(bz - uz), depth)
+    # Seen from the lens, which rides lens_z above the pose that is recorded.
+    # Synthesised from the pose itself, as this test once was, it agreed with
+    # a place() that made the same mistake and hid a 0.06 m height error.
+    elevation = math.atan2(-(bz - (uz + spec["lens_z"])), depth)
 
     reading = {
         "symbology": "CODE128",
@@ -94,14 +119,30 @@ def synthesise(codes, geometry, layout, row, bay, level, which, lane_x, index=0)
     return reading, bar
 
 
+def check_lens_height(geometry) -> int:
+    """Whether cameras() found the lenses where the model puts them."""
+    from warehouse_model import GZ_MODELS
+    model = json.loads(open(LAYOUT).read()).get("model", "")
+    if not (GZ_MODELS / model / "model.sdf").exists():
+        print("vehicle model not installed; lens height checked on the fallback only")
+    bad = 0
+    for which, want in EXPECTED_LENS_Z.items():
+        got = geometry["cameras"][which]["lens_z"]
+        ok = abs(got - want) < 1e-6
+        bad += not ok
+        print(f"lens height {which:<5} {got:.3f} m (model says {want:.3f})"
+              + ("" if ok else "  !! FAILED"))
+    return bad
+
+
 def main() -> int:
     layout, codes, geometry = load()
+    failures = check_lens_height(geometry)
     cases = [("A", "hires", -8.40), ("B", "rear", -8.40),
              ("C", "hires", -4.14), ("D", "rear", -4.14),
              ("E", "hires", -0.52), ("F", "rear", -0.52),
              ("G", "hires", 2.47), ("H", "rear", 2.47)]
 
-    failures = 0
     checked = 0
     worst = 0.0
     print("%-5s %-6s %-6s %8s %8s %8s  %s"

@@ -42,7 +42,7 @@ def check(ok: bool, what: str) -> None:
 
 def item(c: dict, run_ax, ident=None, shelf=None) -> dict:
     x, y, z = c["label_pose_xyzrpy"][:3]
-    return {"id": ident or c["payload"], "shelf": shelf or c["row"],
+    return {"id": ident or c["payload"], "shelf": shelf or c["row"], "level": c["level"],
             "estimated_x": x + SHIFT * run_ax[0],
             "estimated_y": y + SHIFT * run_ax[1], "estimated_z": z}
 

@@ -138,7 +138,9 @@ def place(row, geometry) -> dict | None:
     box_y = uav["y"] + forward_y * depth + right_y * lateral
     # The bars' own height. This files the barcode label, which is what the
     # barcode truth records, so nothing is added to reach the QR above it.
-    box_z = uav["z"] + vertical
+    # From the LENS, not from the recorded pose: that is the model origin,
+    # and the lens sits lens_z above it (see warehouse_model.cameras).
+    box_z = uav["z"] + spec["lens_z"] + vertical
 
     flight_z = geometry["flight_z"]
     level = min(range(len(flight_z)), key=lambda i: abs(flight_z[i] - box_z))
