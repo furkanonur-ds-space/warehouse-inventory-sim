@@ -21,6 +21,14 @@ Sorulanlar:
   8. Yer gerçeğindeki etiket pozları SDF'teki etiketlerin dünyadaki yeri.
   9. Her bozulma, yazdığı büyüklükte uygulanmış (kayma kadar kaymış,
      dönme kadar dönmüş).
+
+Etiket kusurları ayrı bir grup olarak, aynı dünyanın ikinci bir üretiminde:
+ 10. Etiket kusuru yalnız etiketli koliye verilmiş.
+ 11. Dokusu bozulan kolinin iki dokusu da temiz dünyadakinden farklı;
+     başka hiçbir dokuya dokunulmamış.
+ 12. Eğik etiket kolinin ön yüzünün içinde ve yazdığı açıda dönmüş.
+ 13. Eski etiketler yüzün içinde, asıl etiketlerin altında, onlara binmiyor
+     ve depoda olmayan bir şey söylüyor.
 """
 from __future__ import annotations
 
@@ -38,6 +46,7 @@ sys.path.insert(0, str(HERE))
 
 import gen_labels as gl  # noqa: E402
 import gen_world as gw   # noqa: E402
+import stress as sx      # noqa: E402
 
 CONFIG = HERE / "warehouse.yaml"
 LAYOUT = HERE.parent / "scanner" / "layout.json"
@@ -66,6 +75,11 @@ def links(sdf: str) -> dict[str, dict]:
     for m in re.finditer(r'<link name="(box_[^"]+)">(.*?)</link>', sdf, re.S):
         body = m.group(2)
         vis = dict(re.findall(r'<visual name="(\w+)">\s*<pose>([^<]+)</pose>', body))
+        scale = {}
+        for n, block in re.findall(r'<visual name="(\w+)">(.*?)</visual>', body, re.S):
+            sc = re.search(r"<scale>([^<]+)</scale>", block)
+            if sc:
+                scale[n] = [float(v) for v in sc.group(1).split()[:2]]
         size = re.search(r"<size>([^<]+)</size>", body).group(1)
         diffuse = re.search(r"<diffuse>([^<]+)</diffuse>", body).group(1)
         out[m.group(1)] = {
@@ -75,6 +89,8 @@ def links(sdf: str) -> dict[str, dict]:
             "label": [float(v) for v in vis["label"].split()] if "label" in vis else None,
             "placard": [float(v) for v in vis["placard"].split()] if "placard" in vis else None,
             "diffuse": diffuse,
+            "visuals": {n: [float(v) for v in pz.split()] for n, pz in vis.items()},
+            "scale": scale,
         }
     return out
 
@@ -110,20 +126,114 @@ def overlap(a, b) -> bool:
     return True
 
 
+def label_rects(rec):
+    """Etiket quad'larının köşeleri, kolinin kendi yüz düzleminde (x, z)."""
+    c, R = np.array(rec["body"][:3]), rpy_mat(*rec["body"][3:])
+    out = {}
+    for name, pose in rec["visuals"].items():
+        if name == "body" or name not in rec["scale"]:
+            continue
+        w, h = rec["scale"][name]
+        L = rpy_mat(*pose[3:])
+        pts = []
+        for sx_, sy_ in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
+            p = np.array(pose[:3]) + L @ np.array([sx_ * w / 2, sy_ * h / 2, 0.0])
+            q = R.T @ (p - c)
+            pts.append((q[0], q[2]))
+        out[name] = pts
+    return out
+
+
+def check_labels(cfg, sdf_off, tex_off, sdf_on, man_on, tex_on) -> dict:
+    L_off, L_on = links(sdf_off), links(sdf_on)
+    by_entity = {}
+    for c in man_on:
+        if c.get("entity", "").startswith("inventory::"):
+            by_entity.setdefault(c["entity"].split("::")[1], []).append(c)
+    real_payloads = {c["payload"] for c in man_on if c["type"] in ("box_qr", "box_placard")}
+    seen = {}
+    touched = set()
+    for name, rec in L_on.items():
+        recs = by_entity[name]
+        cell = recs[0]["stress"]
+        arm, v = cell["arm"], cell["value"]
+        seen[arm] = seen.get(arm, 0) + 1
+        _, rid, bay, lev, si = name.split("_")
+        stem = f"{rid}{bay}{lev}{si}.png"
+        bare = any(r["type"] == "box_unlabelled" for r in recs)
+        # 10
+        check(not (bare and arm != "none"), f"{name}: kodsuz koliye etiket kusuru ({arm})")
+        # kolinin kendisi hiç oynamamış
+        check(rec["body"] == L_off[name]["body"], f"{name}: etiket kusurunda koli oynamış")
+        dx, _, dz = rec["size"]
+        inside = lambda pts: all(-dx / 2 - TOL <= x <= dx / 2 + TOL and
+                                 -dz / 2 - TOL <= z <= dz / 2 + TOL for x, z in pts)
+        rects = label_rects(rec)
+        # 11
+        if arm in ("fade", "smudge", "tear", "wrinkle"):
+            for t in (f"box_{stem}", f"placard_{stem}"):
+                touched.add(t)
+                check(tex_on[t].tobytes() != tex_off[t].tobytes(), f"{t}: {arm} dokuyu değiştirmemiş")
+        # 12
+        if arm == "skew":
+            for key in ("label", "placard"):
+                check(inside(rects[key]), f"{name}/{key}: eğik etiket yüzden taşıyor")
+                a, b = rects[key][0], rects[key][1]
+                got = math.degrees(math.atan2(b[1] - a[1], b[0] - a[0]))
+                # Koridora +y'de bakan yüzlerde dokunun u ekseni -x'e döşeli,
+                # kenar 180 - açı çıkar: yataya göre katlanır.
+                got = (got + 90.0) % 180.0 - 90.0
+                check(abs(abs(got) - abs(v)) < 0.05, f"{name}/{key}: açı {got:.2f}, istenen {v}")
+        elif arm != "decoy" and rec["label"] is not None:
+            check(rec["label"] == L_off[name]["label"] and rec["placard"] == L_off[name]["placard"],
+                  f"{name}: {arm} etiketi yerinden oynatmış")
+        # 13
+        decoys = [r for r in recs if r["type"] == "box_decoy"]
+        want = {"none": 0, "decoy": {1: 1, 2: 1, 3: 2}.get(int(v), 0)}.get(arm, 0)
+        check(len(decoys) == want, f"{name}: {len(decoys)} eski etiket, beklenen {want}")
+        for d in decoys:
+            check(d["payload"] not in real_payloads, f"{name}: eski etiket gerçek bir kodu taşıyor")
+        if arm == "decoy":
+            real_bottom = min(z for k in ("label", "placard") for _, z in rects[k])
+            for key, pts in rects.items():
+                if not key.startswith("decoy_"):
+                    continue
+                check(inside(pts), f"{name}/{key}: eski etiket yüzden taşıyor")
+                check(max(z for _, z in pts) < real_bottom - 1e-4, f"{name}/{key}: asıl etiketlere biniyor")
+                touched.add(f"decoy_{rid}{bay}{lev}{si}_{'qr' if key == 'decoy_qr' else 'pc'}.png")
+            names = sorted(k for k in rects if k.startswith("decoy_"))
+            if len(names) == 2:
+                a, b = rects[names[0]], rects[names[1]]
+                check(max(z for _, z in a) < min(z for _, z in b) or max(z for _, z in b) < min(z for _, z in a),
+                      f"{name}: iki eski etiket üst üste")
+    # 11, öbür yarısı: dokunulmayan her doku temiz dünyadakiyle aynı
+    for t, img in tex_on.items():
+        if t in touched:
+            continue
+        check(t in tex_off and img.tobytes() == tex_off[t].tobytes(), f"{t}: kusursuz kolinin dokusu değişmiş")
+    return seen
+
+
 def main() -> int:
     base_cfg = gl._load_cfg(CONFIG)
     off_cfg = copy.deepcopy(base_cfg)
     off_cfg.setdefault("stress", {})["enabled"] = False
     on_cfg = copy.deepcopy(base_cfg)
     on_cfg["stress"]["enabled"] = True
+    on_cfg["stress"]["use"] = list(sx.GEOMETRY_ARMS)
+    lab_cfg = copy.deepcopy(base_cfg)
+    lab_cfg["stress"]["enabled"] = True
+    lab_cfg["stress"]["use"] = list(sx.LABEL_ARMS)
 
     import contextlib, io
     with contextlib.redirect_stdout(io.StringIO()):
-        sdf_off, man_off, _ = gw.build(off_cfg)
+        sdf_off, man_off, tex_off = gw.build(off_cfg)
         sdf_on, man_on, _ = gw.build(on_cfg)
+        sdf_lab, man_lab, tex_lab = gw.build(lab_cfg)
 
     # 1
     check(not any("stress" in c for c in man_off), "kapalı dünyada stress alanı var")
+    seen_lab = check_labels(base_cfg, sdf_off, tex_off, sdf_lab, man_lab, tex_lab)
 
     L_off, L_on = links(sdf_off), links(sdf_on)
     by_entity = {}
@@ -246,6 +356,7 @@ def main() -> int:
     n_box = len(L_on) + len(absent)
     print(f"{n_box} koli, {len(absent)} boş göz; bozulmalar: "
           + ", ".join(f"{a} {n}" for a, n in sorted(arms_seen.items())))
+    print("etiket kusurları: " + ", ".join(f"{a} {n}" for a, n in sorted(seen_lab.items())))
     if failures:
         for f in failures[:40]:
             print("  HATA:", f)

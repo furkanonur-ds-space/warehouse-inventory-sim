@@ -40,15 +40,29 @@ from pathlib import Path
 
 import numpy as np
 
-#: Sırası raporun da sırası.
-ARMS = ("push_in", "pull_out", "slide", "yaw", "tilt", "empty")
+#: Kolinin kendisine yapılanlar.
+GEOMETRY_ARMS = ("push_in", "pull_out", "slide", "yaw", "tilt", "empty")
+#: Etiketlere yapılanlar; koli yerinde ve dimdik durur.
+LABEL_ARMS = ("fade", "smudge", "tear", "wrinkle", "skew", "decoy")
+#: Sırası raporun da sırası. YENİ BOZULMALAR SONA EKLENİR: hücre döngüsü bu
+#: sırayla kurulduğu için araya giren bir ad, aynı `use` listesiyle üretilmiş
+#: eski bir dünyayı bile değiştirirdi.
+ARMS = GEOMETRY_ARMS + LABEL_ARMS
 
 #: Birimi: raporda ve yer gerçeğinde değerin yanında yazılır.
 UNITS = {"push_in": "m", "pull_out": "m", "slide": "m",
-         "yaw": "deg", "tilt": "deg", "empty": "", "none": ""}
+         "yaw": "deg", "tilt": "deg", "empty": "", "none": "",
+         "fade": "contrast", "smudge": "cover", "tear": "cover",
+         "wrinkle": "module", "skew": "deg", "decoy": "set"}
 
 #: İşaretli bozulmalar: sola/sağa, öne/arkaya rastgele.
-SIGNED = {"slide", "yaw", "tilt"}
+SIGNED = {"slide", "yaw", "tilt", "skew"}
+
+#: Etiket dokusunu değiştirenler (skew ve decoy dokuya değil yerleşime dokunur).
+TEXTURE_ARMS = {"fade", "smudge", "tear", "wrinkle"}
+
+#: Eski etiketin, kolinin asıl etiketlerinin altında bıraktığı boşluk.
+DECOY_GAP_M = 0.010
 
 #: Koli ile komşusu, dikme veya raf arkası arasında her zaman kalacak boşluk.
 #: Sıfır olursa iki koli aynı yüzeyi paylaşır ve z-fighting olur.
@@ -212,8 +226,14 @@ class Assigner:
         if unknown:
             raise SystemExit(f"stress.arms: bilinmeyen bozulma {sorted(unknown)}; "
                              f"geçerli olanlar {list(ARMS)}")
+        # Bu uçuşta hangileri açık. Yazılmazsa değeri olan her bozulma.
+        use = st.get("use")
+        use = set(arms) if use is None else set(use)
+        if use - set(arms):
+            raise SystemExit(f"stress.use: {sorted(use - set(arms))} için "
+                             "stress.arms'ta değer yok")
         self.cells = []
-        for arm in ARMS:
+        for arm in (a for a in ARMS if a in use):
             for li, value in enumerate(arms.get(arm) or []):
                 if arm == "empty":
                     # empty'nin büyüklüğü yok; sayı kaç hücre olacağını söyler
@@ -224,6 +244,9 @@ class Assigner:
         self.cells += [CONTROL] * n_ctrl
         if not any(c.arm != "none" for c in self.cells):
             raise SystemExit("stress açık ama stress.arms boş; hiçbir koli bozulmaz")
+        # Etiket kusurlarının rastgeleliği (lekenin yeri, yırtığın köşesi,
+        # eski etiketin yükü) ayrı bir üreteçten: atamanın sırasını kaydırmasın.
+        self.tex_rng = np.random.default_rng(int(st["seed"]) + 1)
         self.pending: dict[str, list[Cell]] = {}
         self.given: dict[tuple, dict] = {}       # (arm, level) -> {yüz: sayı}
 
@@ -270,3 +293,169 @@ class Assigner:
                 lines.append(f"    UYARI: {arm} L{level} ({value:g} {UNITS[arm]}) "
                              f"{','.join(missing)} yüzünde hiçbir koliye sığmadı")
         return lines
+
+
+# --------------------------------------------------------- etiket kusurları
+#
+# Hepsi PIL görüntüsü alır, yenisini döndürür; girdiye dokunmaz. Rastgelelik
+# yalnız verilen numpy üretecinden gelir, o da Assigner'ın tohumundan: aynı
+# tohum aynı lekeyi aynı yere koyar.
+#
+# Büyüklükler, kusurun koda ne yaptığını söyleyen birimlerle verilir, piksel
+# ya da "biraz" değil: solma kalan KONTRAST, leke ve yırtık etiketin örtülen
+# PAYI, kırışıklık kodun MODÜLÜ cinsinden genlik. Bir eşik bulunduğunda
+# gerçek dünyadaki karşılığı da böylece okunur.
+
+def fade(img, contrast: float):
+    """Soluk baskı: siyah ile kağıt arasındaki farkın yalnız `contrast` kadarı kalır.
+
+    Termal etiketler ısıda ve ışıkta tam böyle solar: kağıt beyaz kalır,
+    siyah griye döner.
+    """
+    a = np.asarray(img, dtype=np.float32)
+    return _pil(255.0 - (255.0 - a) * contrast)
+
+
+def _pil(a):
+    from PIL import Image
+    return Image.fromarray(np.clip(a, 0, 255).astype(np.uint8), "RGB")
+
+
+def _blobs(shape, cover: float, rng, soft: float):
+    """Toplam alanı yaklaşık `cover` olan yumuşak kenarlı lekelerin maskesi."""
+    from PIL import Image, ImageDraw, ImageFilter
+    h, w = shape
+    mask = Image.new("L", (w, h), 0)
+    d = ImageDraw.Draw(mask)
+    target = cover * w * h
+    covered = 0.0
+    for _ in range(400):
+        if covered >= target:
+            break
+        rx = rng.uniform(0.05, 0.22) * w
+        ry = rng.uniform(0.05, 0.22) * h if h > w / 3 else rng.uniform(0.25, 0.6) * h
+        cx, cy = rng.uniform(0, w), rng.uniform(0, h)
+        d.ellipse([cx - rx, cy - ry, cx + rx, cy + ry], fill=255)
+        covered = float((np.asarray(mask) > 127).sum())
+    mask = mask.filter(ImageFilter.GaussianBlur(soft))
+    return np.asarray(mask, dtype=np.float32)[..., None] / 255.0
+
+
+#: Lekenin örtücülüğü. Dokular üzerinde zbar ile ölçüldü (40 QR, kameranın A
+#: yüzündeki 3.1 px/modül'e küçültülmüş): 0.65'te etiketin %60'ı kaplansa
+#: bile okunuyordu, yarı saydam leke kontrastı düşürür ama modülü gizlemez;
+#: 0.9'da %5'lik leke bile QR'ı öldürüyordu, çünkü koyu leke siyah modül
+#: gibi okunur. 0.75'te düşüş kademeli: %5'te 33/40, %20'de 30, %45'te 18.
+SMUDGE_OPACITY = 0.75
+
+
+def smudge(img, cover: float, rng, module_px: float):
+    """Kir, parmak izi, toz: etiketin `cover` kadarının üstünde koyu yarı saydam leke."""
+    a = np.asarray(img, dtype=np.float32)
+    m = _blobs(a.shape[:2], cover, rng, soft=max(1.0, module_px * 0.6))
+    dirt = np.array([70.0, 62.0, 52.0])
+    return _pil(a * (1 - SMUDGE_OPACITY * m) + dirt * SMUDGE_OPACITY * m)
+
+
+def tear(img, cover: float, rng, cardboard_rgb):
+    """Bir köşesi yırtılmış etiket: `cover` kadar alan gitmiş, altından koli görünür.
+
+    Saydam doku yerine kolinin rengi boyanır: etiket düz bir dörtgen, delik
+    açılamaz. Kenar tırtıklı, çünkü kağıt düz yırtılmaz.
+    """
+    from PIL import Image, ImageDraw
+    a = img.copy()
+    w, h = a.size
+    # Üçgenin dik kenarları, alanı cover*w*h olacak şekilde. Uzun ince barkod
+    # etiketinde dikey kenar etiketin boyuna yakın tutulur, yoksa yatay kenar
+    # etiketten taşar; kare QR etiketinde iki kenar birbirine yakın.
+    if w > 3 * h:
+        leg_y = rng.uniform(0.75, 1.0) * h
+        leg_x = 2 * cover * w * h / leg_y
+    else:
+        r = rng.uniform(0.6, 1.6)
+        leg_x = math.sqrt(2 * cover * w * h * r)
+        leg_y = math.sqrt(2 * cover * w * h / r)
+    leg_x, leg_y = min(w, leg_x), min(h, leg_y)
+    corner = rng.integers(4)
+    pts = [(0.0, 0.0)]
+    n = 9
+    for i in range(n + 1):
+        t = i / n
+        jag = rng.normal(0, 0.04)
+        pts.append((leg_x * (1 - t) * (1 + jag), leg_y * t * (1 - jag)))
+    flip = [(x if corner in (0, 2) else w - x, y if corner in (0, 1) else h - y)
+            for x, y in pts]
+    ImageDraw.Draw(a).polygon(flip, fill=tuple(int(c * 255) for c in cardboard_rgb))
+    return a
+
+
+def wrinkle(img, amp_modules: float, rng, module_px: float):
+    """Buruşuk etiket: yüzey dalgalanır, çizgiler kayar, kırışıkta gölge kalır.
+
+    Etiket düz bir dörtgen olduğu için dalga dokunun içinde yapılır: her
+    piksel, birkaç sinüsün toplamı kadar yer değiştirir. Genlik modül
+    cinsinden, çünkü kodu bozan şey modül sınırının ne kadar kaydığıdır.
+    """
+    import cv2
+    a = np.asarray(img, dtype=np.float32)
+    h, w = a.shape[:2]
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    amp = amp_modules * module_px
+    dx = np.zeros_like(xx)
+    dy = np.zeros_like(yy)
+    shade = np.zeros_like(xx)
+    for _ in range(3):
+        th = rng.uniform(0, math.pi)
+        lam = rng.uniform(5, 12) * module_px
+        ph = rng.uniform(0, 2 * math.pi)
+        phase = (xx * math.cos(th) + yy * math.sin(th)) * 2 * math.pi / lam + ph
+        dx += amp / 3 * np.sin(phase) * -math.sin(th)
+        dy += amp / 3 * np.sin(phase) * math.cos(th)
+        shade += np.cos(phase)
+    out = cv2.remap(a, xx + dx, yy + dy, cv2.INTER_LINEAR,
+                    borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
+    # Kırışıkların ışığı: genlikle birlikte koyulaşır, en ağırda %18.
+    out *= (1 - min(0.18, 0.06 * amp_modules) * (0.5 + 0.5 * shade / 3))[..., None]
+    return _pil(out)
+
+
+def damage(img, cell: Cell, rng, module_px: float, cardboard_rgb):
+    """Dokuya yapılan kusur; dokuya dokunmayan bir hücrede görüntü aynen döner."""
+    if cell.arm == "fade":
+        return fade(img, cell.value)
+    if cell.arm == "smudge":
+        return smudge(img, cell.value, rng, module_px)
+    if cell.arm == "tear":
+        return tear(img, cell.value, rng, cardboard_rgb)
+    if cell.arm == "wrinkle":
+        return wrinkle(img, cell.value, rng, module_px)
+    return img
+
+
+# ---------------------------------------------------- etiket yerleşimi
+
+def rot_y(a: float) -> np.ndarray:
+    c, s = math.cos(a), math.sin(a)
+    return np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
+
+
+def rects_inside(rects, x_lo, x_hi, z_lo, z_hi) -> bool:
+    """Dörtgenlerin (köşe listeleri, x-z düzleminde) hepsi bu aralıkta mı."""
+    for k in rects:
+        xs, zs = [p[0] for p in k], [p[1] for p in k]
+        if min(xs) < x_lo or max(xs) > x_hi or min(zs) < z_lo or max(zs) > z_hi:
+            return False
+    return True
+
+
+def rect(cx, cz, w, h, centre=None, angle=0.0):
+    """Yüz düzleminde bir etiketin köşeleri, istenirse `centre` etrafında dönmüş."""
+    pts = [(cx - w / 2, cz - h / 2), (cx + w / 2, cz - h / 2),
+           (cx + w / 2, cz + h / 2), (cx - w / 2, cz + h / 2)]
+    if not angle:
+        return pts
+    ox, oz = centre
+    c, s = math.cos(angle), math.sin(angle)
+    return [(ox + (x - ox) * c - (z - oz) * s, oz + (x - ox) * s + (z - oz) * c)
+            for x, z in pts]

@@ -28,6 +28,7 @@ sys.path.insert(0, str(HERE.parent / "warehouse"))
 
 import gen_labels as gl                                   # noqa: E402
 import gen_world as gw                                    # noqa: E402
+import stress as sx                                       # noqa: E402
 from stress_report import build, face_axes, render        # noqa: E402
 from warehouse_model import load_config                   # noqa: E402
 
@@ -47,10 +48,50 @@ def item(c: dict, run_ax, ident=None, shelf=None) -> dict:
             "estimated_y": y + SHIFT * run_ax[1], "estimated_z": z}
 
 
+def check_decoys(cfg: dict, run_ax) -> None:
+    """The label group: every old QR is reported as read, no old barcode is.
+
+    The report must count exactly the QR ones against their rows and none of
+    the barcodes, and must not mistake an old label for the real one.
+    """
+    cfg = copy.deepcopy(cfg)
+    cfg["stress"]["use"] = list(sx.LABEL_ARMS)
+    with contextlib.redirect_stdout(io.StringIO()):
+        _, manifest, _ = gw.build(cfg)
+    real = [c for c in manifest if c["type"] == "box_qr"]
+    old = [c for c in manifest if c["type"] == "box_decoy"]
+    qr = [item(c, run_ax) for c in real] + \
+         [item(c, run_ax) for c in old if c["symbology"] == "QR"]
+    bc = [item(c, run_ax) for c in manifest if c["type"] == "box_placard"]
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp)
+        (out / "gt.json").write_text(json.dumps({"codes": manifest}))
+        (out / "inventory_scanned.json").write_text(json.dumps({"items": qr}))
+        (out / "inventory_barcode.json").write_text(json.dumps({"items": bc}))
+        data = build(out / "gt.json", out, load_config())
+    want = {}
+    for c in old:
+        r = want.setdefault(f"decoy L{c['stress']['level']}", [0, 0])
+        r[0] += 1
+        r[1] += c["symbology"] == "QR"
+    rows = {r["cell"]: r for r in data["rows"]}
+    check(bool(want), "label group built no old labels")
+    for name, (n, n_qr) in want.items():
+        r = rows.get(name, {})
+        check(r.get("decoy_codes") == n, f"{name}: {r.get('decoy_codes')} old labels, want {n}")
+        check(r.get("decoy_read") == n_qr, f"{name}: {r.get('decoy_read')} read, want {n_qr}")
+        check(r.get("qr_read") == r.get("qr_of"), f"{name}: an old label cost the real QR")
+    check(len(data["decoys_read"]) == sum(v[1] for v in want.values()), "decoys_read list")
+    for name in ("none", "fade L1", "skew L3"):
+        check(rows.get(name, {}).get("decoy_codes") == 0, f"{name}: counted old labels")
+    render(data)
+
+
 def main() -> int:
     cfg = gl._load_cfg(HERE.parent / "warehouse" / "warehouse.yaml")
     cfg = copy.deepcopy(cfg)
     cfg["stress"]["enabled"] = True
+    cfg["stress"]["use"] = list(sx.GEOMETRY_ARMS)
     with contextlib.redirect_stdout(io.StringIO()):
         _, manifest, _ = gw.build(cfg)
     _, run_ax = face_axes(load_config())
@@ -91,6 +132,7 @@ def main() -> int:
     check(n_cartons + len(absent) == 432, f"{n_cartons} + {len(absent)} cartons, want 432")
     check("none" in rows and rows["none"]["cartons"] > 100, "no control row")
     render(data)                       # must not raise
+    check_decoys(cfg, run_ax)
 
     print(f"{len(data['rows'])} rows, {n_cartons} cartons, {len(absent)} empty slots")
     if failures:

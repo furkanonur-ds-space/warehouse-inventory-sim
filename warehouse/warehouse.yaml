@@ -225,17 +225,54 @@ stress:
   enabled: false
   seed: 20261002
   min_side_clearance: 0.05
-  # Döngüdeki bozulmasız hücre sayısı. 15 bozulma hücresi + 1 boş göz + 8
-  # kontrol = 24; yüz başına 54 koli bu döngüyü ~2.2 kez tüketir, yani her
-  # hücre her yüze ~2 kez, depoda ~17 kez düşer.
+  # Döngüdeki bozulmasız hücre sayısı. 18 bozulma hücresi + 8 kontrol = 26;
+  # yüz başına 54 koli bu döngüyü ~2 kez tüketir, yani her hücre her yüze ~2
+  # kez, depoda ~16 kez düşer.
   control_cells: 8
+  # BU UÇUŞTA AÇIK OLANLAR. Bir uçuşa sığacak kadar hücre olsun diye gruplar
+  # ayrı uçulur; değerler aşağıda kalır. Liste değişince dünya değişir.
+  #   2026-10-05 uçuşu: [push_in, pull_out, slide, yaw, tilt, empty]
+  #     (bu listeyle aynı tohum o dünyayı md5'iyle aynen verir)
+  use: [fade, smudge, tear, wrinkle, skew, decoy]
   arms:
+    # --- koli
     push_in:  [0.05, 0.12, 0.25]
     pull_out: [0.03, 0.06, 0.10]
     slide:    [0.02, 0.05, 0.10]
     yaw:      [4, 8, 15]
     tilt:     [3, 6, 10]
     empty:    [1]
+    # --- etiket. Koli yerinde ve dimdik; QR ve barkod etiketi AYNI kusuru
+    # taşır (aynı baskı, aynı kir), ikisi ayrı puanlanır.
+    #   fade     kalan baskı kontrastı (1 = yeni, 0 = boş kağıt)
+    #   smudge   etiketin lekeyle örtülen payı
+    #   tear     etiketin yırtılıp giden payı, bir köşeden
+    #   wrinkle  kırışıklık genliği, kodun MODÜLÜ cinsinden (QR 2.8 mm,
+    #            barkod 2.9 mm; dokuda ikisi de 7 px)
+    #   skew     etiket bloğunun eğik yapıştırılma açısı (işaret rastgele)
+    #   decoy    eski etiket, asıl etiketlerin altında: 1 eski barkod, 2 eski
+    #            QR, 3 ikisi. Okunabilir ama YANLIŞ: QR başka bir adres,
+    #            barkod depoda olmayan bir numara.
+    #
+    # SEVİYELER UÇUŞTAN ÖNCE DOKULAR ÜZERİNDE ÖLÇÜLDÜ (zbar, 20-40 etiket,
+    # A yüzünün 3.1 px/modül'üne küçültülmüş). İlk tahminlerin yarısı işe
+    # yaramazdı:
+    #   tear     %8'de QR'ların üçte ikisi ölüyordu: köşeden giden yırtık
+    #            QR'ın köşe hizalama karesini götürür ve zbar kodu hiç
+    #            bulamaz. Eşik %4 ile %8 arasında, keskin. Barkod %8'de bile
+    #            okunuyor (yırtılmayan çubuk boyu yetiyor).
+    #   wrinkle  1 modülde QR 0/20; eşik 0.3 ile 0.5 modül arası.
+    #   smudge   bkz. stress.SMUDGE_OPACITY.
+    #   fade     %5 kontrastta bile okunuyor. Simülasyonun kamerası
+    #            GÜRÜLTÜSÜZ, zbar da eşiği yerel seçiyor; solmanın asıl sınavı
+    #            kısık ışık ve kamera gürültüsüyle birlikte olacak. Burada en
+    #            uçtaki değerler, ışık kaybıyla birleşince ne olacağını sorar.
+    fade:     [0.30, 0.15, 0.07]
+    smudge:   [0.05, 0.20, 0.45]
+    tear:     [0.03, 0.06, 0.10]
+    wrinkle:  [0.25, 0.40, 0.60]
+    skew:     [5, 12, 25]
+    decoy:    [1, 2, 3]
 
 # ---------------------------------------------------------------- kodlar
 codes:

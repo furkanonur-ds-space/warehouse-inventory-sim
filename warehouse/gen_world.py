@@ -428,6 +428,29 @@ def parse_unlabelled(spec) -> set:
     return out
 
 
+def skewed_block(cx, qr_z, pc_z, lw, lh, pw, ph, angle):
+    """QR ve barkod etiketinin köşeleri, blok ortası etrafında `angle` dönmüş."""
+    bz = (qr_z + lh / 2 + pc_z - ph / 2) / 2
+    return [sx.rect(cx, qr_z, lw, lh, (cx, bz), angle),
+            sx.rect(cx, pc_z, pw, ph, (cx, bz), angle)]
+
+
+def decoy_layout(level: int, cx, pc_z, lw, lh, pw, ph) -> list[dict]:
+    """Eski etiketlerin yeri: asıl barkodun altında, yukarıdan aşağı.
+
+    1 yalnız eski barkod, 2 yalnız eski QR, 3 ikisi birden. Altta, çünkü
+    üstte kolinin kapağı var ve yanlarda en dar kolide (XS) 40 mm kalıyor.
+    """
+    top = pc_z - ph / 2 - sx.DECOY_GAP_M
+    kinds = {1: ["placard"], 2: ["qr"], 3: ["placard", "qr"]}[level]
+    out = []
+    for kind in kinds:
+        w, h = (pw, ph) if kind == "placard" else (lw, lh)
+        out.append({"kind": kind, "x": cx, "z": top - h / 2, "w": w, "h": h})
+        top -= h + LABEL_GAP
+    return out
+
+
 def inventory(cfg, rng, textures, manifest) -> str:
     """Raflardaki kutular, üzerlerindeki QR etiketleri ve konum barkodları."""
     rk, bx, codes = cfg["racking"], cfg["boxes"], cfg["codes"]
@@ -465,6 +488,9 @@ def inventory(cfg, rng, textures, manifest) -> str:
     assigner = sx.Assigner(cfg) if st.get("enabled") else None
     caps = (sx.face_caps(cfg, PROJECT_ROOT / st.get("layout", "scanner/layout.json"))
             if assigner else {})
+    # Etiket kusurlarının dokudaki ölçeği: modülün piksel boyu.
+    qr_scale = gl._canvas(spec["label"], ppm, maxpx)[1]
+    pc_scale = gl._canvas(pc_spec["label"], ppm, maxpx)[1]
 
     out = ['  <model name="inventory">\n    <static>true</static>\n'
            + model_pose_tag(world_yaw_rad(cfg))]
@@ -527,13 +553,33 @@ def inventory(cfg, rng, textures, manifest) -> str:
                             y_face=y_face, facing=facing,
                             max_protrusion=caps[rid]["max_protrusion"])
                         listed = (rid, bi + 1, li + 1, si) in unlabelled
+                        # Etiketlerin, kolinin ön yüzündeki yeri (aşağıda
+                        # bir daha, aynı formülle hesaplanıyor).
+                        qr_z0 = cz + QR_SYMBOL_RISE_M - qr_rise
+                        pc_z0 = qr_z0 - lh / 2 - label_gap - ph / 2
+                        face_box = (cx - dx / 2 + sx.MARGIN_M, cx + dx / 2 - sx.MARGIN_M,
+                                    z + sx.MARGIN_M, z + dz - sx.MARGIN_M)
 
                         def ok(c, _d=(dx, dy, dz), _s=slot, _listed=listed,
-                               _c=(cx, cy, cz), _z=z):
+                               _c=(cx, cy, cz), _z=z, _q=qr_z0, _p=pc_z0, _f=face_box):
                             if c.arm == "empty":
                                 # Listedeki kodsuz koli deneyin parçası; onu
                                 # rafdan almak o deneyi bozar.
                                 return not _listed
+                            if c.arm in sx.LABEL_ARMS:
+                                # Etiketi olmayan koliye etiket kusuru verilmez.
+                                if every or _listed:
+                                    return False
+                                if c.arm == "skew":
+                                    return sx.rects_inside(
+                                        skewed_block(_c[0], _q, _p, lw, lh, pw, ph,
+                                                     math.radians(c.signed)), *_f)
+                                if c.arm == "decoy":
+                                    return sx.rects_inside(
+                                        [sx.rect(d["x"], d["z"], d["w"], d["h"])
+                                         for d in decoy_layout(int(c.value), _c[0], _p,
+                                                               lw, lh, pw, ph)], *_f)
+                                return True
                             return sx.fits(sx.place(c, _c, _d, facing, _z), _d, _s)
 
                         cell = assigner.pick(rid, ok)
@@ -572,6 +618,13 @@ def inventory(cfg, rng, textures, manifest) -> str:
                     shade = rng.uniform(0.88, 1.06)
                     cardboard = tuple(min(1.0, c * shade) for c in (0.68, 0.52, 0.34))
                     tag = {"stress": cell.record()} if assigner else {}
+                    if cell.arm in sx.TEXTURE_ARMS and not bare:
+                        # Aynı baskı: QR etiketi de barkod etiketi de aynı
+                        # kusuru taşır, ikisi ayrı ayrı puanlanır.
+                        textures[tex] = sx.damage(img, cell, assigner.tex_rng,
+                                                  module_m * qr_scale, cardboard)
+                        textures[pc_tex] = sx.damage(pc_img, cell, assigner.tex_rng,
+                                                     pc_module_m * pc_scale, cardboard)
 
                     if gone:
                         # BOŞ GÖZ. Koli rafta yok; bütün çekilişler yukarıda
@@ -597,7 +650,7 @@ def inventory(cfg, rng, textures, manifest) -> str:
                         n_box += 1
                         continue
 
-                    if cell.arm == "none":
+                    if cell.arm not in sx.GEOMETRY_ARMS:
                         placed = None
                         body_pose = (cx, cy, cz)
                     else:
@@ -645,11 +698,53 @@ def inventory(cfg, rng, textures, manifest) -> str:
                         rpy = tuple(v + 0.0 for v in
                                     sx.mat_to_rpy(placed.rot @ sx.rpy_to_mat(*rpy)))
                         normal = tuple(float(v) for v in placed.rot @ np.array(normal))
+                    decoys = []
+                    if cell.arm == "skew":
+                        # EĞRİ YAPIŞTIRILMIŞ: iki etiket tek blok olarak,
+                        # bloğun ortası etrafında, yüzün kendi düzleminde
+                        # döner. Ayrı ayrı döndürülseydi barkod QR'ın
+                        # içine girerdi.
+                        a = math.radians(cell.signed)
+                        bz = (qr_z + lh / 2 + pc_z - ph / 2) / 2
+                        turn = sx.rot_y(-a)
+                        centre = np.array((cx, y_label + off, bz))
+                        qr_xyz = tuple(centre + turn @ (np.array(qr_xyz) - centre))
+                        pc_xyz = tuple(centre + turn @ (np.array(pc_xyz) - centre))
+                        rpy = tuple(v + 0.0 for v in
+                                    sx.mat_to_rpy(turn @ sx.rpy_to_mat(*rpy)))
+                    elif cell.arm == "decoy":
+                        # ESKİ ETİKET: kolinin önceki sevkiyatından kalmış,
+                        # okunabilir ama YANLIŞ şey söyleyen bir QR ve/veya
+                        # barkod, asıl etiketlerin altında. QR'ı başka bir
+                        # adresi, barkodu depoda olmayan bir numarayı
+                        # taşır; okunan her biri envantere yanlış bir kayıt
+                        # demektir.
+                        tr = assigner.tex_rng
+                        for d in decoy_layout(int(cell.value), cx, pc_z, lw, lh, pw, ph):
+                            if d["kind"] == "qr":
+                                other = rk["rows"][int(tr.integers(len(rk["rows"])))]["id"]
+                                dp = gl.box_payload(f"SKU{int(tr.integers(10000, 100000))}",
+                                                    other, int(tr.integers(nb)) + 1,
+                                                    int(tr.integers(len(levels))) + 1)
+                                dimg, _ = gl.make_box_label(dp, "", spec, ppm, maxpx)
+                                dtex = f"decoy_{rid}{bi+1:02d}{li+1}{si}_qr.png"
+                                sym = "QR"
+                            else:
+                                dp = gl.placard_payload(int(tr.integers(5000, 10000)))
+                                dimg, _ = gl.make_bay_placard(dp, dp, pc_spec, ppm, maxpx)
+                                dtex = f"decoy_{rid}{bi+1:02d}{li+1}{si}_pc.png"
+                                sym = "CODE128"
+                            textures[dtex] = dimg
+                            decoys.append({**d, "payload": dp, "tex": dtex, "symbology": sym,
+                                           "xyz": (d["x"], y_label + off, d["z"])})
                     if not bare:
                         out.append(label_visual("label", tex, (lw, lh),
                                                 (*qr_xyz, *rpy), "      "))
                         out.append(label_visual("placard", pc_tex, (pw, ph),
                                                 (*pc_xyz, *rpy), "      "))
+                        for d in decoys:
+                            out.append(label_visual(f"decoy_{d['kind']}", d["tex"],
+                                                    (d["w"], d["h"]), (*d["xyz"], *rpy), "      "))
                     out.append("    </link>\n")
 
                     if bare:
@@ -715,6 +810,20 @@ def inventory(cfg, rng, textures, manifest) -> str:
                         "normal": [round(v, 6) for v in normal],
                         **tag,
                     })
+                    for d in decoys:
+                        manifest.append({
+                            "type": "box_decoy",
+                            "symbology": d["symbology"],
+                            "payload": d["payload"],
+                            "caption": "",
+                            "entity": f"inventory::{link}",
+                            "row": rid, "bay": bi + 1, "level": li + 1,
+                            "label_pose_xyzrpy": [*[round(float(v), 4) for v in d["xyz"]],
+                                                  *[round(v, 6) for v in rpy]],
+                            "label_size_m": [d["w"], d["h"]],
+                            "normal": [round(v, 6) for v in normal],
+                            **tag,
+                        })
                     n_box += 1
 
     out.append("  </model>\n")

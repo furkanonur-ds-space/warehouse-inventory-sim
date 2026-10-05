@@ -25,6 +25,12 @@ that would look like the reader failing. In-plane (along the run and in
 height) is the error a reader can be blamed for; depth is reported beside it
 so the push_in rows say how far the face-plane assumption is from the truth.
 
+OLD LABELS (`decoy`) are codes that read perfectly and say the wrong thing:
+a QR with another address, a barcode with a number the warehouse does not
+have. Every one that turns up in an inventory is a false record, so for
+those rows the number that matters is how many were read - the lower the
+better - next to whether the real labels above them still were.
+
 EMPTY SLOTS have nothing to read. What they can show is a phantom: a carton
 cluster the detector placed where no carton is. Counted from every cluster in
 box_report.json, matched or not, on the same face and shelf level within
@@ -58,7 +64,8 @@ OUT = REPO_ROOT / "out"
 #: on the empty spot, not on the neighbour beside it.
 PHANTOM_M = 0.16
 
-ARM_ORDER = ("none", "push_in", "pull_out", "slide", "yaw", "tilt", "empty")
+ARM_ORDER = ("none", "push_in", "pull_out", "slide", "yaw", "tilt", "empty",
+             "fade", "smudge", "tear", "wrinkle", "skew", "decoy")
 
 
 def cell_key(tag: dict) -> tuple:
@@ -148,6 +155,11 @@ def build(truth_path: Path, out_dir: Path, cfg: dict) -> dict:
         elif c["type"] == "box_unlabelled":
             b["kind"] = "unlabelled"
             b["carton"] = {"found": c["payload"] in cartons}
+        elif c["type"] == "box_decoy":
+            inv = qr if c["symbology"] == "QR" else bc
+            b.setdefault("decoys", []).append({
+                "symbology": c["symbology"], "payload": c["payload"],
+                "read": c["payload"] in inv})
         elif c["type"] == "box_absent":
             b["kind"] = "absent"
             near = []
@@ -172,6 +184,7 @@ def build(truth_path: Path, out_dir: Path, cfg: dict) -> dict:
             "values": set(), "cartons": 0, "unlabelled": 0, "absent": 0,
             "faces": {}, "qr_read": 0, "qr_of": 0, "bc_read": 0, "bc_of": 0,
             "carton_found": 0, "carton_of": 0, "phantom_slots": 0,
+            "decoy_codes": 0, "decoy_read": 0,
             "_qr_in": [], "_qr_depth": [], "_bc_in": [], "_bc_depth": []})
         r["values"].add(abs(b["cell"]["value"]))
         f = r["faces"].setdefault(b["row"], {"n": 0, "qr": 0, "bc": 0, "carton": 0})
@@ -182,6 +195,9 @@ def build(truth_path: Path, out_dir: Path, cfg: dict) -> dict:
             continue
         r["cartons"] += 1
         r["unlabelled"] += b["kind"] == "unlabelled"
+        for d in b.get("decoys", []):
+            r["decoy_codes"] += 1
+            r["decoy_read"] += d["read"]
         if b["qr"]:
             r["qr_of"] += 1
             if b["qr"]["read"]:
@@ -213,8 +229,10 @@ def build(truth_path: Path, out_dir: Path, cfg: dict) -> dict:
         table.append(r)
     phantoms = [{"entity": b["entity"], "clusters": b["phantoms"]}
                 for b in boxes.values() if b.get("phantoms")]
+    decoys_read = [{"entity": b["entity"], **d} for b in boxes.values()
+                   for d in b.get("decoys", []) if d["read"]]
     return {"stressed": True, "readers": have, "phantom_m": PHANTOM_M,
-            "rows": table, "phantoms": phantoms,
+            "rows": table, "phantoms": phantoms, "decoys_read": decoys_read,
             "boxes": sorted(boxes.values(), key=lambda b: b["entity"])}
 
 
@@ -249,6 +267,9 @@ def render(data: dict) -> str:
             f"{pct(r['bc_read'], r['bc_of']) if have['barcode'] else 'no file':>14} "
             f"{mm(r['barcode_inplane_median_m'])} {mm(r['barcode_depth_median_m'])}  "
             f"{pct(r['carton_found'], r['carton_of']) if have['carton'] else 'no file':>14}")
+        if r["decoy_codes"]:
+            lines.append(f"{'':<12}{'':>10} {'':>4}  old labels READ: {r['decoy_read']} of "
+                         f"{r['decoy_codes']}  (each one a false record; lower is better)")
     lines.append("")
     lines.append("compare every row with `none`: that is the same flight, the same "
                  "faces, nothing done to the carton.")
