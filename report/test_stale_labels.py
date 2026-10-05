@@ -53,6 +53,7 @@ def main() -> int:
     cfg = copy.deepcopy(gl._load_cfg(HERE.parent / "warehouse" / "warehouse.yaml"))
     cfg["stress"]["enabled"] = True
     cfg["stress"]["use"] = list(sx.LABEL_ARMS)
+    cfg["stress"].pop("levels", None)   # every level, whatever the working copy flies
     with contextlib.redirect_stdout(io.StringIO()):
         _, manifest, _ = gw.build(cfg)
     qr_of = {c["entity"]: c for c in manifest if c["type"] == "box_qr"}

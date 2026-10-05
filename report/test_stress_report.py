@@ -56,6 +56,7 @@ def check_decoys(cfg: dict, run_ax) -> None:
     """
     cfg = copy.deepcopy(cfg)
     cfg["stress"]["use"] = list(sx.LABEL_ARMS)
+    cfg["stress"].pop("levels", None)   # every level, whatever the working copy flies
     with contextlib.redirect_stdout(io.StringIO()):
         _, manifest, _ = gw.build(cfg)
     real = [c for c in manifest if c["type"] == "box_qr"]
@@ -92,6 +93,7 @@ def main() -> int:
     cfg = copy.deepcopy(cfg)
     cfg["stress"]["enabled"] = True
     cfg["stress"]["use"] = list(sx.GEOMETRY_ARMS)
+    cfg["stress"].pop("levels", None)   # every level, whatever the working copy flies
     with contextlib.redirect_stdout(io.StringIO()):
         _, manifest, _ = gw.build(cfg)
     _, run_ax = face_axes(load_config())

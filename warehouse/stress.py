@@ -242,9 +242,15 @@ class Assigner:
         if use - set(arms):
             raise SystemExit(f"stress.use: {sorted(use - set(arms))} için "
                              "stress.arms'ta değer yok")
+        # Hangi seviyeler. Yazılmazsa hepsi; [2] yalnız ortası (hepsi birlikte
+        # uçuşu). empty'nin seviyesi yok, her zaman girer.
+        levels = st.get("levels")
+        levels = None if levels is None else {int(v) for v in levels}
         self.cells = []
         for arm in (a for a in ARMS if a in use):
             for li, value in enumerate(arms.get(arm) or []):
+                if levels is not None and arm != "empty" and li + 1 not in levels:
+                    continue
                 if arm == "empty":
                     # empty'nin büyüklüğü yok; sayı kaç hücre olacağını söyler
                     self.cells += [Cell("empty", 1, 0.0)] * int(value)
@@ -689,7 +695,17 @@ def light_plan(cfg: dict) -> dict:
     lg = cfg["lighting"]
     st = cfg.get("lights_stress") or {}
     plan = {"ambient": list(lg["ambient"]), "diffuse": list(lg["ceiling_lights"]["diffuse"]),
-            "dead": set(), "on": False}
+            "dead": set(), "shadows": set(), "on": False}
+    # GÖLGE (shadows_stress): seçilen lambalar gölge düşürür. Işığı kısmaz,
+    # lights_stress'ten bağımsız açılır; ikisi birlikte de açılabilir.
+    sh = cfg.get("shadows_stress") or {}
+    if sh.get("enabled"):
+        n = len(lamps(cfg))
+        want = sh.get("lamps", "all")
+        plan["shadows"] = set(range(n)) if want == "all" else {int(i) for i in want}
+        if any(i < 0 or i >= n for i in plan["shadows"]):
+            raise SystemExit(f"shadows_stress.lamps: lamba sırası 0..{n - 1} olmalı")
+        plan["on"] = True
     if not st.get("enabled"):
         return plan
     a, d = float(st.get("ambient_scale", 1.0)), float(st.get("diffuse_scale", 1.0))
@@ -707,8 +723,38 @@ def light_plan(cfg: dict) -> dict:
     return plan
 
 
-def illuminance(p, normal, plan: dict, cfg: dict) -> float:
-    """Bir yüzey noktasının aldığı ışık, modelin birimiyle (bkz. yukarı)."""
+def blocked(p, lamp, occ) -> bool:
+    """p'den lambaya giden doğru parçası bir engel kutusundan geçiyor mu.
+
+    occ: (alt köşeler, üst köşeler), ikisi de (N, 3); eksenlere hizalı kutular
+    (gen_world'ün box_collision'ları: dikme, kiriş, tabla, koli, bina). Klasik
+    dilim testi, parçanın iki ucu hariç: etiketin kendi kolisi ve lambanın
+    içinde durduğu bir şey sayılmasın diye.
+    """
+    lo, hi = occ
+    p = np.asarray(p, dtype=float)
+    v = np.asarray(lamp, dtype=float) - p
+    with np.errstate(divide="ignore", invalid="ignore"):
+        inv = 1.0 / v
+        t1 = (lo - p) * inv
+        t2 = (hi - p) * inv
+    # v'nin sıfır olduğu eksende: p o dilimin içindeyse her t geçer, değilse hiçbiri.
+    flat = v == 0.0
+    inside = (p >= lo) & (p <= hi)
+    tmin = np.where(flat, np.where(inside, -np.inf, np.inf), np.minimum(t1, t2))
+    tmax = np.where(flat, np.where(inside, np.inf, -np.inf), np.maximum(t1, t2))
+    enter = tmin.max(axis=1)
+    leave = tmax.min(axis=1)
+    return bool(np.any((enter <= leave) & (leave > 1e-6) & (enter < 1.0 - 1e-6)))
+
+
+def illuminance(p, normal, plan: dict, cfg: dict, occ=None, cut: list | None = None) -> float:
+    """Bir yüzey noktasının aldığı ışık, modelin birimiyle (bkz. yukarı).
+
+    occ verilirse plan["shadows"]'taki lambaların önü engellenmişse o lambanın
+    ışığı gelmez; cut listesine o lambanın sırası eklenir. Ortam ışığı gölge
+    düşürmez - Ogre'de de öyle.
+    """
     rng_max = cfg["lighting"]["ceiling_lights"]["attenuation_range"]
     c, l, q = LAMP_ATTENUATION
     n = np.asarray(normal, dtype=float)
@@ -722,5 +768,12 @@ def illuminance(p, normal, plan: dict, cfg: dict) -> float:
         d = float(np.linalg.norm(v))
         if d >= rng_max or d <= 1e-9:
             continue
-        e += lum * max(0.0, float(n @ v) / d) / (c + l * d + q * d * d)
+        cos = float(n @ v) / d
+        if cos <= 0.0:
+            continue
+        if occ is not None and i in plan.get("shadows", ()) and blocked(p, pos, occ):
+            if cut is not None:
+                cut.append(i)
+            continue
+        e += lum * cos / (c + l * d + q * d * d)
     return e

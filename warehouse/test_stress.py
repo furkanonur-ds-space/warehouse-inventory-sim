@@ -326,6 +326,8 @@ def check_shapes(cfg, sdf_off, sdf_on, man_on, tex_on) -> dict:
 
 def main() -> int:
     base_cfg = gl._load_cfg(CONFIG)
+    # Bütün seviyeler, çalışma kopyası hangi uçuşa ayarlı olursa olsun.
+    base_cfg["stress"].pop("levels", None)
     off_cfg = copy.deepcopy(base_cfg)
     off_cfg.setdefault("stress", {})["enabled"] = False
     on_cfg = copy.deepcopy(base_cfg)
@@ -344,6 +346,19 @@ def main() -> int:
         sdf_on, man_on, _ = gw.build(on_cfg)
         sdf_lab, man_lab, tex_lab = gw.build(lab_cfg)
         sdf_shp, man_shp, tex_shp = gw.build(shp_cfg)
+
+    # Hepsi birlikte, yalnız orta seviye (levels: [2]): her bozulma girer,
+    # hiçbiri 1. ya da 3. seviyede değil; boş göz seviyesiz olduğu için yine var.
+    all_cfg = copy.deepcopy(base_cfg)
+    all_cfg["stress"].update(enabled=True, use=list(sx.ARMS), levels=[2])
+    with contextlib.redirect_stdout(io.StringIO()):
+        _, man_all, _ = gw.build(all_cfg)
+    got = {(c["stress"]["arm"], c["stress"]["level"]) for c in man_all
+           if c.get("stress") and c["type"] in ("box_qr", "box_absent")}
+    check({a for a, _ in got} == set(sx.ARMS) | {"none"},
+          f"hepsi birlikte: eksik bozulma {sorted(set(sx.ARMS) | {'none'} - {a for a, _ in got})}")
+    check(all(lv == 2 for a, lv in got if a not in ("none", "empty")),
+          f"hepsi birlikte: orta dışı seviye {sorted((a, lv) for a, lv in got if a not in ('none', 'empty') and lv != 2)}")
 
     # 1
     check(not any("stress" in c for c in man_off), "kapalı dünyada stress alanı var")

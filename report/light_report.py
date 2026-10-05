@@ -22,6 +22,17 @@ To score a clean flight the same way, build its truth with the lights on at
 full (ambient_scale 1, diffuse_scale 1, dead []) - the world comes out
 identical and the truth carries `light` - and pass it with --ground-truth.
 
+THE SHADOWED WORLD (`shadows_stress:`) adds, per label, the light at its
+four corners and the lamps its centre cannot see. Its labels are then also
+split three ways: in full light, in shade, and with a shadow edge across the
+label (brightest point over 1.5x the darkest) - a half-lit code is a harder
+read than an evenly dark one, which the bands alone cannot show.
+
+THE CAMERA. Shadows cost the renderer, so how many frames each reader got,
+how many it shed, and the real-time factor are printed too, from the
+readers' own summaries and readings; a drop in reads that is a drop in
+frames is then visible as one.
+
 The vehicle's own health is printed beside it: the downward camera reads the
 ArUco markers and the floor's optical flow, and both see the same darkness.
 """
@@ -30,6 +41,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -38,6 +50,9 @@ from warehouse_model import GROUND_TRUTH, REPO_ROOT       # noqa: E402
 
 OUT = REPO_ROOT / "out"
 BANDS = (0.0, 0.25, 0.5, 1.0, 2.0, 4.0, float("inf"))
+EDGE = 1.5          # E_max / E_min above this: a shadow edge crosses the label
+LIT = 0.9           # rel at or above this: in full light
+SHADE_CLASSES = ("full light", "shade", "edge across")
 
 
 def load(path: Path):
@@ -55,6 +70,45 @@ def band_of(e: float) -> int:
     return len(BANDS) - 2
 
 
+def shade_of(light: dict) -> str:
+    """Full light, shade or a shadow edge across, by the SHADOW alone.
+
+    Against E_open, this world's light with nothing in the way, so a dimmed
+    world does not read as all shade; truths without it use rel, which is
+    the same thing when only shadows are on.
+    """
+    if light["E_max"] > EDGE * max(light["E_min"], 1e-9):
+        return "edge across"
+    ref = light.get("E_open")
+    share = light["E"] / ref if ref else (light["rel"] or 0.0)
+    return "full light" if share >= LIT else "shade"
+
+
+def camera(out_dir: Path) -> list[dict]:
+    """Frames per reader and the real-time factor, from what the readers left."""
+    rows = []
+    for summ in sorted(out_dir.glob("barcode_inventory_*.json")):
+        tag = summ.stem.replace("barcode_inventory_", "")
+        f = (load(summ) or {}).get("frames") or {}
+        rtf = None
+        readings = out_dir / f"barcode_readings_{tag}.jsonl"
+        if readings.exists():
+            pts = []
+            for line in readings.open():
+                r = json.loads(line)
+                if r.get("t") and r.get("sim_t") is not None:
+                    t = r["t"]
+                    t = t if isinstance(t, (int, float)) else datetime.fromisoformat(t).timestamp()
+                    pts.append((t, r["sim_t"]))
+            if len(pts) > 1 and pts[-1][0] > pts[0][0]:
+                rtf = (pts[-1][1] - pts[0][1]) / (pts[-1][0] - pts[0][0])
+        rows.append({"camera": tag, "arrived": f.get("arrived"), "decoded": f.get("decoded"),
+                     "shed": f.get("shed_queue_full"),
+                     "gap_ms": (f.get("published_gap_ms") or {}).get("median"),
+                     "rtf": None if rtf is None else round(rtf, 3)})
+    return rows
+
+
 def build(truth_path: Path, out_dir: Path) -> dict:
     truth = json.loads(truth_path.read_text())
     codes = truth["codes"]
@@ -67,12 +121,19 @@ def build(truth_path: Path, out_dir: Path) -> dict:
 
     rows = [{"band": f"{BANDS[i]:g}-{BANDS[i + 1]:g}", "qr": [0, 0], "barcode": [0, 0],
              "carton": [0, 0], "faces": {}} for i in range(len(BANDS) - 1)]
+    shadowed = any("lamps_blocked" in (c.get("light") or {}) for c in codes)
+    shade = {k: {"qr": [0, 0], "barcode": [0, 0]} for k in SHADE_CLASSES}
     for c in codes:
         light = c.get("light")
         if not light:
             continue
         r = rows[band_of(light["E"])]
         kind = c["type"]
+        if shadowed and kind in ("box_qr", "box_placard"):
+            k, got = ("qr", qr) if kind == "box_qr" else ("barcode", bc)
+            cell = shade[shade_of(light)][k]
+            cell[1] += 1
+            cell[0] += c["payload"] in got
         if kind == "box_qr":
             r["qr"][1] += 1
             r["qr"][0] += c["payload"] in qr
@@ -93,7 +154,8 @@ def build(truth_path: Path, out_dir: Path) -> dict:
            "marker_corrections": len(scan.get("marker_corrections") or []),
            "final_drift_offset_m": scan.get("final_drift_offset_m")}
     return {"lit": True, "lighting": truth.get("lighting"), "readers": have,
-            "rows": [r for r in rows if r["qr"][1] or r["carton"][1]], "navigation": nav}
+            "rows": [r for r in rows if r["qr"][1] or r["carton"][1]], "navigation": nav,
+            "shade": shade if shadowed else None, "camera": camera(out_dir)}
 
 
 def pct(hit_of) -> str:
@@ -111,7 +173,8 @@ def render(data: dict) -> str:
              "the clean world runs 0.55-8.3)"]
     if lt:
         lines.append(f"  ambient {lt['ambient'][:3]}, lamps {lt['diffuse'][:3]}, "
-                     f"dark lamps {lt['dead_lamps']}")
+                     f"dark lamps {lt['dead_lamps']}"
+                     + (f", shadow lamps {lt['shadow_lamps']}" if lt.get("shadow_lamps") else ""))
     lines.append("")
     head = f"{'light E':<10} {'QR':>14}  {'barcode':>14}  {'carton':>14}   QR by face"
     lines += [head, "-" * len(head)]
@@ -119,6 +182,17 @@ def render(data: dict) -> str:
         faces = " ".join(f"{f}:{a}/{n}" for f, (a, n) in sorted(r["faces"].items()))
         lines.append(f"{r['band']:<10} {pct(r['qr']):>14}  {pct(r['barcode']):>14}  "
                      f"{pct(r['carton']):>14}   {faces}")
+    if data.get("shade"):
+        lines += ["", f"by shadow (full light: E / E_open >= {LIT}; edge: a corner over "
+                      f"{EDGE}x another)", f"{'':<12} {'QR':>14}  {'barcode':>14}"]
+        for k in SHADE_CLASSES:
+            v = data["shade"][k]
+            lines.append(f"{k:<12} {pct(v['qr']):>14}  {pct(v['barcode']):>14}")
+    if data.get("camera"):
+        lines += ["", "camera: frames arrived / shed, median published gap, real-time factor"]
+        for c in data["camera"]:
+            lines.append(f"  {c['camera']:<6} {c['arrived']} / {c['shed']}   "
+                         f"{c['gap_ms']} ms   RTF {c['rtf']}")
     n = data["navigation"]
     lines += ["", f"vehicle: waypoints {n['waypoints_completed']}, marker fixes "
               f"{n['marker_corrections']}, final drift offset {n['final_drift_offset_m']}"]

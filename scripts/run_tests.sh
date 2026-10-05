@@ -99,6 +99,9 @@ run test_stress.py
 # The dimmed world: dark lamps gone, the rest turned down, and the light
 # written into ground truth equal to the light the SDF's own lamps give.
 run test_lights.py
+# The shadowed world: chosen lamps cast shadows, and the lamps each label
+# cannot see, found again from the SDF's own boxes by a different method.
+run test_shadows.py
 
 if [ "$failed" -eq 0 ]; then
     echo "all suites passed"

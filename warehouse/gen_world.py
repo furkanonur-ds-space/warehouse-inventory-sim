@@ -186,7 +186,16 @@ def mesh_visual(name: str, mesh: str, xyz, rgb, texture: str | None = None,
 """
 
 
+# Gölge hesabı için engeller: build() boşken doldurulur, box_collision her
+# kutuyu buraya da yazar (config çerçevesi; modellerin tek dönüşü dünya yaw'ı,
+# lambalar ve etiketler de aynı çerçevede). Dönük koli (geometri kolu) dönmemiş
+# kutusuyla girer - gölge uçuşunda geometri kolları kapalı.
+OCCLUDERS: list | None = None
+
+
 def box_collision(name: str, size, xyz, ind="        ") -> str:
+    if OCCLUDERS is not None:
+        OCCLUDERS.append((tuple(xyz[:3]), tuple(size)))
     return f"""{ind}<collision name="{name}">
 {ind}  <pose>{pose(*xyz)}</pose>
 {ind}  <geometry><box><size>{fmt(size[0])} {fmt(size[1])} {fmt(size[2])}</size></box></geometry>
@@ -1019,9 +1028,11 @@ def lighting(cfg, plan=None) -> str:
             # cast_shadows kapalı: nokta ışık gölgeleri OGRE2'de pahalı ve
             # iGPU'da kare hızını yarıya düşürüyor. Kodların okunması için
             # gölge değil, düzgün ve parlamasız aydınlatma gerekiyor.
+            # GÖLGE UÇUŞU (shadows_stress) seçilen lambalarda açar.
+            shadow = "true" if i in plan["shadows"] else "false"
             out.append(f"""  <light type="point" name="ceiling_{i}">
     <pose>{pose(x, y, lt['height'])}</pose>
-    <cast_shadows>false</cast_shadows>
+    <cast_shadows>{shadow}</cast_shadows>
     <diffuse>{fmt(dr)} {fmt(dg)} {fmt(db)} {fmt(da)}</diffuse>
     <specular>{fmt(sr)} {fmt(sg)} {fmt(sb)} {fmt(sa)}</specular>
     <attenuation>
@@ -1034,7 +1045,8 @@ def lighting(cfg, plan=None) -> str:
 """)
             i += 1
     print(f"  tavan lambası  : {i - len(plan['dead'])}"
-          + (f"  ({len(plan['dead'])} sönük: {sorted(plan['dead'])})" if plan["dead"] else ""))
+          + (f"  ({len(plan['dead'])} sönük: {sorted(plan['dead'])})" if plan["dead"] else "")
+          + (f"  ({len(plan['shadows'])} gölgeli)" if plan["shadows"] else ""))
     return "".join(out)
 
 
@@ -1042,23 +1054,55 @@ def lighting(cfg, plan=None) -> str:
 # birleştirme
 # --------------------------------------------------------------------------
 
-def tag_light(cfg, plan, manifest) -> None:
+def label_points(rec):
+    """Etiketin ortası ve dört köşesi, yüzeyinden 2 mm önde (config çerçevesi)."""
+    p = np.asarray(rec["label_pose_xyzrpy"][:3], dtype=float)
+    n = np.asarray(rec["normal"], dtype=float)
+    w, h = rec["label_size_m"]
+    u = np.cross([0.0, 0.0, 1.0], n)
+    u = u / (np.linalg.norm(u) or 1.0)
+    z = np.array([0.0, 0.0, 1.0])
+    p = p + 0.002 * n
+    return [p] + [p + su * u * w / 2 + sz * z * h / 2 for su in (-1, 1) for sz in (-1, 1)]
+
+
+def tag_light(cfg, plan, manifest, occ=None) -> None:
     """Her etiketin aldığı ışık, yer gerçeğine: bu dünyada ve temiz dünyada.
 
     Config çerçevesinde, rotate_manifest'ten ÖNCE: lambaların konumu da o
     çerçevede yazılı. Raporlar bunu okur, hesaplamaz - ışığın nasıl kurulduğu
     üreticinin kararı ve iki yerde hesaplanırsa ayrışır.
     """
-    clean = sx.light_plan(dict(cfg, lights_stress=None))
+    clean = sx.light_plan(dict(cfg, lights_stress=None, shadows_stress=None))
     n = 0
     for rec in manifest:
         if rec["type"] not in ("box_qr", "box_placard", "box_unlabelled", "box_decoy"):
             continue
         p, nrm = rec["label_pose_xyzrpy"][:3], rec["normal"]
-        e = sx.illuminance(p, nrm, plan, cfg)
+        if not plan["shadows"]:
+            e = sx.illuminance(p, nrm, plan, cfg)
+            e0 = sx.illuminance(p, nrm, clean, cfg)
+            rec["light"] = {"E": round(e, 4), "E_clean": round(e0, 4),
+                            "rel": round(e / e0, 4) if e0 > 0 else None}
+            n += 1
+            continue
+        # GÖLGE. Ortada ve dört köşede ayrı ayrı: bir etiketin üstünden gölge
+        # kenarı geçiyorsa yarısı aydınlık yarısı karanlıktır, ve okuyucuyu
+        # zorlayan tam da bu. E ortadaki; E_min/E_max köşeler dahil uçlar.
+        cut: list = []
+        es = []
+        for k, q in enumerate(label_points(rec)):
+            es.append(sx.illuminance(q, nrm, plan, cfg, occ, cut if k == 0 else None))
+        e = es[0]
         e0 = sx.illuminance(p, nrm, clean, cfg)
+        # Bu dünyanın ışığı, gölge olmasaydı: gölgenin payını loşluğun
+        # payından ayırır (ikisi birlikte açıkken rel ikisini karıştırır).
+        e_open = sx.illuminance(p, nrm, plan, cfg)
         rec["light"] = {"E": round(e, 4), "E_clean": round(e0, 4),
-                        "rel": round(e / e0, 4) if e0 > 0 else None}
+                        "rel": round(e / e0, 4) if e0 > 0 else None,
+                        "E_open": round(e_open, 4),
+                        "E_min": round(min(es), 4), "E_max": round(max(es), 4),
+                        "lamps_blocked": sorted(cut)}
         n += 1
     es = sorted(r["light"]["E"] for r in manifest if r.get("type") == "box_qr" and "light" in r)
     if es:
@@ -1082,13 +1126,24 @@ def build(cfg) -> tuple[str, list]:
     # rotate_manifest onu dünyaya çevirir. aisle_markers() ise zaten dünya
     # koordinatı yazdığı için dönüşten SONRA çağrılmalı -- önce çağrılsaydı
     # ArUco konumları bir kez fazladan dönerdi.
-    body = [
-        building(cfg, textures),
-        racking(cfg),
-        inventory(cfg, rng, textures, manifest),
-    ]
+    global OCCLUDERS
+    OCCLUDERS = [] if plan["shadows"] else None
+    try:
+        body = [
+            building(cfg, textures),
+            racking(cfg),
+            inventory(cfg, rng, textures, manifest),
+        ]
+        occ = None
+        if OCCLUDERS:
+            c = np.array([o[0] for o in OCCLUDERS], dtype=float)
+            h = np.array([o[1] for o in OCCLUDERS], dtype=float) / 2
+            occ = (c - h, c + h)
+            print(f"  gölge engeli   : {len(OCCLUDERS)} kutu (dikme, kiriş, tabla, koli, bina)")
+    finally:
+        OCCLUDERS = None
     if plan["on"]:
-        tag_light(cfg, plan, manifest)
+        tag_light(cfg, plan, manifest, occ)
     rotate_manifest(manifest, yaw)
     body.append(aisle_markers(cfg, textures, manifest))
     body.append(lighting(cfg, plan))
@@ -1198,6 +1253,8 @@ def main() -> int:
         # Kapalıyken yazılmaz: temiz dünyanın yer gerçeği bit bit aynı kalsın.
         truth["lighting"] = {"ambient": plan["ambient"], "diffuse": plan["diffuse"],
                              "dead_lamps": sorted(plan["dead"])}
+        if plan["shadows"]:
+            truth["lighting"]["shadow_lamps"] = sorted(plan["shadows"])
     gt_path.write_text(json.dumps(truth, indent=2, ensure_ascii=False))
 
     images = [n for n in textures if not n.startswith("mesh:")]

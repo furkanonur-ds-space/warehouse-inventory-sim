@@ -233,8 +233,13 @@ stress:
   # ayrı uçulur; değerler aşağıda kalır. Liste değişince dünya değişir.
   #   2026-10-05 sabah: [push_in, pull_out, slide, yaw, tilt, empty]
   #   2026-10-05 öğle:  [fade, smudge, tear, wrinkle, skew, decoy]
+  #   2026-10-05 gece, hepsi birlikte: bütün 15'i, levels [2, 3], orta
+  #     loşluk, 16 gölgeli lamba, kamera gürültüsü (aşağıdaki değerler)
   #     (her liste, aynı tohumla o dünyayı md5'iyle aynen verir)
-  use: [bulge, dent, colour]
+  use: [push_in, pull_out, slide, yaw, tilt, empty, fade, smudge, tear, wrinkle, skew, decoy, bulge, dent, colour]
+  # Hangi seviyeler (1 hafif, 2 orta, 3 ağır). Yazılmazsa hepsi. Hepsi
+  # birlikte uçuşu (planın 5. adımı): bütün bozulmalar, yalnız [2].
+  levels: [2, 3]
   arms:
     # --- koli
     push_in:  [0.05, 0.12, 0.25]
@@ -515,14 +520,47 @@ lighting:
 #
 # setup_px4.sh ve simülatörün yeniden başlatılması şart. Kapalıyken dünya ve
 # yer gerçeği bit bit eskisiyle aynı.
+#
+# 2026-10-05 LOŞ UÇUŞ (14:45, 15:12, gürültü uçuşları) bu değerlerle:
+#   ambient_scale 0.20, diffuse_scale 0.50, dead [0, 2, 4, 6, 9, 11, 13, 15]
+# Hepsi birlikte uçuşu (5. adım) ORTA loşluk: aşağıdaki.
 lights_stress:
   enabled: false
-  ambient_scale: 0.20
-  diffuse_scale: 0.50
-  dead: [0, 2, 4, 6, 9, 11, 13, 15]
+  ambient_scale: 0.50
+  diffuse_scale: 0.75
+  # Loş uçuşun sönüklerinden dördü, her x sırasında bir, koridorları değişerek.
+  dead: [0, 6, 9, 15]
   # dead verilmezse bu pay kadar lamba tohumla seçilir:
   dead_fraction: 0.0
   seed: 20261005
+
+# ----------------------------------------------------------------- gölge
+# Kod: warehouse/stress.py (light_plan, blocked, illuminance) ve
+# gen_world.lighting/tag_light. Seçilen tavan lambaları gölge düşürür:
+# tablalar, kirişler, dikmeler ve koliler ışığı keser. Işık kısılmaz;
+# lights_stress'ten bağımsız (birlikte de açılabilir).
+#
+# Yer gerçeğine her etiket için: E (ortada, gölgeyle), E_clean (gölgesiz,
+# temiz dünya), rel, E_min/E_max (orta ve dört köşe - üstünden gölge kenarı
+# geçen etiketi bulmak için) ve lamps_blocked (önü kesilen lambalar).
+# Engeller box_collision'lardan toplanır, ışın-kutu dilim testiyle; SDF'ten
+# bağımsız okunup 1 cm adımla yürütülen ışınla karşılaştırılır
+# (warehouse/test_shadows.py).
+#   bütün lambalar: QR ışık oranı kat 1/2/3 0.33 / 0.32 / 1.00 (alt iki kat
+#   üstündeki tablanın gölgesinde), 57 QR'ın üstünden gölge kenarı geçiyor.
+#
+# DİKKAT, KARE HIZI: nokta ışık gölgesi OGRE2'de pahalı (her lamba için küp
+# gölge haritası). iGPU'da kare hızını yarıya düşürüyordu; bu yüzden temiz
+# dünyada kapalı. Uçuşu `nvidia` ile ve ŞARJA TAKILI başlat (pilde ekran
+# kartı 10 W'a kısılıyor); kare hızı ve RTF raporda.
+# Ortam ışığı gölge düşürmez - Ogre'de de öyle.
+#
+# setup_px4.sh ve simülatörün yeniden başlatılması şart. Kapalıyken dünya ve
+# yer gerçeği bit bit eskisiyle aynı.
+shadows_stress:
+  enabled: false
+  # "all" ya da lamba sıraları, ör. [1, 5] (sıra: x_sırası * 4 + koridor_sırası)
+  lamps: all
 
 # --------------------------------------------------------------- kameralar
 # Furkan'ın x500_scanner'ı: iki YAN kamera, yaw +-90, raf yüzlerine bakar.

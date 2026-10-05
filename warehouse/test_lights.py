@@ -87,6 +87,8 @@ def light_at(p, n, lamps, ambient) -> float:
 def main() -> int:
     base = gl._load_cfg(HERE / "warehouse.yaml")
     base["stress"]["enabled"] = False
+    # Gölgesiz: buradaki ışık formülü engel tanımaz (gölge test_shadows.py'de).
+    base.setdefault("shadows_stress", {})["enabled"] = False
     off = copy.deepcopy(base)
     off.setdefault("lights_stress", {})["enabled"] = False
     full = copy.deepcopy(base)
