@@ -1,0 +1,1935 @@
+{
+  "generated": "2026-10-05T19:26:44",
+  "source": "/world/warehouse/model/x500_c27_0/link/camera_track_rear_link/sensor/camera/image",
+  "frames_processed": 3600,
+  "qr_readings": 1319,
+  "barcode_readings": 1227,
+  "barcode_readings_linked": 1218,
+  "barcode_readings_levelled": 0,
+  "boxes_with_barcode": 208,
+  "boxes_consistent": 208,
+  "boxes_conflicting": 0,
+  "unlinked_payloads": {
+    "0091": 1,
+    "0060": 1,
+    "0094": 1,
+    "0107": 1,
+    "0098": 1,
+    "0089": 1,
+    "0088": 1,
+    "0081": 1,
+    "0318": 1
+  },
+  "frames_saved": 48,
+  "yolo": {
+    "weights": "/home/coban/Desktop/warehouse_dataset/birlesik/model/yolo26s_640/weights/best.pt",
+    "conf": 0.25,
+    "margin": 0.35,
+    "min_side_px": 320,
+    "labels_seen": {
+      "qr": 1466,
+      "barkod": 807
+    },
+    "readings_by_pass": {
+      "frame": 1222,
+      "crop": 5
+    },
+    "boxes": {
+      "located": 10178,
+      "without_a_decoded_code": 9004,
+      "frames_with_one": 1905
+    }
+  },
+  "frames": {
+    "arrived": 3605,
+    "decoded": 3600,
+    "shed_queue_full": 5,
+    "lost_before_the_callback": 0,
+    "published_gap_ms": {
+      "median": 124.0,
+      "p95": 128.0,
+      "max": 128.0,
+      "long_gaps_pct": 0.0
+    },
+    "decoded_gap_ms": {
+      "median": 124.0,
+      "p95": 128.0,
+      "max": 700.0,
+      "long_gaps_pct": 0.0
+    }
+  },
+  "boxes": [
+    {
+      "qr": "WH1|B|01|1|SKU36450",
+      "barcode": "0055",
+      "readings": 11,
+      "best_quality": 13,
+      "first_seen": "2026-10-05T19:15:59",
+      "last_seen": "2026-10-05T19:16:01",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|01|1|SKU85437",
+      "barcode": "0056",
+      "readings": 11,
+      "best_quality": 14,
+      "first_seen": "2026-10-05T19:15:58",
+      "last_seen": "2026-10-05T19:16:00",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|01|1|SKU87384",
+      "barcode": "0057",
+      "readings": 11,
+      "best_quality": 12,
+      "first_seen": "2026-10-05T19:15:57",
+      "last_seen": "2026-10-05T19:15:59",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|01|2|SKU13319",
+      "barcode": "0059",
+      "readings": 11,
+      "best_quality": 13,
+      "first_seen": "2026-10-05T19:16:35",
+      "last_seen": "2026-10-05T19:16:37",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|01|2|SKU25392",
+      "barcode": "0058",
+      "readings": 11,
+      "best_quality": 13,
+      "first_seen": "2026-10-05T19:16:34",
+      "last_seen": "2026-10-05T19:16:37",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|01|2|SKU72394",
+      "barcode": "0060",
+      "readings": 10,
+      "best_quality": 13,
+      "first_seen": "2026-10-05T19:16:36",
+      "last_seen": "2026-10-05T19:16:38",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|01|3|SKU23204",
+      "barcode": "0062",
+      "readings": 11,
+      "best_quality": 13,
+      "first_seen": "2026-10-05T19:17:44",
+      "last_seen": "2026-10-05T19:17:46",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|01|3|SKU28802",
+      "barcode": "0063",
+      "readings": 10,
+      "best_quality": 9,
+      "first_seen": "2026-10-05T19:17:43",
+      "last_seen": "2026-10-05T19:17:45",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|01|3|SKU69437",
+      "barcode": "0061",
+      "readings": 11,
+      "best_quality": 14,
+      "first_seen": "2026-10-05T19:17:45",
+      "last_seen": "2026-10-05T19:17:47",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|02|1|SKU62727",
+      "barcode": "0064",
+      "readings": 10,
+      "best_quality": 13,
+      "first_seen": "2026-10-05T19:15:56",
+      "last_seen": "2026-10-05T19:15:58",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|02|1|SKU84603",
+      "barcode": "0066",
+      "readings": 10,
+      "best_quality": 12,
+      "first_seen": "2026-10-05T19:15:54",
+      "last_seen": "2026-10-05T19:15:56",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|02|1|SKU90258",
+      "barcode": "0065",
+      "readings": 11,
+      "best_quality": 15,
+      "first_seen": "2026-10-05T19:15:55",
+      "last_seen": "2026-10-05T19:15:57",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|02|2|SKU25774",
+      "barcode": "0067",
+      "readings": 11,
+      "best_quality": 11,
+      "first_seen": "2026-10-05T19:16:37",
+      "last_seen": "2026-10-05T19:16:40",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|02|2|SKU42246",
+      "barcode": "0068",
+      "readings": 11,
+      "best_quality": 10,
+      "first_seen": "2026-10-05T19:16:38",
+      "last_seen": "2026-10-05T19:16:41",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|02|2|SKU52667",
+      "barcode": "0069",
+      "readings": 11,
+      "best_quality": 14,
+      "first_seen": "2026-10-05T19:16:39",
+      "last_seen": "2026-10-05T19:16:41",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|02|3|SKU16015",
+      "barcode": "0072",
+      "readings": 10,
+      "best_quality": 13,
+      "first_seen": "2026-10-05T19:17:40",
+      "last_seen": "2026-10-05T19:17:42",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|02|3|SKU31170",
+      "barcode": "0070",
+      "readings": 11,
+      "best_quality": 14,
+      "first_seen": "2026-10-05T19:17:42",
+      "last_seen": "2026-10-05T19:17:44",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|02|3|SKU93604",
+      "barcode": "0071",
+      "readings": 10,
+      "best_quality": 12,
+      "first_seen": "2026-10-05T19:17:41",
+      "last_seen": "2026-10-05T19:17:43",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|03|1|SKU24025",
+      "barcode": "0074",
+      "readings": 11,
+      "best_quality": 14,
+      "first_seen": "2026-10-05T19:15:52",
+      "last_seen": "2026-10-05T19:15:54",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|03|1|SKU87624",
+      "barcode": "0075",
+      "readings": 10,
+      "best_quality": 14,
+      "first_seen": "2026-10-05T19:15:51",
+      "last_seen": "2026-10-05T19:15:53",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|03|2|SKU65665",
+      "barcode": "0076",
+      "readings": 11,
+      "best_quality": 13,
+      "first_seen": "2026-10-05T19:16:41",
+      "last_seen": "2026-10-05T19:16:43",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|03|2|SKU80547",
+      "barcode": "0078",
+      "readings": 11,
+      "best_quality": 15,
+      "first_seen": "2026-10-05T19:16:43",
+      "last_seen": "2026-10-05T19:16:45",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|03|2|SKU89637",
+      "barcode": "0077",
+      "readings": 11,
+      "best_quality": 14,
+      "first_seen": "2026-10-05T19:16:42",
+      "last_seen": "2026-10-05T19:16:44",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|03|3|SKU44580",
+      "barcode": "0081",
+      "readings": 10,
+      "best_quality": 15,
+      "first_seen": "2026-10-05T19:17:37",
+      "last_seen": "2026-10-05T19:17:39",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|03|3|SKU55084",
+      "barcode": "0080",
+      "readings": 10,
+      "best_quality": 14,
+      "first_seen": "2026-10-05T19:17:38",
+      "last_seen": "2026-10-05T19:17:40",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|03|3|SKU62262",
+      "barcode": "0079",
+      "readings": 11,
+      "best_quality": 14,
+      "first_seen": "2026-10-05T19:17:39",
+      "last_seen": "2026-10-05T19:17:41",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|04|1|SKU38314",
+      "barcode": "0083",
+      "readings": 10,
+      "best_quality": 14,
+      "first_seen": "2026-10-05T19:15:49",
+      "last_seen": "2026-10-05T19:15:51",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|04|1|SKU39273",
+      "barcode": "0082",
+      "readings": 10,
+      "best_quality": 14,
+      "first_seen": "2026-10-05T19:15:50",
+      "last_seen": "2026-10-05T19:15:52",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|04|1|SKU88630",
+      "barcode": "0084",
+      "readings": 10,
+      "best_quality": 15,
+      "first_seen": "2026-10-05T19:15:47",
+      "last_seen": "2026-10-05T19:15:50",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|04|2|SKU56041",
+      "barcode": "0086",
+      "readings": 10,
+      "best_quality": 13,
+      "first_seen": "2026-10-05T19:16:45",
+      "last_seen": "2026-10-05T19:16:47",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|04|2|SKU81712",
+      "barcode": "0087",
+      "readings": 11,
+      "best_quality": 15,
+      "first_seen": "2026-10-05T19:16:46",
+      "last_seen": "2026-10-05T19:16:48",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|04|2|SKU95812",
+      "barcode": "0085",
+      "readings": 11,
+      "best_quality": 14,
+      "first_seen": "2026-10-05T19:16:44",
+      "last_seen": "2026-10-05T19:16:46",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|04|3|SKU10807",
+      "barcode": "0088",
+      "readings": 10,
+      "best_quality": 14,
+      "first_seen": "2026-10-05T19:17:36",
+      "last_seen": "2026-10-05T19:17:38",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|04|3|SKU19307",
+      "barcode": "0090",
+      "readings": 11,
+      "best_quality": 15,
+      "first_seen": "2026-10-05T19:17:34",
+      "last_seen": "2026-10-05T19:17:36",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|04|3|SKU30426",
+      "barcode": "0089",
+      "readings": 10,
+      "best_quality": 14,
+      "first_seen": "2026-10-05T19:17:35",
+      "last_seen": "2026-10-05T19:17:37",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|05|1|SKU13003",
+      "barcode": "0092",
+      "readings": 11,
+      "best_quality": 14,
+      "first_seen": "2026-10-05T19:15:45",
+      "last_seen": "2026-10-05T19:15:47",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|05|1|SKU28787",
+      "barcode": "0091",
+      "readings": 10,
+      "best_quality": 14,
+      "first_seen": "2026-10-05T19:15:46",
+      "last_seen": "2026-10-05T19:15:48",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|05|1|SKU97128",
+      "barcode": "0093",
+      "readings": 11,
+      "best_quality": 12,
+      "first_seen": "2026-10-05T19:15:44",
+      "last_seen": "2026-10-05T19:15:46",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|05|2|SKU61062",
+      "barcode": "0096",
+      "readings": 9,
+      "best_quality": 15,
+      "first_seen": "2026-10-05T19:16:49",
+      "last_seen": "2026-10-05T19:16:51",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|05|2|SKU72182",
+      "barcode": "0094",
+      "readings": 10,
+      "best_quality": 13,
+      "first_seen": "2026-10-05T19:16:47",
+      "last_seen": "2026-10-05T19:16:49",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|05|2|SKU87961",
+      "barcode": "0095",
+      "readings": 10,
+      "best_quality": 14,
+      "first_seen": "2026-10-05T19:16:48",
+      "last_seen": "2026-10-05T19:16:50",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|05|3|SKU16860",
+      "barcode": "0099",
+      "readings": 11,
+      "best_quality": 15,
+      "first_seen": "2026-10-05T19:17:31",
+      "last_seen": "2026-10-05T19:17:33",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|05|3|SKU17858",
+      "barcode": "0097",
+      "readings": 11,
+      "best_quality": 7,
+      "first_seen": "2026-10-05T19:17:32",
+      "last_seen": "2026-10-05T19:17:34",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|05|3|SKU49758",
+      "barcode": "0098",
+      "readings": 9,
+      "best_quality": 14,
+      "first_seen": "2026-10-05T19:17:31",
+      "last_seen": "2026-10-05T19:17:34",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|06|1|SKU16069",
+      "barcode": "0100",
+      "readings": 10,
+      "best_quality": 15,
+      "first_seen": "2026-10-05T19:15:43",
+      "last_seen": "2026-10-05T19:15:45",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|06|1|SKU58683",
+      "barcode": "0101",
+      "readings": 11,
+      "best_quality": 15,
+      "first_seen": "2026-10-05T19:15:41",
+      "last_seen": "2026-10-05T19:15:44",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|06|2|SKU30929",
+      "barcode": "0105",
+      "readings": 11,
+      "best_quality": 15,
+      "first_seen": "2026-10-05T19:16:52",
+      "last_seen": "2026-10-05T19:16:54",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|06|2|SKU65058",
+      "barcode": "0103",
+      "readings": 11,
+      "best_quality": 15,
+      "first_seen": "2026-10-05T19:16:50",
+      "last_seen": "2026-10-05T19:16:53",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|06|2|SKU71032",
+      "barcode": "0104",
+      "readings": 11,
+      "best_quality": 14,
+      "first_seen": "2026-10-05T19:16:51",
+      "last_seen": "2026-10-05T19:16:53",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|06|3|SKU30821",
+      "barcode": "0108",
+      "readings": 11,
+      "best_quality": 15,
+      "first_seen": "2026-10-05T19:17:27",
+      "last_seen": "2026-10-05T19:17:29",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|06|3|SKU52922",
+      "barcode": "0107",
+      "readings": 10,
+      "best_quality": 14,
+      "first_seen": "2026-10-05T19:17:28",
+      "last_seen": "2026-10-05T19:17:30",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|B|06|3|SKU68047",
+      "barcode": "0106",
+      "readings": 11,
+      "best_quality": 15,
+      "first_seen": "2026-10-05T19:17:29",
+      "last_seen": "2026-10-05T19:17:31",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|01|1|SKU62939",
+      "barcode": "0165",
+      "readings": 8,
+      "best_quality": 19,
+      "first_seen": "2026-10-05T19:19:46",
+      "last_seen": "2026-10-05T19:19:47",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|01|1|SKU70633",
+      "barcode": "0163",
+      "readings": 8,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:19:44",
+      "last_seen": "2026-10-05T19:19:45",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|01|1|SKU75253",
+      "barcode": "0164",
+      "readings": 8,
+      "best_quality": 19,
+      "first_seen": "2026-10-05T19:19:44",
+      "last_seen": "2026-10-05T19:19:46",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|01|2|SKU37145",
+      "barcode": "0166",
+      "readings": 7,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:19:17",
+      "last_seen": "2026-10-05T19:19:18",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|01|2|SKU45310",
+      "barcode": "0168",
+      "readings": 8,
+      "best_quality": 19,
+      "first_seen": "2026-10-05T19:19:15",
+      "last_seen": "2026-10-05T19:19:17",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|01|2|SKU98997",
+      "barcode": "0167",
+      "readings": 8,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:19:16",
+      "last_seen": "2026-10-05T19:19:17",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|01|3|SKU16112",
+      "barcode": "0170",
+      "readings": 8,
+      "best_quality": 19,
+      "first_seen": "2026-10-05T19:18:15",
+      "last_seen": "2026-10-05T19:18:17",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|01|3|SKU16683",
+      "barcode": "0169",
+      "readings": 8,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:18:14",
+      "last_seen": "2026-10-05T19:18:16",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|01|3|SKU99823",
+      "barcode": "0171",
+      "readings": 8,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:18:16",
+      "last_seen": "2026-10-05T19:18:18",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|02|1|SKU34828",
+      "barcode": "0173",
+      "readings": 7,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:19:48",
+      "last_seen": "2026-10-05T19:19:50",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|02|1|SKU87263",
+      "barcode": "0174",
+      "readings": 8,
+      "best_quality": 18,
+      "first_seen": "2026-10-05T19:19:49",
+      "last_seen": "2026-10-05T19:19:51",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|02|2|SKU27580",
+      "barcode": "0175",
+      "readings": 8,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:19:14",
+      "last_seen": "2026-10-05T19:19:15",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|02|2|SKU29203",
+      "barcode": "0176",
+      "readings": 8,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:19:13",
+      "last_seen": "2026-10-05T19:19:14",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|02|2|SKU87155",
+      "barcode": "0177",
+      "readings": 7,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:19:12",
+      "last_seen": "2026-10-05T19:19:13",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|02|3|SKU26760",
+      "barcode": "0178",
+      "readings": 7,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:18:18",
+      "last_seen": "2026-10-05T19:18:19",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|02|3|SKU61620",
+      "barcode": "0179",
+      "readings": 8,
+      "best_quality": 19,
+      "first_seen": "2026-10-05T19:18:19",
+      "last_seen": "2026-10-05T19:18:20",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|02|3|SKU74198",
+      "barcode": "0180",
+      "readings": 7,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:18:20",
+      "last_seen": "2026-10-05T19:18:21",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|03|1|SKU20134",
+      "barcode": "0181",
+      "readings": 8,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:19:50",
+      "last_seen": "2026-10-05T19:19:52",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|03|1|SKU57700",
+      "barcode": "0183",
+      "readings": 8,
+      "best_quality": 18,
+      "first_seen": "2026-10-05T19:19:52",
+      "last_seen": "2026-10-05T19:19:54",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|03|1|SKU86190",
+      "barcode": "0182",
+      "readings": 7,
+      "best_quality": 19,
+      "first_seen": "2026-10-05T19:19:51",
+      "last_seen": "2026-10-05T19:19:53",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|03|2|SKU23256",
+      "barcode": "0185",
+      "readings": 8,
+      "best_quality": 18,
+      "first_seen": "2026-10-05T19:19:09",
+      "last_seen": "2026-10-05T19:19:11",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|03|2|SKU68183",
+      "barcode": "0186",
+      "readings": 7,
+      "best_quality": 19,
+      "first_seen": "2026-10-05T19:19:09",
+      "last_seen": "2026-10-05T19:19:10",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|03|2|SKU71895",
+      "barcode": "0184",
+      "readings": 7,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:19:10",
+      "last_seen": "2026-10-05T19:19:12",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|03|3|SKU42152",
+      "barcode": "0189",
+      "readings": 8,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:18:22",
+      "last_seen": "2026-10-05T19:18:24",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|03|3|SKU51049",
+      "barcode": "0188",
+      "readings": 7,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:18:22",
+      "last_seen": "2026-10-05T19:18:23",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|03|3|SKU74340",
+      "barcode": "0187",
+      "readings": 8,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:18:21",
+      "last_seen": "2026-10-05T19:18:22",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|04|1|SKU55692",
+      "barcode": "0192",
+      "readings": 7,
+      "best_quality": 19,
+      "first_seen": "2026-10-05T19:19:56",
+      "last_seen": "2026-10-05T19:19:57",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|04|1|SKU76366",
+      "barcode": "0191",
+      "readings": 7,
+      "best_quality": 19,
+      "first_seen": "2026-10-05T19:19:55",
+      "last_seen": "2026-10-05T19:19:56",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|04|2|SKU18615",
+      "barcode": "0193",
+      "readings": 7,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:19:07",
+      "last_seen": "2026-10-05T19:19:09",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|04|2|SKU72158",
+      "barcode": "0194",
+      "readings": 7,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:19:06",
+      "last_seen": "2026-10-05T19:19:08",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|04|2|SKU98726",
+      "barcode": "0195",
+      "readings": 7,
+      "best_quality": 19,
+      "first_seen": "2026-10-05T19:19:05",
+      "last_seen": "2026-10-05T19:19:07",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|04|3|SKU25298",
+      "barcode": "0197",
+      "readings": 8,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:18:25",
+      "last_seen": "2026-10-05T19:18:26",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|04|3|SKU63976",
+      "barcode": "0198",
+      "readings": 8,
+      "best_quality": 19,
+      "first_seen": "2026-10-05T19:18:26",
+      "last_seen": "2026-10-05T19:18:27",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|04|3|SKU79011",
+      "barcode": "0196",
+      "readings": 8,
+      "best_quality": 19,
+      "first_seen": "2026-10-05T19:18:24",
+      "last_seen": "2026-10-05T19:18:25",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|05|1|SKU19636",
+      "barcode": "0201",
+      "readings": 7,
+      "best_quality": 19,
+      "first_seen": "2026-10-05T19:19:59",
+      "last_seen": "2026-10-05T19:20:00",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|05|1|SKU52066",
+      "barcode": "0200",
+      "readings": 8,
+      "best_quality": 19,
+      "first_seen": "2026-10-05T19:19:58",
+      "last_seen": "2026-10-05T19:20:00",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|05|1|SKU89925",
+      "barcode": "0199",
+      "readings": 8,
+      "best_quality": 19,
+      "first_seen": "2026-10-05T19:19:57",
+      "last_seen": "2026-10-05T19:19:59",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|05|2|SKU18872",
+      "barcode": "0202",
+      "readings": 7,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:19:04",
+      "last_seen": "2026-10-05T19:19:05",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|05|2|SKU19713",
+      "barcode": "0204",
+      "readings": 7,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:19:02",
+      "last_seen": "2026-10-05T19:19:04",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|05|2|SKU84770",
+      "barcode": "0203",
+      "readings": 7,
+      "best_quality": 19,
+      "first_seen": "2026-10-05T19:19:03",
+      "last_seen": "2026-10-05T19:19:04",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|05|3|SKU22587",
+      "barcode": "0206",
+      "readings": 7,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:18:28",
+      "last_seen": "2026-10-05T19:18:29",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|05|3|SKU25660",
+      "barcode": "0207",
+      "readings": 8,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:18:29",
+      "last_seen": "2026-10-05T19:18:31",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|05|3|SKU46383",
+      "barcode": "0205",
+      "readings": 7,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:18:27",
+      "last_seen": "2026-10-05T19:18:29",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|06|1|SKU14353",
+      "barcode": "0209",
+      "readings": 7,
+      "best_quality": 19,
+      "first_seen": "2026-10-05T19:20:01",
+      "last_seen": "2026-10-05T19:20:03",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|06|1|SKU36014",
+      "barcode": "0210",
+      "readings": 7,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:20:02",
+      "last_seen": "2026-10-05T19:20:03",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|06|1|SKU40618",
+      "barcode": "0208",
+      "readings": 8,
+      "best_quality": 19,
+      "first_seen": "2026-10-05T19:20:00",
+      "last_seen": "2026-10-05T19:20:02",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|06|2|SKU22524",
+      "barcode": "0211",
+      "readings": 8,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:19:01",
+      "last_seen": "2026-10-05T19:19:02",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|06|2|SKU45088",
+      "barcode": "0212",
+      "readings": 7,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:19:00",
+      "last_seen": "2026-10-05T19:19:01",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|06|2|SKU98812",
+      "barcode": "0213",
+      "readings": 8,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:18:59",
+      "last_seen": "2026-10-05T19:19:00",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|06|3|SKU47031",
+      "barcode": "0216",
+      "readings": 7,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:18:32",
+      "last_seen": "2026-10-05T19:18:34",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|06|3|SKU69406",
+      "barcode": "0215",
+      "readings": 7,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:18:31",
+      "last_seen": "2026-10-05T19:18:33",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|D|06|3|SKU80299",
+      "barcode": "0214",
+      "readings": 8,
+      "best_quality": 20,
+      "first_seen": "2026-10-05T19:18:30",
+      "last_seen": "2026-10-05T19:18:32",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|01|1|SKU31660",
+      "barcode": "0271",
+      "readings": 4,
+      "best_quality": 28,
+      "first_seen": "2026-10-05T19:20:49",
+      "last_seen": "2026-10-05T19:20:49",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|01|1|SKU57773",
+      "barcode": "0272",
+      "readings": 4,
+      "best_quality": 27,
+      "first_seen": "2026-10-05T19:20:48",
+      "last_seen": "2026-10-05T19:20:48",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|01|1|SKU83293",
+      "barcode": "0273",
+      "readings": 4,
+      "best_quality": 28,
+      "first_seen": "2026-10-05T19:20:47",
+      "last_seen": "2026-10-05T19:20:48",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|01|2|SKU22109",
+      "barcode": "0276",
+      "readings": 5,
+      "best_quality": 28,
+      "first_seen": "2026-10-05T19:21:26",
+      "last_seen": "2026-10-05T19:21:26",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|01|2|SKU72118",
+      "barcode": "0275",
+      "readings": 4,
+      "best_quality": 31,
+      "first_seen": "2026-10-05T19:21:25",
+      "last_seen": "2026-10-05T19:21:25",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|01|2|SKU81930",
+      "barcode": "0274",
+      "readings": 4,
+      "best_quality": 26,
+      "first_seen": "2026-10-05T19:21:24",
+      "last_seen": "2026-10-05T19:21:24",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|01|3|SKU49798",
+      "barcode": "0277",
+      "readings": 4,
+      "best_quality": 28,
+      "first_seen": "2026-10-05T19:22:35",
+      "last_seen": "2026-10-05T19:22:35",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|01|3|SKU50685",
+      "barcode": "0278",
+      "readings": 5,
+      "best_quality": 26,
+      "first_seen": "2026-10-05T19:22:34",
+      "last_seen": "2026-10-05T19:22:35",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|01|3|SKU55605",
+      "barcode": "0279",
+      "readings": 4,
+      "best_quality": 28,
+      "first_seen": "2026-10-05T19:22:33",
+      "last_seen": "2026-10-05T19:22:33",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|02|1|SKU56391",
+      "barcode": "0282",
+      "readings": 4,
+      "best_quality": 29,
+      "first_seen": "2026-10-05T19:20:44",
+      "last_seen": "2026-10-05T19:20:44",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|02|1|SKU71693",
+      "barcode": "0280",
+      "readings": 5,
+      "best_quality": 29,
+      "first_seen": "2026-10-05T19:20:45",
+      "last_seen": "2026-10-05T19:20:46",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|02|1|SKU87462",
+      "barcode": "0281",
+      "readings": 5,
+      "best_quality": 28,
+      "first_seen": "2026-10-05T19:20:44",
+      "last_seen": "2026-10-05T19:20:45",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|02|2|SKU20839",
+      "barcode": "0283",
+      "readings": 5,
+      "best_quality": 31,
+      "first_seen": "2026-10-05T19:21:27",
+      "last_seen": "2026-10-05T19:21:28",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|02|2|SKU30746",
+      "barcode": "0284",
+      "readings": 5,
+      "best_quality": 31,
+      "first_seen": "2026-10-05T19:21:28",
+      "last_seen": "2026-10-05T19:21:29",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|02|2|SKU78989",
+      "barcode": "0285",
+      "readings": 4,
+      "best_quality": 29,
+      "first_seen": "2026-10-05T19:21:29",
+      "last_seen": "2026-10-05T19:21:29",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|02|3|SKU35258",
+      "barcode": "0288",
+      "readings": 4,
+      "best_quality": 29,
+      "first_seen": "2026-10-05T19:22:30",
+      "last_seen": "2026-10-05T19:22:30",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|02|3|SKU88322",
+      "barcode": "0287",
+      "readings": 4,
+      "best_quality": 30,
+      "first_seen": "2026-10-05T19:22:31",
+      "last_seen": "2026-10-05T19:22:32",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|02|3|SKU96643",
+      "barcode": "0286",
+      "readings": 5,
+      "best_quality": 30,
+      "first_seen": "2026-10-05T19:22:32",
+      "last_seen": "2026-10-05T19:22:32",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|03|1|SKU56000",
+      "barcode": "0289",
+      "readings": 5,
+      "best_quality": 24,
+      "first_seen": "2026-10-05T19:20:42",
+      "last_seen": "2026-10-05T19:20:43",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|03|1|SKU64209",
+      "barcode": "0290",
+      "readings": 4,
+      "best_quality": 31,
+      "first_seen": "2026-10-05T19:20:41",
+      "last_seen": "2026-10-05T19:20:42",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|03|1|SKU88814",
+      "barcode": "0291",
+      "readings": 4,
+      "best_quality": 30,
+      "first_seen": "2026-10-05T19:20:40",
+      "last_seen": "2026-10-05T19:20:41",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|03|2|SKU48611",
+      "barcode": "0293",
+      "readings": 4,
+      "best_quality": 25,
+      "first_seen": "2026-10-05T19:21:31",
+      "last_seen": "2026-10-05T19:21:32",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|03|2|SKU84238",
+      "barcode": "0292",
+      "readings": 4,
+      "best_quality": 27,
+      "first_seen": "2026-10-05T19:21:30",
+      "last_seen": "2026-10-05T19:21:31",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|03|3|SKU40105",
+      "barcode": "0297",
+      "readings": 4,
+      "best_quality": 31,
+      "first_seen": "2026-10-05T19:22:26",
+      "last_seen": "2026-10-05T19:22:27",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|03|3|SKU41863",
+      "barcode": "0295",
+      "readings": 4,
+      "best_quality": 29,
+      "first_seen": "2026-10-05T19:22:28",
+      "last_seen": "2026-10-05T19:22:29",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|03|3|SKU49501",
+      "barcode": "0296",
+      "readings": 4,
+      "best_quality": 28,
+      "first_seen": "2026-10-05T19:22:27",
+      "last_seen": "2026-10-05T19:22:28",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|04|1|SKU22459",
+      "barcode": "0299",
+      "readings": 5,
+      "best_quality": 27,
+      "first_seen": "2026-10-05T19:20:38",
+      "last_seen": "2026-10-05T19:20:39",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|04|1|SKU34985",
+      "barcode": "0298",
+      "readings": 4,
+      "best_quality": 30,
+      "first_seen": "2026-10-05T19:20:39",
+      "last_seen": "2026-10-05T19:20:40",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|04|1|SKU56218",
+      "barcode": "0300",
+      "readings": 4,
+      "best_quality": 30,
+      "first_seen": "2026-10-05T19:20:37",
+      "last_seen": "2026-10-05T19:20:38",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|04|2|SKU18403",
+      "barcode": "0303",
+      "readings": 5,
+      "best_quality": 30,
+      "first_seen": "2026-10-05T19:21:35",
+      "last_seen": "2026-10-05T19:21:36",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|04|2|SKU87360",
+      "barcode": "0302",
+      "readings": 4,
+      "best_quality": 29,
+      "first_seen": "2026-10-05T19:21:35",
+      "last_seen": "2026-10-05T19:21:35",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|04|3|SKU28746",
+      "barcode": "0306",
+      "readings": 5,
+      "best_quality": 30,
+      "first_seen": "2026-10-05T19:22:23",
+      "last_seen": "2026-10-05T19:22:24",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|04|3|SKU74788",
+      "barcode": "0305",
+      "readings": 4,
+      "best_quality": 28,
+      "first_seen": "2026-10-05T19:22:24",
+      "last_seen": "2026-10-05T19:22:25",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|04|3|SKU87651",
+      "barcode": "0304",
+      "readings": 4,
+      "best_quality": 30,
+      "first_seen": "2026-10-05T19:22:25",
+      "last_seen": "2026-10-05T19:22:26",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|05|1|SKU10565",
+      "barcode": "0307",
+      "readings": 4,
+      "best_quality": 30,
+      "first_seen": "2026-10-05T19:20:36",
+      "last_seen": "2026-10-05T19:20:36",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|05|1|SKU32376",
+      "barcode": "0308",
+      "readings": 4,
+      "best_quality": 28,
+      "first_seen": "2026-10-05T19:20:35",
+      "last_seen": "2026-10-05T19:20:35",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|05|1|SKU79550",
+      "barcode": "0309",
+      "readings": 5,
+      "best_quality": 27,
+      "first_seen": "2026-10-05T19:20:34",
+      "last_seen": "2026-10-05T19:20:35",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|05|2|SKU15115",
+      "barcode": "0310",
+      "readings": 5,
+      "best_quality": 30,
+      "first_seen": "2026-10-05T19:21:37",
+      "last_seen": "2026-10-05T19:21:37",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|05|2|SKU25085",
+      "barcode": "0312",
+      "readings": 5,
+      "best_quality": 30,
+      "first_seen": "2026-10-05T19:21:38",
+      "last_seen": "2026-10-05T19:21:39",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|05|2|SKU81847",
+      "barcode": "0311",
+      "readings": 4,
+      "best_quality": 29,
+      "first_seen": "2026-10-05T19:21:37",
+      "last_seen": "2026-10-05T19:21:38",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|05|3|SKU44860",
+      "barcode": "0314",
+      "readings": 4,
+      "best_quality": 30,
+      "first_seen": "2026-10-05T19:22:21",
+      "last_seen": "2026-10-05T19:22:22",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|05|3|SKU53220",
+      "barcode": "0315",
+      "readings": 4,
+      "best_quality": 30,
+      "first_seen": "2026-10-05T19:22:20",
+      "last_seen": "2026-10-05T19:22:21",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|05|3|SKU91226",
+      "barcode": "0313",
+      "readings": 5,
+      "best_quality": 29,
+      "first_seen": "2026-10-05T19:22:22",
+      "last_seen": "2026-10-05T19:22:23",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|06|1|SKU16777",
+      "barcode": "0317",
+      "readings": 4,
+      "best_quality": 29,
+      "first_seen": "2026-10-05T19:20:32",
+      "last_seen": "2026-10-05T19:20:32",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|06|1|SKU27909",
+      "barcode": "0316",
+      "readings": 4,
+      "best_quality": 27,
+      "first_seen": "2026-10-05T19:20:32",
+      "last_seen": "2026-10-05T19:20:33",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|06|1|SKU96960",
+      "barcode": "0318",
+      "readings": 4,
+      "best_quality": 26,
+      "first_seen": "2026-10-05T19:20:31",
+      "last_seen": "2026-10-05T19:20:31",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|06|2|SKU16441",
+      "barcode": "0320",
+      "readings": 5,
+      "best_quality": 30,
+      "first_seen": "2026-10-05T19:21:41",
+      "last_seen": "2026-10-05T19:21:41",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|06|2|SKU38480",
+      "barcode": "0319",
+      "readings": 4,
+      "best_quality": 30,
+      "first_seen": "2026-10-05T19:21:40",
+      "last_seen": "2026-10-05T19:21:41",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|06|2|SKU99229",
+      "barcode": "0321",
+      "readings": 4,
+      "best_quality": 29,
+      "first_seen": "2026-10-05T19:21:42",
+      "last_seen": "2026-10-05T19:21:42",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|06|3|SKU23620",
+      "barcode": "0322",
+      "readings": 4,
+      "best_quality": 30,
+      "first_seen": "2026-10-05T19:22:19",
+      "last_seen": "2026-10-05T19:22:19",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|06|3|SKU88356",
+      "barcode": "0324",
+      "readings": 4,
+      "best_quality": 30,
+      "first_seen": "2026-10-05T19:22:17",
+      "last_seen": "2026-10-05T19:22:18",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|F|06|3|SKU93552",
+      "barcode": "0323",
+      "readings": 4,
+      "best_quality": 30,
+      "first_seen": "2026-10-05T19:22:18",
+      "last_seen": "2026-10-05T19:22:18",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|01|1|SKU74846",
+      "barcode": "0380",
+      "readings": 1,
+      "best_quality": 27,
+      "first_seen": "2026-10-05T19:24:29",
+      "last_seen": "2026-10-05T19:24:29",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|01|1|SKU98598",
+      "barcode": "0381",
+      "readings": 1,
+      "best_quality": 33,
+      "first_seen": "2026-10-05T19:24:30",
+      "last_seen": "2026-10-05T19:24:30",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|01|2|SKU63643",
+      "barcode": "0384",
+      "readings": 1,
+      "best_quality": 60,
+      "first_seen": "2026-10-05T19:24:00",
+      "last_seen": "2026-10-05T19:24:00",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|01|2|SKU86960",
+      "barcode": "0382",
+      "readings": 1,
+      "best_quality": 49,
+      "first_seen": "2026-10-05T19:24:02",
+      "last_seen": "2026-10-05T19:24:02",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|01|2|SKU87631",
+      "barcode": "0383",
+      "readings": 1,
+      "best_quality": 55,
+      "first_seen": "2026-10-05T19:24:01",
+      "last_seen": "2026-10-05T19:24:01",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|01|3|SKU22517",
+      "barcode": "0385",
+      "readings": 1,
+      "best_quality": 49,
+      "first_seen": "2026-10-05T19:23:02",
+      "last_seen": "2026-10-05T19:23:02",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|01|3|SKU23906",
+      "barcode": "0386",
+      "readings": 1,
+      "best_quality": 54,
+      "first_seen": "2026-10-05T19:23:03",
+      "last_seen": "2026-10-05T19:23:03",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|01|3|SKU87030",
+      "barcode": "0387",
+      "readings": 1,
+      "best_quality": 65,
+      "first_seen": "2026-10-05T19:23:04",
+      "last_seen": "2026-10-05T19:23:04",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|02|1|SKU40198",
+      "barcode": "0388",
+      "readings": 1,
+      "best_quality": 56,
+      "first_seen": "2026-10-05T19:24:31",
+      "last_seen": "2026-10-05T19:24:31",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|02|1|SKU56678",
+      "barcode": "0389",
+      "readings": 1,
+      "best_quality": 57,
+      "first_seen": "2026-10-05T19:24:32",
+      "last_seen": "2026-10-05T19:24:32",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|02|1|SKU67605",
+      "barcode": "0390",
+      "readings": 1,
+      "best_quality": 55,
+      "first_seen": "2026-10-05T19:24:33",
+      "last_seen": "2026-10-05T19:24:33",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|02|2|SKU58244",
+      "barcode": "0393",
+      "readings": 1,
+      "best_quality": 35,
+      "first_seen": "2026-10-05T19:23:57",
+      "last_seen": "2026-10-05T19:23:57",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|02|2|SKU71135",
+      "barcode": "0392",
+      "readings": 1,
+      "best_quality": 37,
+      "first_seen": "2026-10-05T19:23:58",
+      "last_seen": "2026-10-05T19:23:58",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|02|2|SKU93091",
+      "barcode": "0391",
+      "readings": 2,
+      "best_quality": 49,
+      "first_seen": "2026-10-05T19:23:59",
+      "last_seen": "2026-10-05T19:23:59",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|02|3|SKU26912",
+      "barcode": "0394",
+      "readings": 1,
+      "best_quality": 58,
+      "first_seen": "2026-10-05T19:23:05",
+      "last_seen": "2026-10-05T19:23:05",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|02|3|SKU42479",
+      "barcode": "0396",
+      "readings": 1,
+      "best_quality": 51,
+      "first_seen": "2026-10-05T19:23:07",
+      "last_seen": "2026-10-05T19:23:07",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|02|3|SKU92848",
+      "barcode": "0395",
+      "readings": 1,
+      "best_quality": 63,
+      "first_seen": "2026-10-05T19:23:06",
+      "last_seen": "2026-10-05T19:23:06",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|03|1|SKU44998",
+      "barcode": "0399",
+      "readings": 1,
+      "best_quality": 59,
+      "first_seen": "2026-10-05T19:24:36",
+      "last_seen": "2026-10-05T19:24:36",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|03|1|SKU56923",
+      "barcode": "0398",
+      "readings": 1,
+      "best_quality": 55,
+      "first_seen": "2026-10-05T19:24:35",
+      "last_seen": "2026-10-05T19:24:35",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|03|1|SKU72083",
+      "barcode": "0397",
+      "readings": 1,
+      "best_quality": 48,
+      "first_seen": "2026-10-05T19:24:35",
+      "last_seen": "2026-10-05T19:24:35",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|03|2|SKU14039",
+      "barcode": "0401",
+      "readings": 1,
+      "best_quality": 60,
+      "first_seen": "2026-10-05T19:23:55",
+      "last_seen": "2026-10-05T19:23:55",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|03|2|SKU64328",
+      "barcode": "0400",
+      "readings": 1,
+      "best_quality": 58,
+      "first_seen": "2026-10-05T19:23:56",
+      "last_seen": "2026-10-05T19:23:56",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|03|2|SKU98057",
+      "barcode": "0402",
+      "readings": 1,
+      "best_quality": 65,
+      "first_seen": "2026-10-05T19:23:54",
+      "last_seen": "2026-10-05T19:23:54",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|03|3|SKU26460",
+      "barcode": "0405",
+      "readings": 1,
+      "best_quality": 63,
+      "first_seen": "2026-10-05T19:23:10",
+      "last_seen": "2026-10-05T19:23:10",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|03|3|SKU42167",
+      "barcode": "0403",
+      "readings": 1,
+      "best_quality": 64,
+      "first_seen": "2026-10-05T19:23:08",
+      "last_seen": "2026-10-05T19:23:08",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|03|3|SKU71488",
+      "barcode": "0404",
+      "readings": 1,
+      "best_quality": 66,
+      "first_seen": "2026-10-05T19:23:09",
+      "last_seen": "2026-10-05T19:23:09",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|04|1|SKU60122",
+      "barcode": "0407",
+      "readings": 2,
+      "best_quality": 43,
+      "first_seen": "2026-10-05T19:24:38",
+      "last_seen": "2026-10-05T19:24:38",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|04|1|SKU62545",
+      "barcode": "0408",
+      "readings": 1,
+      "best_quality": 38,
+      "first_seen": "2026-10-05T19:24:39",
+      "last_seen": "2026-10-05T19:24:39",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|04|1|SKU84302",
+      "barcode": "0406",
+      "readings": 2,
+      "best_quality": 44,
+      "first_seen": "2026-10-05T19:24:37",
+      "last_seen": "2026-10-05T19:24:38",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|04|2|SKU49283",
+      "barcode": "0410",
+      "readings": 1,
+      "best_quality": 63,
+      "first_seen": "2026-10-05T19:23:52",
+      "last_seen": "2026-10-05T19:23:52",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|04|2|SKU56340",
+      "barcode": "0409",
+      "readings": 1,
+      "best_quality": 65,
+      "first_seen": "2026-10-05T19:23:53",
+      "last_seen": "2026-10-05T19:23:53",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|04|3|SKU32699",
+      "barcode": "0414",
+      "readings": 1,
+      "best_quality": 72,
+      "first_seen": "2026-10-05T19:23:13",
+      "last_seen": "2026-10-05T19:23:13",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|04|3|SKU61982",
+      "barcode": "0413",
+      "readings": 1,
+      "best_quality": 47,
+      "first_seen": "2026-10-05T19:23:12",
+      "last_seen": "2026-10-05T19:23:12",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|04|3|SKU81234",
+      "barcode": "0412",
+      "readings": 1,
+      "best_quality": 55,
+      "first_seen": "2026-10-05T19:23:11",
+      "last_seen": "2026-10-05T19:23:11",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|05|1|SKU13369",
+      "barcode": "0417",
+      "readings": 1,
+      "best_quality": 51,
+      "first_seen": "2026-10-05T19:24:42",
+      "last_seen": "2026-10-05T19:24:42",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|05|1|SKU56478",
+      "barcode": "0415",
+      "readings": 1,
+      "best_quality": 51,
+      "first_seen": "2026-10-05T19:24:40",
+      "last_seen": "2026-10-05T19:24:40",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|05|1|SKU79206",
+      "barcode": "0416",
+      "readings": 1,
+      "best_quality": 54,
+      "first_seen": "2026-10-05T19:24:41",
+      "last_seen": "2026-10-05T19:24:41",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|05|2|SKU20803",
+      "barcode": "0420",
+      "readings": 1,
+      "best_quality": 60,
+      "first_seen": "2026-10-05T19:23:48",
+      "last_seen": "2026-10-05T19:23:48",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|05|2|SKU39180",
+      "barcode": "0418",
+      "readings": 1,
+      "best_quality": 46,
+      "first_seen": "2026-10-05T19:23:50",
+      "last_seen": "2026-10-05T19:23:50",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|05|2|SKU89051",
+      "barcode": "0419",
+      "readings": 1,
+      "best_quality": 42,
+      "first_seen": "2026-10-05T19:23:49",
+      "last_seen": "2026-10-05T19:23:49",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|05|3|SKU41345",
+      "barcode": "0422",
+      "readings": 1,
+      "best_quality": 64,
+      "first_seen": "2026-10-05T19:23:15",
+      "last_seen": "2026-10-05T19:23:15",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|05|3|SKU53033",
+      "barcode": "0423",
+      "readings": 1,
+      "best_quality": 60,
+      "first_seen": "2026-10-05T19:23:16",
+      "last_seen": "2026-10-05T19:23:16",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|05|3|SKU74302",
+      "barcode": "0421",
+      "readings": 1,
+      "best_quality": 57,
+      "first_seen": "2026-10-05T19:23:14",
+      "last_seen": "2026-10-05T19:23:14",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|06|1|SKU21844",
+      "barcode": "0424",
+      "readings": 1,
+      "best_quality": 57,
+      "first_seen": "2026-10-05T19:24:44",
+      "last_seen": "2026-10-05T19:24:44",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|06|1|SKU43561",
+      "barcode": "0426",
+      "readings": 1,
+      "best_quality": 53,
+      "first_seen": "2026-10-05T19:24:45",
+      "last_seen": "2026-10-05T19:24:45",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|06|1|SKU87141",
+      "barcode": "0425",
+      "readings": 1,
+      "best_quality": 46,
+      "first_seen": "2026-10-05T19:24:44",
+      "last_seen": "2026-10-05T19:24:44",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|06|2|SKU26841",
+      "barcode": "0429",
+      "readings": 1,
+      "best_quality": 56,
+      "first_seen": "2026-10-05T19:23:45",
+      "last_seen": "2026-10-05T19:23:45",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|06|2|SKU83763",
+      "barcode": "0427",
+      "readings": 1,
+      "best_quality": 57,
+      "first_seen": "2026-10-05T19:23:47",
+      "last_seen": "2026-10-05T19:23:47",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|06|2|SKU96569",
+      "barcode": "0428",
+      "readings": 1,
+      "best_quality": 49,
+      "first_seen": "2026-10-05T19:23:46",
+      "last_seen": "2026-10-05T19:23:46",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|06|3|SKU12808",
+      "barcode": "0430",
+      "readings": 1,
+      "best_quality": 64,
+      "first_seen": "2026-10-05T19:23:17",
+      "last_seen": "2026-10-05T19:23:17",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|06|3|SKU75163",
+      "barcode": "0432",
+      "readings": 1,
+      "best_quality": 37,
+      "first_seen": "2026-10-05T19:23:19",
+      "last_seen": "2026-10-05T19:23:19",
+      "disagreements": []
+    },
+    {
+      "qr": "WH1|H|06|3|SKU91934",
+      "barcode": "0431",
+      "readings": 1,
+      "best_quality": 43,
+      "first_seen": "2026-10-05T19:23:18",
+      "last_seen": "2026-10-05T19:23:18",
+      "disagreements": []
+    }
+  ]
+}

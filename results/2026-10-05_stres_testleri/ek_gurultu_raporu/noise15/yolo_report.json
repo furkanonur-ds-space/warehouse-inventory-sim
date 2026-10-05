@@ -1,0 +1,69 @@
+{
+  "used": true,
+  "settings": {
+    "weights": "/home/coban/Desktop/warehouse_dataset/birlesik/model/yolo26s_640/weights/best.pt",
+    "conf": 0.25,
+    "margin": 0.35,
+    "min_side_px": 320
+  },
+  "labels_seen": {
+    "qr": 3568,
+    "barkod": 794
+  },
+  "readings_by_pass": {
+    "frame": 1128,
+    "crop": 354
+  },
+  "boxes_detected": {
+    "located": 9621,
+    "without_a_decoded_code": 8378,
+    "frames_with_one": 4761
+  },
+  "boxes_linked": 85,
+  "boxes_recovered": [
+    "WH1|A|01|2|SKU24580",
+    "WH1|A|01|2|SKU31965",
+    "WH1|A|01|3|SKU72121",
+    "WH1|A|02|1|SKU49098",
+    "WH1|A|03|1|SKU24473",
+    "WH1|A|03|1|SKU34683",
+    "WH1|A|04|1|SKU39851",
+    "WH1|A|04|1|SKU94529",
+    "WH1|B|04|3|SKU30426",
+    "WH1|B|05|3|SKU16860",
+    "WH1|B|06|3|SKU30821",
+    "WH1|B|06|3|SKU68047"
+  ],
+  "per_camera": [
+    {
+      "summary": "barcode_inventory_front.json",
+      "source": "/world/warehouse/model/x500_c27_0/link/camera_hires_link/sensor/camera/image",
+      "frames": 6750,
+      "labels_seen": {
+        "qr": 2252,
+        "barkod": 463
+      },
+      "readings_by_pass": {
+        "frame": 697,
+        "crop": 270
+      },
+      "barcode_readings": 967,
+      "boxes_with_barcode": 57
+    },
+    {
+      "summary": "barcode_inventory_rear.json",
+      "source": "/world/warehouse/model/x500_c27_0/link/camera_track_rear_link/sensor/camera/image",
+      "frames": 4100,
+      "labels_seen": {
+        "qr": 1316,
+        "barkod": 331
+      },
+      "readings_by_pass": {
+        "crop": 84,
+        "frame": 431
+      },
+      "barcode_readings": 515,
+      "boxes_with_barcode": 28
+    }
+  ]
+}

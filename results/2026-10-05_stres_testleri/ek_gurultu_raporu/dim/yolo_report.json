@@ -1,0 +1,56 @@
+{
+  "used": true,
+  "settings": {
+    "weights": "/home/coban/Desktop/warehouse_dataset/birlesik/model/yolo26s_640/weights/best.pt",
+    "conf": 0.25,
+    "margin": 0.35,
+    "min_side_px": 320
+  },
+  "labels_seen": {
+    "barkod": 2191,
+    "qr": 4139
+  },
+  "readings_by_pass": {
+    "frame": 3184,
+    "crop": 15
+  },
+  "boxes_detected": {
+    "located": 30693,
+    "without_a_decoded_code": 28050,
+    "frames_with_one": 6980
+  },
+  "boxes_linked": 416,
+  "boxes_recovered": [],
+  "per_camera": [
+    {
+      "summary": "barcode_inventory_front.json",
+      "source": "/world/warehouse/model/x500_c27_0/link/camera_hires_link/sensor/camera/image",
+      "frames": 7400,
+      "labels_seen": {
+        "barkod": 1325,
+        "qr": 2665
+      },
+      "readings_by_pass": {
+        "frame": 1972,
+        "crop": 3
+      },
+      "barcode_readings": 1975,
+      "boxes_with_barcode": 208
+    },
+    {
+      "summary": "barcode_inventory_rear.json",
+      "source": "/world/warehouse/model/x500_c27_0/link/camera_track_rear_link/sensor/camera/image",
+      "frames": 2950,
+      "labels_seen": {
+        "barkod": 866,
+        "qr": 1474
+      },
+      "readings_by_pass": {
+        "frame": 1212,
+        "crop": 12
+      },
+      "barcode_readings": 1224,
+      "boxes_with_barcode": 208
+    }
+  ]
+}

@@ -1,0 +1,1718 @@
+[INFO] lane A/B: flying [0.756, 2.456, 4.156] rather than [0.75, 2.45, 4.15], to put the axis on the codes
+[INFO] lane C/D: flying [0.756, 2.456, 4.156] rather than [0.75, 2.45, 4.15], to put the axis on the codes
+[INFO] lane E/F: flying [0.756, 2.456, 4.156] rather than [0.75, 2.45, 4.15], to put the axis on the codes
+[INFO] lane G/H: flying [0.701, 2.401, 4.101] rather than [0.75, 2.45, 4.15], to put the axis on the codes
+====================================================================
+  AUTONOMOUS WAREHOUSE INVENTORY SCAN
+  Sensor configuration: C27, hires ahead and tracking behind
+  Shelf faces    : 8
+  Shelf levels   : 3
+  Waypoints      : 24
+  Localization   : visual odometry with EKF2, GPS disabled
+  Recording      : off  (RECORD_VIDEO=1 to turn it on)
+  Drift correction: ArUco floor markers, offset applied to setpoints
+====================================================================
+[INFO] Loaded 8 floor markers from marker_map.json
+Connection using udp:// is deprecated, please use udpin:// or udpout:// (cli_arg.cpp:28)
+
+[INFO] Connecting to vehicle
+[INFO] Waiting for position estimate (VIO Local Position)
+[INFO] Position estimate valid
+[INFO] EKF2 Local Origin mapped to: {'n': -8.999848365783691, 'e': -8.499922752380371, 'd': 0.00034741597482934594}
+[INFO] Arming and taking off (Offboard VIO Mode)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+           ascending...
+           turning to route heading...
+           turning to heading +0
+[INFO] decoder thread per camera, queue 2 deep
+[INFO] Letting the cameras catch up
+           MARKER 1 at (-8.5, -9.0)  drift 0.003 m  offset now 0.000 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.002 m  offset now 0.000 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.003 m  offset now 0.000 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.002 m  offset now 0.000 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.002 m  offset now 0.000 m
+
+[INFO] Starting scan
+           turning to heading -90
+           MARKER 1 at (-8.5, -9.0)  drift 0.003 m  offset now 0.000 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.002 m  offset now 0.000 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.003 m  offset now 0.000 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.003 m  offset now 0.000 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.003 m  offset now 0.000 m
+
+[WAYPOINT 1/24] x=-8.4 y=-9.0 z=0.76 heading -90  0.8 m  climb at 0.15 m/s
+           MARKER 1 at (-8.5, -9.0)  drift 0.010 m  offset now 0.000 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.003 m  offset now 0.000 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.002 m  offset now 0.000 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.003 m  offset now 0.000 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.005 m  offset now 0.000 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.002 m  offset now 0.001 m
+           reached  codes 0  barcodes 0  alt worst +0.738 spread 0.743 residual -0.061 settled in 0.0s  OUT OF FRAME
+
+[WAYPOINT 2/24] x=-8.4 y=+9.0 z=0.76 heading -90  18.0 m  cruise at 1.0 m/s
+           MARKER 1 at (-8.5, -9.0)  drift 0.101 m  offset now 0.001 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.126 m  offset now 0.001 m
+           DETECTED WH1|A|06|1|SKU77867
+                    bearing +23.0 deg  elevation  -3.4 deg
+                    estimated position x=-9.72 y=-7.47 z=0.81
+           DETECTED WH1|B|06|1|SKU58683
+                    bearing -41.5 deg  elevation  -5.2 deg
+                    estimated position x=-7.28 y=-7.03 z=0.81
+           DETECTED WH1|A|06|1|SKU97186
+                    bearing +18.7 deg  elevation  -0.7 deg
+                    estimated position x=-9.72 y=-6.52 z=0.77
+           DETECTED WH1|B|06|1|SKU16069
+                    bearing -43.1 deg  elevation  -4.7 deg
+                    estimated position x=-7.28 y=-6.06 z=0.81
+           DETECTED WH1|A|06|1|SKU47923
+                    bearing +22.4 deg  elevation  +2.0 deg
+                    estimated position x=-9.72 y=-5.83 z=0.71
+           DETECTED WH1|B|05|1|SKU97128
+                    bearing -41.2 deg  elevation  +0.8 deg
+                    estimated position x=-7.28 y=-4.80 z=0.74
+           DETECTED WH1|A|05|1|SKU76578
+                    bearing +22.2 deg  elevation  -2.9 deg
+                    estimated position x=-9.72 y=-4.66 z=0.81
+           DETECTED WH1|B|05|1|SKU13003
+                    bearing -41.6 deg  elevation  +0.8 deg
+                    estimated position x=-7.28 y=-4.05 z=0.74
+           DETECTED WH1|B|05|1|SKU28787
+                    bearing -42.0 deg  elevation  +0.8 deg
+                    estimated position x=-7.28 y=-3.30 z=0.74
+           DETECTED WH1|A|05|1|SKU46348
+                    bearing +21.0 deg  elevation  +2.1 deg
+                    estimated position x=-9.72 y=-3.81 z=0.71
+           DETECTED WH1|A|05|1|SKU57754
+                    bearing +24.5 deg  elevation  +2.1 deg
+                    estimated position x=-9.72 y=-3.23 z=0.71
+           DETECTED WH1|B|04|1|SKU88630
+                    bearing -43.3 deg  elevation  -4.6 deg
+                    estimated position x=-7.28 y=-2.17 z=0.81
+           DETECTED WH1|A|04|1|SKU94529
+                    bearing +23.3 deg  elevation  -2.9 deg
+                    estimated position x=-9.72 y=-1.98 z=0.81
+           DETECTED WH1|B|04|1|SKU38314
+                    bearing -36.7 deg  elevation  -4.4 deg
+                    estimated position x=-7.28 y=-1.25 z=0.81
+           DETECTED WH1|A|04|1|SKU30563
+                    bearing +22.8 deg  elevation  +1.7 deg
+                    estimated position x=-9.72 y=-1.11 z=0.72
+           DETECTED WH1|B|04|1|SKU39273
+                    bearing -38.8 deg  elevation  -1.7 deg
+                    estimated position x=-7.28 y=-0.45 z=0.79
+           DETECTED WH1|A|04|1|SKU39851
+                    bearing +18.5 deg  elevation  +2.2 deg
+                    estimated position x=-9.72 y=-0.47 z=0.71
+           DETECTED WH1|B|03|1|SKU87624
+                    bearing -32.7 deg  elevation  +1.6 deg
+                    estimated position x=-7.28 y=0.47 z=0.73
+           DETECTED WH1|A|03|1|SKU24473
+                    bearing +25.0 deg  elevation  -2.9 deg
+                    estimated position x=-9.72 y=0.62 z=0.81
+           DETECTED WH1|B|03|1|SKU24025
+                    bearing -41.9 deg  elevation  -4.5 deg
+                    estimated position x=-7.28 y=1.31 z=0.81
+           DETECTED WH1|A|03|1|SKU34683
+                    bearing +28.3 deg  elevation  -0.7 deg
+                    estimated position x=-9.72 y=1.55 z=0.77
+           DETECTED WH1|A|03|1|SKU91073
+                    bearing +24.1 deg  elevation  +1.7 deg
+                    estimated position x=-9.72 y=2.23 z=0.72
+           DETECTED WH1|B|02|1|SKU84603
+                    bearing -43.3 deg  elevation  +0.8 deg
+                    estimated position x=-7.28 y=3.20 z=0.74
+           DETECTED WH1|A|02|1|SKU86809
+                    bearing +23.8 deg  elevation  -2.9 deg
+                    estimated position x=-9.72 y=3.35 z=0.81
+           DETECTED WH1|A|02|1|SKU79381
+                    bearing +28.7 deg  elevation  +1.6 deg
+                    estimated position x=-9.72 y=4.13 z=0.72
+           DETECTED WH1|B|02|1|SKU90258
+                    bearing -34.7 deg  elevation  -4.4 deg
+                    estimated position x=-7.28 y=4.05 z=0.81
+           DETECTED WH1|A|02|1|SKU49098
+                    bearing +24.6 deg  elevation  -0.6 deg
+                    estimated position x=-9.72 y=4.85 z=0.77
+           DETECTED WH1|B|02|1|SKU62727
+                    bearing -31.9 deg  elevation  +1.1 deg
+                    estimated position x=-7.28 y=4.88 z=0.74
+           DETECTED WH1|B|01|1|SKU87384
+                    bearing -41.9 deg  elevation  +1.4 deg
+                    estimated position x=-7.28 y=5.92 z=0.73
+           DETECTED WH1|A|01|1|SKU55414
+                    bearing +25.2 deg  elevation  -0.6 deg
+                    estimated position x=-9.72 y=6.05 z=0.77
+           DETECTED WH1|B|01|1|SKU85437
+                    bearing -33.7 deg  elevation  +1.1 deg
+                    estimated position x=-7.28 y=6.61 z=0.74
+           DETECTED WH1|A|01|1|SKU74551
+                    bearing +27.5 deg  elevation  +1.6 deg
+                    estimated position x=-9.72 y=6.85 z=0.72
+           DETECTED WH1|B|01|1|SKU36450
+                    bearing -36.6 deg  elevation  -1.7 deg
+                    estimated position x=-7.28 y=7.43 z=0.79
+           DETECTED WH1|A|01|1|SKU96763
+                    bearing +23.1 deg  elevation  +1.7 deg
+                    estimated position x=-9.72 y=7.56 z=0.72
+           MARKER 2 at (-8.5, +9.0)  drift 0.054 m  offset now 0.001 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.027 m  offset now 0.001 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.100 m  offset now 0.001 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.045 m  offset now 0.001 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.007 m  offset now 0.001 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.022 m  offset now 0.001 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.008 m  offset now 0.001 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.006 m  offset now 0.001 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.005 m  offset now 0.002 m
+           reached  codes 34  barcodes 34  alt worst -0.063 spread 0.011 residual -0.061 settled in 8.1s
+
+[WAYPOINT 3/24] x=-8.4 y=+9.0 z=2.46 heading -90  1.7 m  climb at 0.15 m/s
+           MARKER 2 at (-8.5, +9.0)  drift 0.004 m  offset now 0.002 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.002 m  offset now 0.002 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.001 m  offset now 0.002 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.001 m  offset now 0.002 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.001 m  offset now 0.002 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.001 m  offset now 0.002 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.002 m  offset now 0.002 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.001 m  offset now 0.002 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.001 m  offset now 0.002 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.003 m  offset now 0.002 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.003 m  offset now 0.002 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.003 m  offset now 0.002 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.000 m  offset now 0.002 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.002 m  offset now 0.002 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.003 m  offset now 0.002 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.003 m  offset now 0.002 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.001 m  offset now 0.002 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.001 m  offset now 0.002 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.004 m  offset now 0.002 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.004 m  offset now 0.001 m
+           reached  codes 34  barcodes 34  alt worst -1.761 spread 1.648 residual -0.061 settled in 8.1s  OUT OF FRAME
+
+[WAYPOINT 4/24] x=-8.4 y=-9.0 z=2.46 heading -90  18.0 m  cruise at 1.0 m/s
+           MARKER 2 at (-8.5, +9.0)  drift 0.759 m  offset now 0.001 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.191 m  offset now 0.001 m
+           DETECTED WH1|B|01|2|SKU25392
+                    bearing +39.6 deg  elevation  -6.7 deg
+                    estimated position x=-7.28 y=7.48 z=2.51
+           MARKER 2 at (-8.5, +9.0)  drift 0.104 m  offset now 0.001 m
+           DETECTED WH1|A|01|2|SKU44970
+                    bearing -18.5 deg  elevation  +1.3 deg
+                    estimated position x=-9.72 y=7.52 z=2.43
+           DETECTED WH1|A|01|2|SKU24580
+                    bearing -22.2 deg  elevation  +1.9 deg
+                    estimated position x=-9.72 y=6.72 z=2.41
+           DETECTED WH1|B|01|2|SKU13319
+                    bearing +35.5 deg  elevation  +1.3 deg
+                    estimated position x=-7.28 y=6.68 z=2.43
+           DETECTED WH1|B|01|2|SKU72394
+                    bearing +33.4 deg  elevation  -1.8 deg
+                    estimated position x=-7.28 y=6.00 z=2.49
+           DETECTED WH1|A|01|2|SKU31965
+                    bearing -18.2 deg  elevation  +2.1 deg
+                    estimated position x=-9.72 y=6.00 z=2.41
+           DETECTED WH1|A|02|2|SKU39677
+                    bearing -22.3 deg  elevation  +2.1 deg
+                    estimated position x=-9.72 y=5.05 z=2.41
+           DETECTED WH1|B|02|2|SKU25774
+                    bearing +41.5 deg  elevation  +1.3 deg
+                    estimated position x=-7.28 y=4.82 z=2.43
+           DETECTED WH1|A|02|2|SKU36226
+                    bearing -25.1 deg  elevation  -3.0 deg
+                    estimated position x=-9.72 y=4.29 z=2.51
+           DETECTED WH1|B|02|2|SKU42246
+                    bearing +35.2 deg  elevation  +0.9 deg
+                    estimated position x=-7.28 y=4.09 z=2.44
+           DETECTED WH1|B|02|2|SKU52667
+                    bearing +42.5 deg  elevation  +0.8 deg
+                    estimated position x=-7.28 y=3.32 z=2.44
+           DETECTED WH1|A|02|2|SKU59731
+                    bearing -25.5 deg  elevation  -2.9 deg
+                    estimated position x=-9.72 y=3.34 z=2.51
+           DETECTED WH1|B|03|2|SKU65665
+                    bearing +39.8 deg  elevation  +1.5 deg
+                    estimated position x=-7.28 y=2.13 z=2.43
+           DETECTED WH1|A|03|2|SKU22417
+                    bearing -28.1 deg  elevation  -0.7 deg
+                    estimated position x=-9.72 y=2.15 z=2.47
+           DETECTED WH1|B|03|2|SKU89637
+                    bearing +39.6 deg  elevation  +0.9 deg
+                    estimated position x=-7.28 y=1.41 z=2.44
+           DETECTED WH1|A|03|2|SKU45284
+                    bearing -24.0 deg  elevation  +1.6 deg
+                    estimated position x=-9.72 y=1.47 z=2.42
+           DETECTED WH1|B|03|2|SKU80547
+                    bearing +40.6 deg  elevation  +0.9 deg
+                    estimated position x=-7.28 y=0.63 z=2.44
+           DETECTED WH1|A|03|2|SKU81776
+                    bearing -23.6 deg  elevation  -2.9 deg
+                    estimated position x=-9.72 y=0.65 z=2.51
+           DETECTED WH1|B|04|2|SKU95812
+                    bearing +41.0 deg  elevation  +1.4 deg
+                    estimated position x=-7.28 y=-0.50 z=2.43
+           DETECTED WH1|A|04|2|SKU34046
+                    bearing -23.5 deg  elevation  -2.9 deg
+                    estimated position x=-9.72 y=-0.67 z=2.51
+           DETECTED WH1|B|04|2|SKU56041
+                    bearing +38.8 deg  elevation  -4.5 deg
+                    estimated position x=-7.28 y=-1.32 z=2.51
+           DETECTED WH1|A|04|2|SKU76891
+                    bearing -25.2 deg  elevation  +2.1 deg
+                    estimated position x=-9.72 y=-1.45 z=2.41
+           DETECTED WH1|B|04|2|SKU81712
+                    bearing +42.4 deg  elevation  +1.4 deg
+                    estimated position x=-7.28 y=-2.20 z=2.43
+           DETECTED WH1|A|04|2|SKU21994
+                    bearing -28.5 deg  elevation  -0.7 deg
+                    estimated position x=-9.72 y=-2.13 z=2.47
+           DETECTED WH1|B|05|2|SKU72182
+                    bearing +42.4 deg  elevation  -1.9 deg
+                    estimated position x=-7.28 y=-3.30 z=2.49
+           DETECTED WH1|A|05|2|SKU34720
+                    bearing -24.5 deg  elevation  -0.6 deg
+                    estimated position x=-9.72 y=-3.20 z=2.47
+           DETECTED WH1|B|05|2|SKU87961
+                    bearing +42.8 deg  elevation  +0.9 deg
+                    estimated position x=-7.28 y=-4.05 z=2.44
+           DETECTED WH1|A|05|2|SKU85535
+                    bearing -27.6 deg  elevation  -0.7 deg
+                    estimated position x=-9.72 y=-3.92 z=2.47
+           DETECTED WH1|B|05|2|SKU61062
+                    bearing +43.2 deg  elevation  -1.9 deg
+                    estimated position x=-7.28 y=-4.80 z=2.49
+           DETECTED WH1|A|05|2|SKU20459
+                    bearing -26.3 deg  elevation  -2.9 deg
+                    estimated position x=-9.72 y=-4.77 z=2.51
+           DETECTED WH1|B|06|2|SKU65058
+                    bearing +39.8 deg  elevation  +1.5 deg
+                    estimated position x=-7.28 y=-5.96 z=2.43
+           DETECTED WH1|A|06|2|SKU13700
+                    bearing -27.1 deg  elevation  -3.0 deg
+                    estimated position x=-9.72 y=-5.97 z=2.51
+           DETECTED WH1|A|06|2|SKU47498
+                    bearing -27.5 deg  elevation  +1.6 deg
+                    estimated position x=-9.72 y=-6.73 z=2.42
+           DETECTED WH1|B|06|2|SKU71032
+                    bearing +33.1 deg  elevation  +1.1 deg
+                    estimated position x=-7.28 y=-6.71 z=2.44
+           MARKER 1 at (-8.5, -9.0)  drift 0.050 m  offset now 0.001 m
+           DETECTED WH1|B|06|2|SKU30929
+                    bearing +40.5 deg  elevation  +0.9 deg
+                    estimated position x=-7.28 y=-7.46 z=2.44
+           DETECTED WH1|A|06|2|SKU82291
+                    bearing -25.3 deg  elevation  -2.9 deg
+                    estimated position x=-9.72 y=-7.50 z=2.51
+           MARKER 1 at (-8.5, -9.0)  drift 0.092 m  offset now 0.001 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.020 m  offset now 0.001 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.595 m  offset now 0.001 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.312 m  offset now 0.001 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.055 m  offset now 0.001 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.140 m  offset now 0.001 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.048 m  offset now 0.001 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.031 m  offset now 0.001 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.030 m  offset now 0.001 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.005 m  offset now 0.003 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.010 m  offset now 0.006 m
+           reached  codes 70  barcodes 70  alt worst -0.063 spread 0.010 residual -0.061 settled in 8.1s
+
+[WAYPOINT 5/24] x=-8.4 y=-9.0 z=4.16 heading -90  1.7 m  climb at 0.15 m/s
+           MARKER 1 at (-8.5, -9.0)  drift 0.002 m  offset now 0.006 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.001 m  offset now 0.006 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.004 m  offset now 0.006 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.004 m  offset now 0.006 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.003 m  offset now 0.006 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.003 m  offset now 0.006 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.003 m  offset now 0.006 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.003 m  offset now 0.006 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.006 m  offset now 0.006 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.003 m  offset now 0.006 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.005 m  offset now 0.006 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.003 m  offset now 0.006 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.004 m  offset now 0.006 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.004 m  offset now 0.006 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.003 m  offset now 0.006 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.003 m  offset now 0.006 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.008 m  offset now 0.006 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.003 m  offset now 0.006 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.003 m  offset now 0.004 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.003 m  offset now 0.003 m
+           reached  codes 70  barcodes 70  alt worst -1.761 spread 1.650 residual -0.061 settled in 8.1s  OUT OF FRAME
+
+[WAYPOINT 6/24] x=-8.4 y=+9.0 z=4.16 heading -90  18.0 m  cruise at 1.0 m/s
+           MARKER 1 at (-8.5, -9.0)  drift 1.351 m  offset now 0.003 m
+           MARKER 1 at (-8.5, -9.0)  drift 0.154 m  offset now 0.003 m
+           DETECTED WH1|A|06|3|SKU68242
+                    bearing +19.6 deg  elevation  +1.7 deg
+                    estimated position x=-9.72 y=-7.63 z=4.12
+           DETECTED WH1|B|06|3|SKU30821
+                    bearing -27.0 deg  elevation  -2.4 deg
+                    estimated position x=-7.28 y=-7.59 z=4.20
+           MARKER 1 at (-8.5, -9.0)  drift 0.111 m  offset now 0.003 m
+           DETECTED WH1|A|06|3|SKU90918
+                    bearing +28.7 deg  elevation  +1.3 deg
+                    estimated position x=-9.72 y=-6.93 z=4.12
+           DETECTED WH1|B|06|3|SKU52922
+                    bearing -33.0 deg  elevation  +0.8 deg
+                    estimated position x=-7.28 y=-6.89 z=4.14
+           DETECTED WH1|B|06|3|SKU68047
+                    bearing -35.4 deg  elevation  -4.5 deg
+                    estimated position x=-7.28 y=-6.08 z=4.21
+           MARKER 1 at (-8.5, -9.0)  drift 0.089 m  offset now 0.003 m
+           DETECTED WH1|A|06|3|SKU79113
+                    bearing +26.4 deg  elevation  -0.8 deg
+                    estimated position x=-9.72 y=-6.10 z=4.17
+           MARKER 1 at (-8.5, -9.0)  drift 0.183 m  offset now 0.003 m
+           DETECTED WH1|B|05|3|SKU16860
+                    bearing -41.1 deg  elevation  +1.3 deg
+                    estimated position x=-7.28 y=-4.78 z=4.13
+           DETECTED WH1|A|05|3|SKU80544
+                    bearing +18.8 deg  elevation  -2.9 deg
+                    estimated position x=-9.72 y=-4.72 z=4.21
+           DETECTED WH1|B|05|3|SKU49758
+                    bearing -41.0 deg  elevation  +1.3 deg
+                    estimated position x=-7.28 y=-4.05 z=4.13
+           DETECTED WH1|A|05|3|SKU27926
+                    bearing +26.3 deg  elevation  +2.1 deg
+                    estimated position x=-9.72 y=-3.94 z=4.11
+           DETECTED WH1|B|05|3|SKU17858
+                    bearing -40.8 deg  elevation  +1.4 deg
+                    estimated position x=-7.28 y=-3.32 z=4.13
+           DETECTED WH1|A|05|3|SKU33366
+                    bearing +21.3 deg  elevation  -0.6 deg
+                    estimated position x=-9.72 y=-3.29 z=4.17
+           DETECTED WH1|B|04|3|SKU19307
+                    bearing -41.0 deg  elevation  -4.5 deg
+                    estimated position x=-7.28 y=-2.04 z=4.21
+           DETECTED WH1|A|04|3|SKU71666
+                    bearing +25.7 deg  elevation  -0.7 deg
+                    estimated position x=-9.72 y=-2.19 z=4.17
+           DETECTED WH1|B|04|3|SKU30426
+                    bearing -42.3 deg  elevation  +1.4 deg
+                    estimated position x=-7.28 y=-1.25 z=4.13
+           DETECTED WH1|A|04|3|SKU32286
+                    bearing +20.5 deg  elevation  -0.6 deg
+                    estimated position x=-9.72 y=-1.44 z=4.17
+           DETECTED WH1|B|04|3|SKU10807
+                    bearing -40.5 deg  elevation  -1.8 deg
+                    estimated position x=-7.28 y=-0.58 z=4.19
+           DETECTED WH1|B|03|3|SKU44580
+                    bearing -39.3 deg  elevation  -4.5 deg
+                    estimated position x=-7.28 y=0.50 z=4.21
+           DETECTED WH1|A|03|3|SKU83910
+                    bearing +28.1 deg  elevation  +1.6 deg
+                    estimated position x=-9.72 y=0.43 z=4.12
+           DETECTED WH1|B|03|3|SKU55084
+                    bearing -42.8 deg  elevation  -4.5 deg
+                    estimated position x=-7.28 y=1.35 z=4.21
+           DETECTED WH1|A|03|3|SKU34481
+                    bearing +24.2 deg  elevation  -0.6 deg
+                    estimated position x=-9.72 y=1.15 z=4.17
+           DETECTED WH1|B|03|3|SKU62262
+                    bearing -40.6 deg  elevation  -4.5 deg
+                    estimated position x=-7.28 y=2.17 z=4.21
+           DETECTED WH1|B|02|3|SKU16015
+                    bearing -43.1 deg  elevation  +1.4 deg
+                    estimated position x=-7.28 y=3.20 z=4.13
+           DETECTED WH1|A|02|3|SKU61800
+                    bearing +25.2 deg  elevation  -0.6 deg
+                    estimated position x=-9.72 y=3.40 z=4.17
+           DETECTED WH1|B|02|3|SKU93604
+                    bearing -39.2 deg  elevation  +1.5 deg
+                    estimated position x=-7.28 y=3.81 z=4.13
+           DETECTED WH1|B|02|3|SKU31170
+                    bearing -42.6 deg  elevation  -4.5 deg
+                    estimated position x=-7.28 y=4.66 z=4.21
+           DETECTED WH1|A|02|3|SKU67878
+                    bearing +24.6 deg  elevation  +2.1 deg
+                    estimated position x=-9.72 y=4.20 z=4.11
+           DETECTED WH1|A|02|3|SKU82329
+                    bearing +18.8 deg  elevation  +2.2 deg
+                    estimated position x=-9.72 y=4.85 z=4.11
+           MARKER 2 at (-8.5, +9.0)  drift 0.078 m  offset now 0.003 m
+           DETECTED WH1|B|01|3|SKU28802
+                    bearing -38.8 deg  elevation  +1.5 deg
+                    estimated position x=-7.28 y=5.81 z=4.13
+           DETECTED WH1|A|01|3|SKU13661
+                    bearing +20.3 deg  elevation  -2.8 deg
+                    estimated position x=-9.72 y=5.98 z=4.21
+           DETECTED WH1|B|01|3|SKU23204
+                    bearing -42.6 deg  elevation  -1.8 deg
+                    estimated position x=-7.28 y=6.51 z=4.19
+           MARKER 2 at (-8.5, +9.0)  drift 0.123 m  offset now 0.003 m
+           DETECTED WH1|A|01|3|SKU40160
+                    bearing +26.4 deg  elevation  +1.6 deg
+                    estimated position x=-9.72 y=6.73 z=4.12
+           DETECTED WH1|B|01|3|SKU69437
+                    bearing -42.5 deg  elevation  -4.5 deg
+                    estimated position x=-7.28 y=7.41 z=4.21
+           MARKER 2 at (-8.5, +9.0)  drift 0.057 m  offset now 0.003 m
+           DETECTED WH1|A|01|3|SKU72121
+                    bearing +21.2 deg  elevation  -2.8 deg
+                    estimated position x=-9.72 y=7.48 z=4.21
+           MARKER 2 at (-8.5, +9.0)  drift 0.114 m  offset now 0.003 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.729 m  offset now 0.003 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.653 m  offset now 0.003 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.566 m  offset now 0.003 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.057 m  offset now 0.003 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.188 m  offset now 0.003 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.104 m  offset now 0.003 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.013 m  offset now 0.003 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.050 m  offset now 0.003 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.014 m  offset now 0.006 m
+           reached  codes 104  barcodes 104  alt worst -0.063 spread 0.012 residual -0.061 settled in 8.1s
+
+[WAYPOINT 7/24] x=-4.1 y=+9.0 z=4.16 heading -90  4.3 m  cruise at 1.0 m/s
+           MARKER 2 at (-8.5, +9.0)  drift 0.006 m  offset now 0.006 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.618 m  offset now 0.006 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.059 m  offset now 0.006 m
+           MARKER 2 at (-8.5, +9.0)  drift 0.115 m  offset now 0.006 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.042 m  offset now 0.006 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.105 m  offset now 0.006 m
+           MARKER 4 at (-4.2, +9.0)  drift 1.282 m  offset now 0.006 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.347 m  offset now 0.006 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.264 m  offset now 0.006 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.264 m  offset now 0.006 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.017 m  offset now 0.006 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.081 m  offset now 0.006 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.052 m  offset now 0.006 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.012 m  offset now 0.006 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.018 m  offset now 0.006 m
+           reached  codes 104  barcodes 104  alt worst -0.062 spread 0.009 residual -0.061 settled in 8.1s
+
+[WAYPOINT 8/24] x=-4.1 y=-9.0 z=4.16 heading -90  18.0 m  cruise at 1.0 m/s
+           MARKER 4 at (-4.2, +9.0)  drift 1.028 m  offset now 0.006 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.178 m  offset now 0.006 m
+           DETECTED WH1|C|01|3|SKU84067
+                    bearing -22.4 deg  elevation  +1.8 deg
+                    estimated position x=-5.12 y=7.63 z=4.13
+           DETECTED WH1|D|01|3|SKU16683
+                    bearing +39.6 deg  elevation  +0.8 deg
+                    estimated position x=-3.31 y=7.53 z=4.14
+           DETECTED WH1|C|01|3|SKU88632
+                    bearing -25.6 deg  elevation  +2.1 deg
+                    estimated position x=-5.12 y=6.97 z=4.12
+           MARKER 4 at (-4.2, +9.0)  drift 0.063 m  offset now 0.006 m
+           DETECTED WH1|D|01|3|SKU16112
+                    bearing +39.5 deg  elevation  +1.9 deg
+                    estimated position x=-3.31 y=6.77 z=4.13
+           MARKER 4 at (-4.2, +9.0)  drift 0.162 m  offset now 0.006 m
+           DETECTED WH1|C|01|3|SKU31819
+                    bearing -27.6 deg  elevation  -4.1 deg
+                    estimated position x=-5.12 y=6.13 z=4.21
+           DETECTED WH1|D|01|3|SKU99823
+                    bearing +39.3 deg  elevation  +2.0 deg
+                    estimated position x=-3.31 y=6.04 z=4.13
+           MARKER 4 at (-4.2, +9.0)  drift 0.193 m  offset now 0.006 m
+           DETECTED WH1|C|02|3|SKU41081
+                    bearing -25.6 deg  elevation  +2.3 deg
+                    estimated position x=-5.12 y=4.90 z=4.12
+           DETECTED WH1|D|02|3|SKU26760
+                    bearing +42.2 deg  elevation  -6.1 deg
+                    estimated position x=-3.31 y=4.86 z=4.21
+           DETECTED WH1|D|02|3|SKU61620
+                    bearing +41.6 deg  elevation  -6.0 deg
+                    estimated position x=-3.31 y=3.97 z=4.21
+           DETECTED WH1|C|02|3|SKU52001
+                    bearing -23.9 deg  elevation  -3.9 deg
+                    estimated position x=-5.12 y=4.05 z=4.21
+           DETECTED WH1|D|02|3|SKU74198
+                    bearing +36.4 deg  elevation  -2.2 deg
+                    estimated position x=-3.31 y=3.16 z=4.18
+           DETECTED WH1|C|02|3|SKU19424
+                    bearing -25.9 deg  elevation  +2.3 deg
+                    estimated position x=-5.12 y=3.22 z=4.12
+           DETECTED WH1|D|03|3|SKU74340
+                    bearing +40.0 deg  elevation  +2.2 deg
+                    estimated position x=-3.31 y=2.15 z=4.13
+           DETECTED WH1|C|03|3|SKU18581
+                    bearing -25.8 deg  elevation  +2.3 deg
+                    estimated position x=-5.12 y=2.10 z=4.12
+           DETECTED WH1|D|03|3|SKU51049
+                    bearing +36.5 deg  elevation  +2.3 deg
+                    estimated position x=-3.31 y=1.49 z=4.12
+           DETECTED WH1|C|03|3|SKU43757
+                    bearing -22.5 deg  elevation  +2.4 deg
+                    estimated position x=-5.12 y=1.37 z=4.12
+           DETECTED WH1|D|03|3|SKU42152
+                    bearing +39.4 deg  elevation  -2.2 deg
+                    estimated position x=-3.31 y=0.69 z=4.18
+           DETECTED WH1|C|03|3|SKU24283
+                    bearing -27.1 deg  elevation  +2.3 deg
+                    estimated position x=-5.12 y=0.60 z=4.12
+           DETECTED WH1|D|04|3|SKU79011
+                    bearing +41.1 deg  elevation  +1.5 deg
+                    estimated position x=-3.31 y=-0.43 z=4.14
+           DETECTED WH1|C|04|3|SKU81347
+                    bearing -17.7 deg  elevation  +2.5 deg
+                    estimated position x=-5.12 y=-0.56 z=4.12
+           DETECTED WH1|C|04|3|SKU59271
+                    bearing -27.3 deg  elevation  +2.4 deg
+                    estimated position x=-5.12 y=-1.23 z=4.12
+           DETECTED WH1|D|04|3|SKU25298
+                    bearing +30.4 deg  elevation  -2.0 deg
+                    estimated position x=-3.31 y=-1.15 z=4.18
+           DETECTED WH1|D|04|3|SKU63976
+                    bearing +38.6 deg  elevation  -5.9 deg
+                    estimated position x=-3.31 y=-2.05 z=4.21
+           DETECTED WH1|C|04|3|SKU78930
+                    bearing -19.1 deg  elevation  -0.6 deg
+                    estimated position x=-5.12 y=-2.05 z=4.17
+           DETECTED WH1|D|05|3|SKU46383
+                    bearing +42.5 deg  elevation  +2.2 deg
+                    estimated position x=-3.31 y=-3.25 z=4.13
+           DETECTED WH1|C|05|3|SKU37336
+                    bearing -27.2 deg  elevation  -0.7 deg
+                    estimated position x=-5.12 y=-4.05 z=4.17
+           DETECTED WH1|D|05|3|SKU22587
+                    bearing +37.2 deg  elevation  -2.1 deg
+                    estimated position x=-3.31 y=-4.03 z=4.18
+           DETECTED WH1|D|05|3|SKU25660
+                    bearing +40.1 deg  elevation  +2.3 deg
+                    estimated position x=-3.31 y=-4.83 z=4.13
+           DETECTED WH1|C|05|3|SKU25224
+                    bearing -26.7 deg  elevation  -3.9 deg
+                    estimated position x=-5.12 y=-4.85 z=4.21
+           MARKER 3 at (-4.2, -9.0)  drift 0.138 m  offset now 0.006 m
+           DETECTED WH1|D|06|3|SKU80299
+                    bearing +41.9 deg  elevation  +2.2 deg
+                    estimated position x=-3.31 y=-6.00 z=4.13
+           DETECTED WH1|C|06|3|SKU86147
+                    bearing -14.3 deg  elevation  -0.5 deg
+                    estimated position x=-5.12 y=-5.95 z=4.16
+           MARKER 3 at (-4.2, -9.0)  drift 0.128 m  offset now 0.006 m
+           DETECTED WH1|D|06|3|SKU69406
+                    bearing +42.4 deg  elevation  +1.5 deg
+                    estimated position x=-3.31 y=-6.75 z=4.14
+           DETECTED WH1|C|06|3|SKU60774
+                    bearing -25.8 deg  elevation  -0.7 deg
+                    estimated position x=-5.12 y=-6.74 z=4.17
+           DETECTED WH1|D|06|3|SKU47031
+                    bearing +42.9 deg  elevation  +2.2 deg
+                    estimated position x=-3.31 y=-7.50 z=4.13
+           MARKER 3 at (-4.2, -9.0)  drift 0.062 m  offset now 0.006 m
+           DETECTED WH1|C|06|3|SKU52623
+                    bearing -25.0 deg  elevation  -0.7 deg
+                    estimated position x=-5.12 y=-7.52 z=4.17
+           MARKER 3 at (-4.2, -9.0)  drift 0.121 m  offset now 0.006 m
+           MARKER 3 at (-4.2, -9.0)  drift 1.073 m  offset now 0.006 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.432 m  offset now 0.006 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.563 m  offset now 0.006 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.120 m  offset now 0.006 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.141 m  offset now 0.006 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.118 m  offset now 0.006 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.003 m  offset now 0.006 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.035 m  offset now 0.006 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.026 m  offset now 0.013 m
+           reached  codes 139  barcodes 139  alt worst -0.063 spread 0.011 residual -0.061 settled in 8.1s
+
+[WAYPOINT 9/24] x=-4.1 y=-9.0 z=2.46 heading -90  1.7 m  climb at 0.15 m/s
+           MARKER 3 at (-4.2, -9.0)  drift 0.003 m  offset now 0.013 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.003 m  offset now 0.013 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.007 m  offset now 0.013 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.004 m  offset now 0.013 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.003 m  offset now 0.013 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.004 m  offset now 0.013 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.004 m  offset now 0.013 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.002 m  offset now 0.013 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.001 m  offset now 0.013 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.004 m  offset now 0.013 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.004 m  offset now 0.013 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.002 m  offset now 0.006 m
+           reached  codes 139  barcodes 139  alt worst +1.639 spread 1.650 residual -0.060 settled in 0.0s  OUT OF FRAME
+
+[WAYPOINT 10/24] x=-4.1 y=+9.0 z=2.46 heading -90  18.0 m  cruise at 1.0 m/s
+           MARKER 3 at (-4.2, -9.0)  drift 0.003 m  offset now 0.006 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.375 m  offset now 0.006 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.102 m  offset now 0.006 m
+           DETECTED WH1|C|06|2|SKU30631
+                    bearing +22.5 deg  elevation  +2.6 deg
+                    estimated position x=-5.12 y=-7.60 z=2.41
+           DETECTED WH1|D|06|2|SKU98812
+                    bearing -18.9 deg  elevation  -2.3 deg
+                    estimated position x=-3.31 y=-7.69 z=2.48
+           DETECTED WH1|C|06|2|SKU86558
+                    bearing +23.6 deg  elevation  +2.2 deg
+                    estimated position x=-5.12 y=-6.90 z=2.42
+           MARKER 3 at (-4.2, -9.0)  drift 0.125 m  offset now 0.006 m
+           DETECTED WH1|D|06|2|SKU45088
+                    bearing -41.9 deg  elevation  -6.2 deg
+                    estimated position x=-3.31 y=-6.87 z=2.51
+           DETECTED WH1|D|06|2|SKU22524
+                    bearing -41.2 deg  elevation  -6.1 deg
+                    estimated position x=-3.31 y=-5.95 z=2.51
+           DETECTED WH1|C|06|2|SKU36553
+                    bearing +24.2 deg  elevation  -0.8 deg
+                    estimated position x=-5.12 y=-6.09 z=2.47
+           DETECTED WH1|C|05|2|SKU98885
+                    bearing +24.1 deg  elevation  +3.0 deg
+                    estimated position x=-5.12 y=-4.92 z=2.41
+           DETECTED WH1|D|05|2|SKU19713
+                    bearing -36.2 deg  elevation  +2.2 deg
+                    estimated position x=-3.31 y=-4.77 z=2.43
+           DETECTED WH1|C|05|2|SKU12753
+                    bearing +26.3 deg  elevation  -3.9 deg
+                    estimated position x=-5.12 y=-4.04 z=2.51
+           DETECTED WH1|D|05|2|SKU84770
+                    bearing -36.1 deg  elevation  +2.2 deg
+                    estimated position x=-3.31 y=-4.04 z=2.43
+           DETECTED WH1|D|05|2|SKU18872
+                    bearing -35.8 deg  elevation  +2.3 deg
+                    estimated position x=-3.31 y=-3.31 z=2.42
+           DETECTED WH1|C|05|2|SKU92032
+                    bearing +28.3 deg  elevation  +2.9 deg
+                    estimated position x=-5.12 y=-3.22 z=2.41
+           DETECTED WH1|D|04|2|SKU98726
+                    bearing -36.7 deg  elevation  +1.6 deg
+                    estimated position x=-3.31 y=-2.20 z=2.43
+           DETECTED WH1|C|04|2|SKU47587
+                    bearing +27.7 deg  elevation  -3.9 deg
+                    estimated position x=-5.12 y=-1.95 z=2.51
+           DETECTED WH1|D|04|2|SKU72158
+                    bearing -37.2 deg  elevation  -2.2 deg
+                    estimated position x=-3.31 y=-1.46 z=2.48
+           DETECTED WH1|C|04|2|SKU85127
+                    bearing +22.1 deg  elevation  +3.1 deg
+                    estimated position x=-5.12 y=-1.10 z=2.41
+           DETECTED WH1|D|04|2|SKU18615
+                    bearing -42.2 deg  elevation  -2.3 deg
+                    estimated position x=-3.31 y=-0.61 z=2.49
+           DETECTED WH1|C|04|2|SKU11402
+                    bearing +23.1 deg  elevation  +3.0 deg
+                    estimated position x=-5.12 y=-0.52 z=2.41
+           DETECTED WH1|D|03|2|SKU68183
+                    bearing -43.1 deg  elevation  +2.2 deg
+                    estimated position x=-3.31 y=0.53 z=2.43
+           DETECTED WH1|C|03|2|SKU97879
+                    bearing +17.5 deg  elevation  -0.6 deg
+                    estimated position x=-5.12 y=0.51 z=2.46
+           DETECTED WH1|D|03|2|SKU23256
+                    bearing -40.7 deg  elevation  +1.5 deg
+                    estimated position x=-3.31 y=1.22 z=2.44
+           DETECTED WH1|C|03|2|SKU55684
+                    bearing +22.1 deg  elevation  -0.7 deg
+                    estimated position x=-5.12 y=1.23 z=2.47
+           DETECTED WH1|D|03|2|SKU71895
+                    bearing -36.1 deg  elevation  -2.1 deg
+                    estimated position x=-3.31 y=2.04 z=2.48
+           DETECTED WH1|C|03|2|SKU48385
+                    bearing +27.9 deg  elevation  -3.9 deg
+                    estimated position x=-5.12 y=2.08 z=2.51
+           DETECTED WH1|D|02|2|SKU87155
+                    bearing -37.3 deg  elevation  -2.2 deg
+                    estimated position x=-3.31 y=3.35 z=2.48
+           DETECTED WH1|C|02|2|SKU48661
+                    bearing +27.7 deg  elevation  -0.7 deg
+                    estimated position x=-5.12 y=3.20 z=2.47
+           DETECTED WH1|C|02|2|SKU25842
+                    bearing +28.2 deg  elevation  -0.8 deg
+                    estimated position x=-5.12 y=3.96 z=2.47
+           DETECTED WH1|D|02|2|SKU29203
+                    bearing -40.2 deg  elevation  +1.5 deg
+                    estimated position x=-3.31 y=4.15 z=2.44
+           DETECTED WH1|D|02|2|SKU27580
+                    bearing -38.4 deg  elevation  +1.6 deg
+                    estimated position x=-3.31 y=4.85 z=2.43
+           DETECTED WH1|C|02|2|SKU81476
+                    bearing +22.5 deg  elevation  -3.8 deg
+                    estimated position x=-5.12 y=4.78 z=2.51
+           DETECTED WH1|D|01|2|SKU45310
+                    bearing -38.3 deg  elevation  -2.1 deg
+                    estimated position x=-3.31 y=5.94 z=2.48
+           DETECTED WH1|C|01|2|SKU35042
+                    bearing +18.0 deg  elevation  -3.7 deg
+                    estimated position x=-5.12 y=5.88 z=2.51
+           DETECTED WH1|D|01|2|SKU98997
+                    bearing -41.0 deg  elevation  -2.2 deg
+                    estimated position x=-3.31 y=6.74 z=2.48
+           DETECTED WH1|C|01|2|SKU19376
+                    bearing +28.0 deg  elevation  -3.9 deg
+                    estimated position x=-5.12 y=6.75 z=2.51
+           DETECTED WH1|D|01|2|SKU37145
+                    bearing -43.5 deg  elevation  -2.3 deg
+                    estimated position x=-3.31 y=7.54 z=2.49
+           MARKER 4 at (-4.2, +9.0)  drift 0.034 m  offset now 0.006 m
+           DETECTED WH1|C|01|2|SKU30151
+                    bearing +26.2 deg  elevation  -3.9 deg
+                    estimated position x=-5.12 y=7.60 z=2.51
+           MARKER 4 at (-4.2, +9.0)  drift 0.091 m  offset now 0.006 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.532 m  offset now 0.006 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.292 m  offset now 0.006 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.340 m  offset now 0.006 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.071 m  offset now 0.006 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.095 m  offset now 0.006 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.065 m  offset now 0.006 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.001 m  offset now 0.006 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.027 m  offset now 0.006 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.009 m  offset now 0.002 m
+           reached  codes 175  barcodes 175  alt worst -0.062 spread 0.012 residual -0.061 settled in 8.1s
+
+[WAYPOINT 11/24] x=-4.1 y=+9.0 z=0.76 heading -90  1.7 m  climb at 0.15 m/s
+           MARKER 4 at (-4.2, +9.0)  drift 0.005 m  offset now 0.002 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.006 m  offset now 0.002 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.002 m  offset now 0.002 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.002 m  offset now 0.002 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.002 m  offset now 0.002 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.001 m  offset now 0.002 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.002 m  offset now 0.002 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.002 m  offset now 0.002 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.002 m  offset now 0.002 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.001 m  offset now 0.002 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.003 m  offset now 0.002 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.003 m  offset now 0.001 m
+           reached  codes 175  barcodes 175  alt worst +1.639 spread 1.637 residual -0.060 settled in 0.0s  OUT OF FRAME
+
+[WAYPOINT 12/24] x=-4.1 y=-9.0 z=0.76 heading -90  18.0 m  cruise at 1.0 m/s
+           MARKER 4 at (-4.2, +9.0)  drift 0.052 m  offset now 0.001 m
+           MARKER 4 at (-4.2, +9.0)  drift 0.138 m  offset now 0.001 m
+           DETECTED WH1|C|01|1|SKU57721
+                    bearing -22.7 deg  elevation  +1.9 deg
+                    estimated position x=-5.12 y=7.69 z=0.73
+           DETECTED WH1|D|01|1|SKU70633
+                    bearing +37.5 deg  elevation  -3.7 deg
+                    estimated position x=-3.31 y=7.70 z=0.81
+           DETECTED WH1|C|01|1|SKU63757
+                    bearing -26.0 deg  elevation  -4.1 deg
+                    estimated position x=-5.12 y=6.87 z=0.81
+           DETECTED WH1|D|01|1|SKU75253
+                    bearing +31.9 deg  elevation  -6.0 deg
+                    estimated position x=-3.31 y=6.89 z=0.81
+           DETECTED WH1|C|01|1|SKU29746
+                    bearing -27.1 deg  elevation  -0.9 deg
+                    estimated position x=-5.12 y=5.95 z=0.77
+           DETECTED WH1|D|01|1|SKU62939
+                    bearing +40.0 deg  elevation  -6.0 deg
+                    estimated position x=-3.31 y=5.98 z=0.81
+           DETECTED WH1|C|02|1|SKU74820
+                    bearing -16.5 deg  elevation  +3.1 deg
+                    estimated position x=-5.12 y=4.89 z=0.71
+           DETECTED WH1|C|02|1|SKU55670
+                    bearing -22.0 deg  elevation  +3.0 deg
+                    estimated position x=-5.12 y=4.28 z=0.71
+           DETECTED WH1|D|02|1|SKU34828
+                    bearing +43.5 deg  elevation  +2.1 deg
+                    estimated position x=-3.31 y=3.85 z=0.73
+           DETECTED WH1|C|02|1|SKU63742
+                    bearing -24.0 deg  elevation  -3.9 deg
+                    estimated position x=-5.12 y=3.46 z=0.81
+           DETECTED WH1|D|02|1|SKU87263
+                    bearing +39.1 deg  elevation  +1.5 deg
+                    estimated position x=-3.31 y=3.24 z=0.74
+           DETECTED WH1|C|03|1|SKU18266
+                    bearing -23.7 deg  elevation  -0.7 deg
+                    estimated position x=-5.12 y=2.19 z=0.77
+           DETECTED WH1|D|03|1|SKU20134
+                    bearing +32.9 deg  elevation  +1.7 deg
+                    estimated position x=-3.31 y=2.06 z=0.73
+           DETECTED WH1|C|03|1|SKU11887
+                    bearing -25.6 deg  elevation  -3.9 deg
+                    estimated position x=-5.12 y=1.37 z=0.81
+           DETECTED WH1|D|03|1|SKU86190
+                    bearing +42.3 deg  elevation  +2.2 deg
+                    estimated position x=-3.31 y=1.31 z=0.73
+           DETECTED WH1|D|03|1|SKU57700
+                    bearing +41.1 deg  elevation  +2.2 deg
+                    estimated position x=-3.31 y=0.61 z=0.73
+           DETECTED WH1|C|03|1|SKU99324
+                    bearing -27.8 deg  elevation  -0.8 deg
+                    estimated position x=-5.12 y=0.50 z=0.77
+           DETECTED WH1|C|04|1|SKU69766
+                    bearing -27.7 deg  elevation  +3.0 deg
+                    estimated position x=-5.12 y=-0.54 z=0.71
+           DETECTED WH1|C|04|1|SKU49738
+                    bearing -22.3 deg  elevation  -0.7 deg
+                    estimated position x=-5.12 y=-1.32 z=0.77
+           DETECTED WH1|D|04|1|SKU76366
+                    bearing +33.7 deg  elevation  -2.1 deg
+                    estimated position x=-3.31 y=-1.45 z=0.78
+           DETECTED WH1|D|04|1|SKU55692
+                    bearing +42.6 deg  elevation  -2.3 deg
+                    estimated position x=-3.31 y=-2.18 z=0.79
+           DETECTED WH1|C|05|1|SKU85285
+                    bearing -22.2 deg  elevation  +2.5 deg
+                    estimated position x=-5.12 y=-3.28 z=0.72
+           DETECTED WH1|D|05|1|SKU89925
+                    bearing +38.3 deg  elevation  -2.1 deg
+                    estimated position x=-3.31 y=-3.39 z=0.78
+           DETECTED WH1|C|05|1|SKU84293
+                    bearing -26.8 deg  elevation  +2.4 deg
+                    estimated position x=-5.12 y=-4.05 z=0.72
+           DETECTED WH1|D|05|1|SKU52066
+                    bearing +41.1 deg  elevation  +2.3 deg
+                    estimated position x=-3.31 y=-4.19 z=0.73
+           DETECTED WH1|C|05|1|SKU11622
+                    bearing -23.6 deg  elevation  +2.5 deg
+                    estimated position x=-5.12 y=-4.81 z=0.72
+           DETECTED WH1|D|05|1|SKU19636
+                    bearing +37.7 deg  elevation  +2.3 deg
+                    estimated position x=-3.31 y=-4.85 z=0.72
+           DETECTED WH1|C|06|1|SKU27895
+                    bearing -17.5 deg  elevation  -3.7 deg
+                    estimated position x=-5.12 y=-6.00 z=0.81
+           DETECTED WH1|D|06|1|SKU40618
+                    bearing +30.4 deg  elevation  -1.9 deg
+                    estimated position x=-3.31 y=-6.00 z=0.78
+           DETECTED WH1|C|06|1|SKU92970
+                    bearing -25.2 deg  elevation  +3.0 deg
+                    estimated position x=-5.12 y=-6.72 z=0.71
+           DETECTED WH1|D|06|1|SKU14353
+                    bearing +26.3 deg  elevation  -1.9 deg
+                    estimated position x=-3.31 y=-6.85 z=0.78
+           DETECTED WH1|C|06|1|SKU19058
+                    bearing -24.6 deg  elevation  -3.8 deg
+                    estimated position x=-5.12 y=-7.46 z=0.81
+           DETECTED WH1|D|06|1|SKU36014
+                    bearing +36.8 deg  elevation  +1.6 deg
+                    estimated position x=-3.31 y=-7.60 z=0.73
+           MARKER 3 at (-4.2, -9.0)  drift 0.024 m  offset now 0.001 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.151 m  offset now 0.001 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.128 m  offset now 0.001 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.004 m  offset now 0.001 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.041 m  offset now 0.001 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.021 m  offset now 0.001 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.006 m  offset now 0.001 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.011 m  offset now 0.001 m
+           MARKER 3 at (-4.2, -9.0)  drift 0.004 m  offset now 0.002 m
+           reached  codes 208  barcodes 208  alt worst -0.062 spread 0.011 residual -0.061 settled in 8.1s
+
+[WAYPOINT 13/24] x=-0.5 y=-9.0 z=0.76 heading -90  3.6 m  cruise at 1.0 m/s
+           MARKER 3 at (-4.2, -9.0)  drift 0.008 m  offset now 0.002 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.148 m  offset now 0.002 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.042 m  offset now 0.002 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.023 m  offset now 0.002 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.030 m  offset now 0.002 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.024 m  offset now 0.002 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.001 m  offset now 0.002 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.007 m  offset now 0.002 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.005 m  offset now 0.003 m
+           reached  codes 208  barcodes 209  alt worst -0.062 spread 0.010 residual -0.061 settled in 8.1s
+
+[WAYPOINT 14/24] x=-0.5 y=+9.0 z=0.76 heading -90  18.0 m  cruise at 1.0 m/s
+           MARKER 5 at (-0.6, -9.0)  drift 0.179 m  offset now 0.003 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.125 m  offset now 0.003 m
+           DETECTED WH1|E|06|1|SKU97575
+                    bearing  +8.2 deg  elevation  +3.8 deg
+                    estimated position x=-1.15 y=-7.65 z=0.72
+           DETECTED WH1|F|06|1|SKU96960
+                    bearing -30.1 deg  elevation  +3.4 deg
+                    estimated position x=0.02 y=-7.51 z=0.73
+           DETECTED WH1|E|06|1|SKU16386
+                    bearing +25.7 deg  elevation  -6.4 deg
+                    estimated position x=-1.15 y=-6.76 z=0.81
+           DETECTED WH1|F|06|1|SKU16777
+                    bearing -29.6 deg  elevation  +3.7 deg
+                    estimated position x=0.02 y=-6.77 z=0.72
+           DETECTED WH1|E|06|1|SKU31773
+                    bearing +23.4 deg  elevation  +3.9 deg
+                    estimated position x=-1.15 y=-5.90 z=0.72
+           DETECTED WH1|F|06|1|SKU27909
+                    bearing -29.4 deg  elevation  +3.9 deg
+                    estimated position x=0.02 y=-6.02 z=0.72
+           DETECTED WH1|F|05|1|SKU79550
+                    bearing -35.3 deg  elevation  +4.0 deg
+                    estimated position x=0.02 y=-4.85 z=0.72
+           DETECTED WH1|E|05|1|SKU35995
+                    bearing +18.3 deg  elevation  +4.1 deg
+                    estimated position x=-1.15 y=-4.04 z=0.71
+           DETECTED WH1|F|05|1|SKU32376
+                    bearing -29.1 deg  elevation  +4.1 deg
+                    estimated position x=0.02 y=-4.19 z=0.72
+           DETECTED WH1|E|05|1|SKU43640
+                    bearing +25.7 deg  elevation  +5.0 deg
+                    estimated position x=-1.15 y=-3.33 z=0.71
+           DETECTED WH1|F|05|1|SKU10565
+                    bearing -34.7 deg  elevation  -3.2 deg
+                    estimated position x=0.02 y=-3.39 z=0.78
+           DETECTED WH1|E|04|1|SKU31895
+                    bearing  +9.7 deg  elevation  -5.8 deg
+                    estimated position x=-1.15 y=-2.07 z=0.81
+           DETECTED WH1|F|04|1|SKU56218
+                    bearing -42.1 deg  elevation  -9.2 deg
+                    estimated position x=0.02 y=-2.00 z=0.81
+           DETECTED WH1|E|04|1|SKU73380
+                    bearing +22.8 deg  elevation  +5.0 deg
+                    estimated position x=-1.15 y=-1.34 z=0.71
+           DETECTED WH1|F|04|1|SKU22459
+                    bearing -37.4 deg  elevation  +2.8 deg
+                    estimated position x=0.02 y=-1.15 z=0.73
+           DETECTED WH1|E|04|1|SKU96357
+                    bearing +15.2 deg  elevation  -5.8 deg
+                    estimated position x=-1.15 y=-0.64 z=0.81
+           DETECTED WH1|F|04|1|SKU34985
+                    bearing -30.2 deg  elevation  +3.0 deg
+                    estimated position x=0.02 y=-0.49 z=0.73
+           DETECTED WH1|E|03|1|SKU26591
+                    bearing +25.5 deg  elevation  -1.0 deg
+                    estimated position x=-1.15 y=0.60 z=0.76
+           DETECTED WH1|F|03|1|SKU88814
+                    bearing -41.9 deg  elevation  +2.7 deg
+                    estimated position x=0.02 y=0.56 z=0.73
+           DETECTED WH1|E|03|1|SKU32825
+                    bearing +22.5 deg  elevation  -1.0 deg
+                    estimated position x=-1.15 y=1.45 z=0.76
+           DETECTED WH1|F|03|1|SKU64209
+                    bearing -34.4 deg  elevation  -3.1 deg
+                    estimated position x=0.02 y=1.39 z=0.78
+           DETECTED WH1|E|03|1|SKU93116
+                    bearing +23.7 deg  elevation  +4.0 deg
+                    estimated position x=-1.15 y=2.20 z=0.72
+           DETECTED WH1|F|03|1|SKU56000
+                    bearing -37.8 deg  elevation  +4.1 deg
+                    estimated position x=0.02 y=2.17 z=0.72
+           DETECTED WH1|F|02|1|SKU56391
+                    bearing -41.6 deg  elevation  +2.8 deg
+                    estimated position x=0.02 y=3.15 z=0.73
+           DETECTED WH1|E|02|1|SKU32801
+                    bearing +20.2 deg  elevation  +4.2 deg
+                    estimated position x=-1.15 y=3.35 z=0.72
+           DETECTED WH1|F|02|1|SKU87462
+                    bearing -38.9 deg  elevation  -3.1 deg
+                    estimated position x=0.02 y=3.85 z=0.78
+           DETECTED WH1|E|02|1|SKU53870
+                    bearing +27.2 deg  elevation  +5.1 deg
+                    estimated position x=-1.15 y=4.06 z=0.71
+           DETECTED WH1|F|02|1|SKU71693
+                    bearing -37.3 deg  elevation  -9.0 deg
+                    estimated position x=0.02 y=4.75 z=0.81
+           DETECTED WH1|E|02|1|SKU34106
+                    bearing +24.9 deg  elevation  +5.1 deg
+                    estimated position x=-1.15 y=4.78 z=0.71
+           DETECTED WH1|E|01|1|SKU99421
+                    bearing +20.5 deg  elevation  +5.2 deg
+                    estimated position x=-1.15 y=6.00 z=0.71
+           DETECTED WH1|F|01|1|SKU83293
+                    bearing -35.7 deg  elevation  -3.0 deg
+                    estimated position x=0.02 y=6.03 z=0.78
+           DETECTED WH1|E|01|1|SKU20699
+                    bearing +18.0 deg  elevation  +5.2 deg
+                    estimated position x=-1.15 y=6.71 z=0.71
+           DETECTED WH1|F|01|1|SKU57773
+                    bearing -35.1 deg  elevation  +4.3 deg
+                    estimated position x=0.02 y=6.76 z=0.72
+           DETECTED WH1|E|01|1|SKU95098
+                    bearing +19.0 deg  elevation  +4.2 deg
+                    estimated position x=-1.15 y=7.47 z=0.71
+           DETECTED WH1|F|01|1|SKU31660
+                    bearing -34.4 deg  elevation  -3.0 deg
+                    estimated position x=0.02 y=7.49 z=0.78
+           MARKER 6 at (-0.6, +9.0)  drift 0.118 m  offset now 0.003 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.088 m  offset now 0.003 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.129 m  offset now 0.003 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.026 m  offset now 0.003 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.032 m  offset now 0.003 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.023 m  offset now 0.003 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.001 m  offset now 0.003 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.010 m  offset now 0.003 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.004 m  offset now 0.003 m
+           reached  codes 243  barcodes 243  alt worst -0.063 spread 0.012 residual -0.061 settled in 8.1s
+
+[WAYPOINT 15/24] x=-0.5 y=+9.0 z=2.46 heading -90  1.7 m  climb at 0.15 m/s
+           MARKER 6 at (-0.6, +9.0)  drift 0.001 m  offset now 0.003 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.003 m  offset now 0.003 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.001 m  offset now 0.003 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.000 m  offset now 0.003 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.001 m  offset now 0.003 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.002 m  offset now 0.003 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.001 m  offset now 0.003 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.003 m  offset now 0.003 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.003 m  offset now 0.003 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.001 m  offset now 0.003 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.003 m  offset now 0.003 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.003 m  offset now 0.003 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.001 m  offset now 0.003 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.003 m  offset now 0.003 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.003 m  offset now 0.003 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.001 m  offset now 0.003 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.002 m  offset now 0.003 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.003 m  offset now 0.003 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.003 m  offset now 0.003 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.003 m  offset now 0.000 m
+           reached  codes 243  barcodes 243  alt worst -1.761 spread 1.645 residual -0.061 settled in 8.1s  OUT OF FRAME
+
+[WAYPOINT 16/24] x=-0.5 y=-9.0 z=2.46 heading -90  18.0 m  cruise at 1.0 m/s
+           MARKER 6 at (-0.6, +9.0)  drift 0.611 m  offset now 0.000 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.210 m  offset now 0.000 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.090 m  offset now 0.000 m
+           DETECTED WH1|E|01|2|SKU90215
+                    bearing -19.3 deg  elevation  +4.5 deg
+                    estimated position x=-1.15 y=7.58 z=2.41
+           DETECTED WH1|F|01|2|SKU81930
+                    bearing +33.7 deg  elevation  -4.1 deg
+                    estimated position x=0.02 y=7.53 z=2.49
+           DETECTED WH1|E|01|2|SKU30177
+                    bearing -18.2 deg  elevation  -1.3 deg
+                    estimated position x=-1.15 y=6.76 z=2.47
+           DETECTED WH1|F|01|2|SKU72118
+                    bearing +17.8 deg  elevation  +2.7 deg
+                    estimated position x=0.02 y=6.78 z=2.43
+           DETECTED WH1|F|01|2|SKU22109
+                    bearing +36.4 deg  elevation  -3.5 deg
+                    estimated position x=0.02 y=6.00 z=2.48
+           DETECTED WH1|E|01|2|SKU44955
+                    bearing -18.1 deg  elevation  +4.9 deg
+                    estimated position x=-1.15 y=5.95 z=2.41
+           DETECTED WH1|E|02|2|SKU46317
+                    bearing -22.0 deg  elevation  +4.0 deg
+                    estimated position x=-1.15 y=4.98 z=2.42
+           DETECTED WH1|F|02|2|SKU20839
+                    bearing +36.9 deg  elevation  +2.7 deg
+                    estimated position x=0.02 y=4.90 z=2.43
+           DETECTED WH1|F|02|2|SKU30746
+                    bearing +38.2 deg  elevation  -3.2 deg
+                    estimated position x=0.02 y=4.15 z=2.48
+           DETECTED WH1|E|02|2|SKU29842
+                    bearing -27.4 deg  elevation  -6.0 deg
+                    estimated position x=-1.15 y=4.15 z=2.51
+           DETECTED WH1|F|02|2|SKU78989
+                    bearing +32.3 deg  elevation  -3.0 deg
+                    estimated position x=0.02 y=3.30 z=2.48
+           DETECTED WH1|E|02|2|SKU26436
+                    bearing -23.1 deg  elevation  -1.0 deg
+                    estimated position x=-1.15 y=3.25 z=2.46
+           DETECTED WH1|E|03|2|SKU26741
+                    bearing -16.4 deg  elevation  +5.2 deg
+                    estimated position x=-1.15 y=2.24 z=2.40
+           DETECTED WH1|F|03|2|SKU84238
+                    bearing +41.4 deg  elevation  -9.2 deg
+                    estimated position x=0.02 y=2.09 z=2.51
+           DETECTED WH1|E|03|2|SKU10865
+                    bearing -24.6 deg  elevation  -6.0 deg
+                    estimated position x=-1.15 y=1.39 z=2.51
+           DETECTED WH1|F|03|2|SKU48611
+                    bearing +41.1 deg  elevation  +4.0 deg
+                    estimated position x=0.02 y=1.37 z=2.42
+           DETECTED WH1|E|03|2|SKU55636
+                    bearing -17.4 deg  elevation  +4.2 deg
+                    estimated position x=-1.15 y=0.51 z=2.41
+           DETECTED WH1|E|04|2|SKU11476
+                    bearing -22.6 deg  elevation  +4.0 deg
+                    estimated position x=-1.15 y=-0.57 z=2.42
+           DETECTED WH1|E|04|2|SKU64304
+                    bearing -23.8 deg  elevation  +5.1 deg
+                    estimated position x=-1.15 y=-1.22 z=2.41
+           DETECTED WH1|F|04|2|SKU87360
+                    bearing +32.6 deg  elevation  -9.0 deg
+                    estimated position x=0.02 y=-1.47 z=2.51
+           DETECTED WH1|E|04|2|SKU62845
+                    bearing -27.1 deg  elevation  -1.0 deg
+                    estimated position x=-1.15 y=-2.03 z=2.46
+           DETECTED WH1|F|04|2|SKU18403
+                    bearing +36.2 deg  elevation  +4.1 deg
+                    estimated position x=0.02 y=-2.26 z=2.42
+           DETECTED WH1|F|05|2|SKU15115
+                    bearing +36.9 deg  elevation  +2.9 deg
+                    estimated position x=0.02 y=-3.20 z=2.43
+           DETECTED WH1|E|05|2|SKU87229
+                    bearing -17.9 deg  elevation  -5.9 deg
+                    estimated position x=-1.15 y=-3.22 z=2.51
+           DETECTED WH1|F|05|2|SKU81847
+                    bearing +29.5 deg  elevation  +3.0 deg
+                    estimated position x=0.02 y=-3.85 z=2.43
+           DETECTED WH1|E|05|2|SKU78745
+                    bearing -25.7 deg  elevation  -6.0 deg
+                    estimated position x=-1.15 y=-4.15 z=2.51
+           DETECTED WH1|F|05|2|SKU25085
+                    bearing +38.5 deg  elevation  -9.0 deg
+                    estimated position x=0.02 y=-4.70 z=2.51
+           DETECTED WH1|E|05|2|SKU76925
+                    bearing -24.6 deg  elevation  -0.9 deg
+                    estimated position x=-1.15 y=-4.92 z=2.46
+           DETECTED WH1|F|06|2|SKU38480
+                    bearing +39.9 deg  elevation  +4.0 deg
+                    estimated position x=0.02 y=-5.83 z=2.42
+           DETECTED WH1|E|06|2|SKU56382
+                    bearing -24.1 deg  elevation  -6.0 deg
+                    estimated position x=-1.15 y=-6.05 z=2.51
+           DETECTED WH1|F|06|2|SKU16441
+                    bearing +35.4 deg  elevation  -3.0 deg
+                    estimated position x=0.02 y=-6.51 z=2.48
+           DETECTED WH1|E|06|2|SKU81268
+                    bearing -25.2 deg  elevation  -0.9 deg
+                    estimated position x=-1.15 y=-6.95 z=2.46
+           MARKER 5 at (-0.6, -9.0)  drift 0.083 m  offset now 0.000 m
+           DETECTED WH1|F|06|2|SKU99229
+                    bearing +35.1 deg  elevation  -8.9 deg
+                    estimated position x=0.02 y=-7.41 z=2.51
+           DETECTED WH1|E|06|2|SKU27008
+                    bearing -22.0 deg  elevation  +4.2 deg
+                    estimated position x=-1.15 y=-7.65 z=2.41
+           MARKER 5 at (-0.6, -9.0)  drift 0.081 m  offset now 0.000 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.535 m  offset now 0.000 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.320 m  offset now 0.000 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.348 m  offset now 0.000 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.050 m  offset now 0.000 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.099 m  offset now 0.000 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.070 m  offset now 0.000 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.006 m  offset now 0.000 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.026 m  offset now 0.000 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.012 m  offset now 0.006 m
+           reached  codes 277  barcodes 277  alt worst -0.063 spread 0.011 residual -0.061 settled in 8.1s
+
+[WAYPOINT 17/24] x=-0.5 y=-9.0 z=4.16 heading -90  1.7 m  climb at 0.15 m/s
+           MARKER 5 at (-0.6, -9.0)  drift 0.003 m  offset now 0.006 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.004 m  offset now 0.006 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.003 m  offset now 0.006 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.005 m  offset now 0.006 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.003 m  offset now 0.006 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.005 m  offset now 0.006 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.002 m  offset now 0.006 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.002 m  offset now 0.006 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.006 m  offset now 0.006 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.002 m  offset now 0.006 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.004 m  offset now 0.006 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.006 m  offset now 0.006 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.003 m  offset now 0.006 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.006 m  offset now 0.006 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.001 m  offset now 0.006 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.006 m  offset now 0.006 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.006 m  offset now 0.006 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.006 m  offset now 0.006 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.005 m  offset now 0.006 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.005 m  offset now 0.005 m
+           reached  codes 277  barcodes 277  alt worst -1.761 spread 1.642 residual -0.061 settled in 8.1s  OUT OF FRAME
+
+[WAYPOINT 18/24] x=-0.5 y=+9.0 z=4.16 heading -90  18.0 m  cruise at 1.0 m/s
+           MARKER 5 at (-0.6, -9.0)  drift 1.414 m  offset now 0.005 m
+           MARKER 5 at (-0.6, -9.0)  drift 0.186 m  offset now 0.005 m
+           DETECTED WH1|E|06|3|SKU10254
+                    bearing +22.7 deg  elevation  -6.6 deg
+                    estimated position x=-1.15 y=-7.58 z=4.21
+           MARKER 5 at (-0.6, -9.0)  drift 0.105 m  offset now 0.005 m
+           DETECTED WH1|F|06|3|SKU88356
+                    bearing -24.3 deg  elevation  -3.7 deg
+                    estimated position x=0.02 y=-7.52 z=4.18
+           DETECTED WH1|E|06|3|SKU78420
+                    bearing +22.4 deg  elevation  -1.2 deg
+                    estimated position x=-1.15 y=-6.75 z=4.17
+           DETECTED WH1|F|06|3|SKU93552
+                    bearing -40.8 deg  elevation  +2.3 deg
+                    estimated position x=0.02 y=-6.78 z=4.13
+           MARKER 5 at (-0.6, -9.0)  drift 0.139 m  offset now 0.005 m
+           DETECTED WH1|F|06|3|SKU23620
+                    bearing -42.0 deg  elevation  -3.5 deg
+                    estimated position x=0.02 y=-6.01 z=4.18
+           DETECTED WH1|E|06|3|SKU54131
+                    bearing +15.3 deg  elevation  -6.0 deg
+                    estimated position x=-1.15 y=-5.94 z=4.21
+           MARKER 5 at (-0.6, -9.0)  drift 0.174 m  offset now 0.005 m
+           DETECTED WH1|F|05|3|SKU53220
+                    bearing -13.7 deg  elevation  -8.7 deg
+                    estimated position x=0.02 y=-4.85 z=4.21
+           DETECTED WH1|E|05|3|SKU71012
+                    bearing +17.1 deg  elevation  -6.0 deg
+                    estimated position x=-1.15 y=-4.69 z=4.21
+           DETECTED WH1|F|05|3|SKU44860
+                    bearing -30.5 deg  elevation  -9.0 deg
+                    estimated position x=0.02 y=-3.96 z=4.21
+           DETECTED WH1|E|05|3|SKU55285
+                    bearing +23.1 deg  elevation  +4.1 deg
+                    estimated position x=-1.15 y=-3.80 z=4.12
+           DETECTED WH1|E|05|3|SKU18685
+                    bearing +26.5 deg  elevation  +5.0 deg
+                    estimated position x=-1.15 y=-3.17 z=4.11
+           DETECTED WH1|F|05|3|SKU91226
+                    bearing -35.9 deg  elevation  -3.1 deg
+                    estimated position x=0.02 y=-3.15 z=4.18
+           DETECTED WH1|F|04|3|SKU28746
+                    bearing -39.0 deg  elevation  -9.0 deg
+                    estimated position x=0.02 y=-2.00 z=4.21
+           DETECTED WH1|E|04|3|SKU45789
+                    bearing  +8.0 deg  elevation  -5.7 deg
+                    estimated position x=-1.15 y=-2.00 z=4.21
+           DETECTED WH1|F|04|3|SKU74788
+                    bearing -33.8 deg  elevation  +2.9 deg
+                    estimated position x=0.02 y=-1.15 z=4.13
+           DETECTED WH1|E|04|3|SKU18669
+                    bearing +20.7 deg  elevation  +4.1 deg
+                    estimated position x=-1.15 y=-1.12 z=4.11
+           DETECTED WH1|F|04|3|SKU87651
+                    bearing -41.0 deg  elevation  +2.8 deg
+                    estimated position x=0.02 y=-0.50 z=4.13
+           DETECTED WH1|E|04|3|SKU27049
+                    bearing +18.1 deg  elevation  +5.2 deg
+                    estimated position x=-1.15 y=-0.47 z=4.10
+           DETECTED WH1|E|03|3|SKU42808
+                    bearing +19.7 deg  elevation  -0.9 deg
+                    estimated position x=-1.15 y=0.48 z=4.16
+           DETECTED WH1|F|03|3|SKU40105
+                    bearing -40.8 deg  elevation  -3.2 deg
+                    estimated position x=0.02 y=0.59 z=4.18
+           DETECTED WH1|F|03|3|SKU49501
+                    bearing -41.8 deg  elevation  +2.8 deg
+                    estimated position x=0.02 y=1.34 z=4.13
+           DETECTED WH1|E|03|3|SKU98706
+                    bearing +20.8 deg  elevation  -0.9 deg
+                    estimated position x=-1.15 y=1.24 z=4.16
+           DETECTED WH1|F|03|3|SKU41863
+                    bearing -42.6 deg  elevation  -3.2 deg
+                    estimated position x=0.02 y=2.09 z=4.18
+           DETECTED WH1|E|03|3|SKU89182
+                    bearing +17.6 deg  elevation  -5.9 deg
+                    estimated position x=-1.15 y=2.08 z=4.21
+           DETECTED WH1|E|02|3|SKU79980
+                    bearing +23.1 deg  elevation  +4.2 deg
+                    estimated position x=-1.15 y=3.32 z=4.11
+           DETECTED WH1|F|02|3|SKU35258
+                    bearing -41.2 deg  elevation  -9.0 deg
+                    estimated position x=0.02 y=3.37 z=4.21
+           DETECTED WH1|E|02|3|SKU62963
+                    bearing +24.2 deg  elevation  +5.2 deg
+                    estimated position x=-1.15 y=4.07 z=4.11
+           DETECTED WH1|F|02|3|SKU88322
+                    bearing -41.1 deg  elevation  -3.0 deg
+                    estimated position x=0.02 y=4.27 z=4.18
+           DETECTED WH1|F|02|3|SKU96643
+                    bearing -37.1 deg  elevation  +4.1 deg
+                    estimated position x=0.02 y=4.96 z=4.12
+           MARKER 6 at (-0.6, +9.0)  drift 0.127 m  offset now 0.005 m
+           DETECTED WH1|E|01|3|SKU68387
+                    bearing +17.1 deg  elevation  +5.2 deg
+                    estimated position x=-1.15 y=6.01 z=4.11
+           DETECTED WH1|F|01|3|SKU55605
+                    bearing -30.2 deg  elevation  -8.8 deg
+                    estimated position x=0.02 y=6.00 z=4.21
+           MARKER 6 at (-0.6, +9.0)  drift 0.069 m  offset now 0.005 m
+           DETECTED WH1|E|01|3|SKU85646
+                    bearing +24.4 deg  elevation  +4.2 deg
+                    estimated position x=-1.15 y=6.73 z=4.12
+           DETECTED WH1|F|01|3|SKU50685
+                    bearing -39.2 deg  elevation  -3.0 deg
+                    estimated position x=0.02 y=6.85 z=4.18
+           DETECTED WH1|F|01|3|SKU49798
+                    bearing -40.0 deg  elevation  -3.2 deg
+                    estimated position x=0.02 y=7.60 z=4.18
+           MARKER 6 at (-0.6, +9.0)  drift 0.112 m  offset now 0.005 m
+           DETECTED WH1|E|01|3|SKU69638
+                    bearing +25.3 deg  elevation  +5.0 deg
+                    estimated position x=-1.15 y=7.51 z=4.11
+           MARKER 6 at (-0.6, +9.0)  drift 0.108 m  offset now 0.005 m
+           MARKER 6 at (-0.6, +9.0)  drift 1.240 m  offset now 0.005 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.194 m  offset now 0.005 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.510 m  offset now 0.005 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.192 m  offset now 0.005 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.102 m  offset now 0.005 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.111 m  offset now 0.005 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.025 m  offset now 0.005 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.038 m  offset now 0.005 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.022 m  offset now 0.010 m
+           reached  codes 312  barcodes 312  alt worst -0.063 spread 0.012 residual -0.061 settled in 8.1s
+
+[WAYPOINT 19/24] x=+2.5 y=+9.0 z=4.10 heading -90  3.0 m  cruise at 1.0 m/s
+           MARKER 6 at (-0.6, +9.0)  drift 1.371 m  offset now 0.010 m
+           MARKER 6 at (-0.6, +9.0)  drift 0.205 m  offset now 0.010 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.072 m  offset now 0.010 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.045 m  offset now 0.010 m
+           MARKER 8 at (+2.5, +9.0)  drift 1.243 m  offset now 0.010 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.350 m  offset now 0.010 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.245 m  offset now 0.010 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.257 m  offset now 0.010 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.025 m  offset now 0.010 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.077 m  offset now 0.010 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.052 m  offset now 0.010 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.008 m  offset now 0.010 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.015 m  offset now 0.006 m
+           reached  codes 312  barcodes 312  alt worst -0.062 spread 0.060 residual -0.061 settled in 8.1s
+
+[WAYPOINT 20/24] x=+2.5 y=-9.0 z=4.10 heading -90  18.0 m  cruise at 1.0 m/s
+           MARKER 8 at (+2.5, +9.0)  drift 1.366 m  offset now 0.006 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.254 m  offset now 0.006 m
+           DETECTED WH1|G|01|3|SKU17675
+                    bearing -14.3 deg  elevation  -1.8 deg
+                    estimated position x=2.18 y=7.52 z=4.10
+           DETECTED WH1|H|01|3|SKU22517
+                    bearing +16.0 deg  elevation  -6.5 deg
+                    estimated position x=2.72 y=7.50 z=4.10
+           MARKER 8 at (+2.5, +9.0)  drift 0.116 m  offset now 0.006 m
+           DETECTED WH1|G|01|3|SKU78704
+                    bearing -13.3 deg  elevation  -1.3 deg
+                    estimated position x=2.18 y=6.78 z=4.10
+           DETECTED WH1|H|01|3|SKU23906
+                    bearing +15.1 deg  elevation  -5.9 deg
+                    estimated position x=2.72 y=6.75 z=4.10
+           DETECTED WH1|G|01|3|SKU23705
+                    bearing -13.0 deg  elevation  -1.0 deg
+                    estimated position x=2.18 y=6.03 z=4.10
+           DETECTED WH1|H|01|3|SKU87030
+                    bearing +14.7 deg  elevation  -5.5 deg
+                    estimated position x=2.72 y=6.01 z=4.10
+           MARKER 8 at (+2.5, +9.0)  drift 0.168 m  offset now 0.006 m
+           DETECTED WH1|G|02|3|SKU95787
+                    bearing -12.4 deg  elevation  -0.7 deg
+                    estimated position x=2.18 y=4.77 z=4.10
+           DETECTED WH1|H|02|3|SKU26912
+                    bearing  +2.2 deg  elevation  -5.0 deg
+                    estimated position x=2.72 y=4.77 z=4.10
+           DETECTED WH1|G|02|3|SKU72688
+                    bearing -11.3 deg  elevation  -0.5 deg
+                    estimated position x=2.18 y=4.04 z=4.10
+           DETECTED WH1|H|02|3|SKU92848
+                    bearing  +0.9 deg  elevation  -4.9 deg
+                    estimated position x=2.72 y=4.04 z=4.10
+           DETECTED WH1|G|02|3|SKU38908
+                    bearing -10.0 deg  elevation  -0.5 deg
+                    estimated position x=2.18 y=3.31 z=4.10
+           DETECTED WH1|H|02|3|SKU42479
+                    bearing  -0.7 deg  elevation  -4.8 deg
+                    estimated position x=2.72 y=3.31 z=4.10
+           DETECTED WH1|H|03|3|SKU42167
+                    bearing +35.4 deg  elevation  -5.3 deg
+                    estimated position x=2.72 y=2.09 z=4.10
+           DETECTED WH1|G|03|3|SKU71684
+                    bearing  -6.4 deg  elevation  -0.4 deg
+                    estimated position x=2.18 y=2.10 z=4.10
+           DETECTED WH1|H|03|3|SKU71488
+                    bearing +34.1 deg  elevation  -5.2 deg
+                    estimated position x=2.72 y=1.35 z=4.10
+           DETECTED WH1|G|03|3|SKU28222
+                    bearing -23.0 deg  elevation  -0.6 deg
+                    estimated position x=2.18 y=1.34 z=4.10
+           DETECTED WH1|H|03|3|SKU26460
+                    bearing +32.7 deg  elevation  -5.1 deg
+                    estimated position x=2.72 y=0.63 z=4.10
+           DETECTED WH1|G|03|3|SKU34295
+                    bearing -21.5 deg  elevation  -0.5 deg
+                    estimated position x=2.18 y=0.61 z=4.10
+           DETECTED WH1|G|04|3|SKU34776
+                    bearing -17.8 deg  elevation  -0.5 deg
+                    estimated position x=2.18 y=-0.60 z=4.10
+           DETECTED WH1|H|04|3|SKU81234
+                    bearing +20.7 deg  elevation  -5.1 deg
+                    estimated position x=2.72 y=-0.63 z=4.10
+           DETECTED WH1|H|04|3|SKU61982
+                    bearing +18.8 deg  elevation  -5.1 deg
+                    estimated position x=2.72 y=-1.36 z=4.10
+           DETECTED WH1|G|04|3|SKU43407
+                    bearing -16.1 deg  elevation  -0.5 deg
+                    estimated position x=2.18 y=-1.34 z=4.10
+           DETECTED WH1|G|04|3|SKU46590
+                    bearing -14.4 deg  elevation  -0.5 deg
+                    estimated position x=2.18 y=-2.06 z=4.10
+           DETECTED WH1|H|04|3|SKU32699
+                    bearing +16.9 deg  elevation  -5.0 deg
+                    estimated position x=2.72 y=-2.09 z=4.10
+           DETECTED WH1|G|05|3|SKU46790
+                    bearing -11.9 deg  elevation  -0.4 deg
+                    estimated position x=2.18 y=-3.33 z=4.10
+           DETECTED WH1|H|05|3|SKU74302
+                    bearing  +1.7 deg  elevation  -4.7 deg
+                    estimated position x=2.72 y=-3.33 z=4.10
+           DETECTED WH1|G|05|3|SKU12189
+                    bearing  -9.9 deg  elevation  -0.3 deg
+                    estimated position x=2.18 y=-4.06 z=4.10
+           DETECTED WH1|H|05|3|SKU41345
+                    bearing  -0.6 deg  elevation  -4.8 deg
+                    estimated position x=2.72 y=-4.06 z=4.10
+           DETECTED WH1|G|05|3|SKU50095
+                    bearing  -8.0 deg  elevation  -0.4 deg
+                    estimated position x=2.18 y=-4.79 z=4.10
+           DETECTED WH1|H|05|3|SKU53033
+                    bearing  -3.0 deg  elevation  -4.8 deg
+                    estimated position x=2.72 y=-4.79 z=4.10
+           MARKER 7 at (+2.5, -9.0)  drift 0.087 m  offset now 0.006 m
+           DETECTED WH1|H|06|3|SKU12808
+                    bearing +34.0 deg  elevation  -5.2 deg
+                    estimated position x=2.72 y=-6.01 z=4.10
+           DETECTED WH1|G|06|3|SKU54477
+                    bearing -21.7 deg  elevation  -0.4 deg
+                    estimated position x=2.18 y=-6.03 z=4.10
+           DETECTED WH1|H|06|3|SKU91934
+                    bearing +32.4 deg  elevation  -5.2 deg
+                    estimated position x=2.72 y=-6.74 z=4.10
+           MARKER 7 at (+2.5, -9.0)  drift 0.118 m  offset now 0.006 m
+           DETECTED WH1|H|06|3|SKU75163
+                    bearing +30.7 deg  elevation  -5.3 deg
+                    estimated position x=2.72 y=-7.48 z=4.10
+           DETECTED WH1|G|06|3|SKU33363
+                    bearing -17.9 deg  elevation  -0.4 deg
+                    estimated position x=2.18 y=-7.49 z=4.10
+           MARKER 7 at (+2.5, -9.0)  drift 0.066 m  offset now 0.006 m
+           MARKER 7 at (+2.5, -9.0)  drift 1.145 m  offset now 0.006 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.271 m  offset now 0.006 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.320 m  offset now 0.006 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.249 m  offset now 0.006 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.011 m  offset now 0.006 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.092 m  offset now 0.006 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.049 m  offset now 0.006 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.025 m  offset now 0.011 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.006 m  offset now 0.008 m
+           reached  codes 347  barcodes 347  alt worst -0.063 spread 0.012 residual -0.061 settled in 8.1s
+
+[WAYPOINT 21/24] x=+2.5 y=-9.0 z=2.40 heading -90  1.7 m  climb at 0.15 m/s
+           MARKER 7 at (+2.5, -9.0)  drift 0.008 m  offset now 0.008 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.005 m  offset now 0.008 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.004 m  offset now 0.008 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.004 m  offset now 0.008 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.003 m  offset now 0.008 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.002 m  offset now 0.008 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.006 m  offset now 0.008 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.004 m  offset now 0.008 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.003 m  offset now 0.008 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.005 m  offset now 0.008 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.002 m  offset now 0.005 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.003 m  offset now 0.003 m
+           reached  codes 347  barcodes 347  alt worst +1.639 spread 1.648 residual -0.060 settled in 0.0s  OUT OF FRAME
+
+[WAYPOINT 22/24] x=+2.5 y=+9.0 z=2.40 heading -90  18.0 m  cruise at 1.0 m/s
+           MARKER 7 at (+2.5, -9.0)  drift 0.455 m  offset now 0.003 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.103 m  offset now 0.003 m
+           DETECTED WH1|G|06|2|SKU70421
+                    bearing +15.6 deg  elevation  -1.5 deg
+                    estimated position x=2.18 y=-7.50 z=2.40
+           DETECTED WH1|H|06|2|SKU26841
+                    bearing  +3.8 deg  elevation  -6.0 deg
+                    estimated position x=2.72 y=-7.49 z=2.40
+           DETECTED WH1|G|06|2|SKU34966
+                    bearing +14.6 deg  elevation  -1.1 deg
+                    estimated position x=2.18 y=-6.75 z=2.40
+           DETECTED WH1|H|06|2|SKU96569
+                    bearing  +4.9 deg  elevation  -5.4 deg
+                    estimated position x=2.72 y=-6.74 z=2.40
+           DETECTED WH1|G|06|2|SKU48946
+                    bearing +14.2 deg  elevation  -0.8 deg
+                    estimated position x=2.18 y=-6.01 z=2.40
+           DETECTED WH1|H|06|2|SKU83763
+                    bearing  +5.4 deg  elevation  -5.0 deg
+                    estimated position x=2.72 y=-6.01 z=2.40
+           DETECTED WH1|H|05|2|SKU20803
+                    bearing -33.3 deg  elevation  -5.3 deg
+                    estimated position x=2.72 y=-4.78 z=2.40
+           DETECTED WH1|G|05|2|SKU89773
+                    bearing +12.1 deg  elevation  -0.5 deg
+                    estimated position x=2.18 y=-4.79 z=2.40
+           DETECTED WH1|H|05|2|SKU89051
+                    bearing -32.3 deg  elevation  -5.3 deg
+                    estimated position x=2.72 y=-4.05 z=2.40
+           DETECTED WH1|G|05|2|SKU30210
+                    bearing +10.9 deg  elevation  -0.4 deg
+                    estimated position x=2.18 y=-4.07 z=2.40
+           DETECTED WH1|H|05|2|SKU39180
+                    bearing -31.1 deg  elevation  -5.3 deg
+                    estimated position x=2.72 y=-3.32 z=2.40
+           DETECTED WH1|G|05|2|SKU95867
+                    bearing  +9.5 deg  elevation  -0.4 deg
+                    estimated position x=2.18 y=-3.33 z=2.40
+           DETECTED WH1|G|04|2|SKU32850
+                    bearing  +7.4 deg  elevation  -0.3 deg
+                    estimated position x=2.18 y=-2.07 z=2.40
+           DETECTED WH1|G|04|2|SKU11682
+                    bearing +22.3 deg  elevation  -0.6 deg
+                    estimated position x=2.18 y=-1.37 z=2.40
+           DETECTED WH1|H|04|2|SKU49283
+                    bearing -17.0 deg  elevation  -5.0 deg
+                    estimated position x=2.72 y=-1.35 z=2.40
+           DETECTED WH1|G|04|2|SKU34291
+                    bearing +20.6 deg  elevation  -0.5 deg
+                    estimated position x=2.18 y=-0.64 z=2.40
+           DETECTED WH1|H|04|2|SKU56340
+                    bearing -15.0 deg  elevation  -5.0 deg
+                    estimated position x=2.72 y=-0.62 z=2.40
+           DETECTED WH1|G|03|2|SKU43231
+                    bearing +18.3 deg  elevation  -0.4 deg
+                    estimated position x=2.18 y=0.63 z=2.40
+           DETECTED WH1|H|03|2|SKU98057
+                    bearing  +0.4 deg  elevation  -4.9 deg
+                    estimated position x=2.72 y=0.63 z=2.40
+           DETECTED WH1|G|03|2|SKU18509
+                    bearing +16.5 deg  elevation  -0.5 deg
+                    estimated position x=2.18 y=1.36 z=2.40
+           DETECTED WH1|H|03|2|SKU14039
+                    bearing  +2.6 deg  elevation  -4.6 deg
+                    estimated position x=2.72 y=1.37 z=2.40
+           DETECTED WH1|G|03|2|SKU93465
+                    bearing +14.9 deg  elevation  -0.4 deg
+                    estimated position x=2.18 y=2.09 z=2.40
+           DETECTED WH1|H|03|2|SKU64328
+                    bearing  +4.8 deg  elevation  -4.6 deg
+                    estimated position x=2.72 y=2.10 z=2.40
+           DETECTED WH1|H|02|2|SKU58244
+                    bearing -32.3 deg  elevation  -5.1 deg
+                    estimated position x=2.72 y=3.32 z=2.40
+           DETECTED WH1|G|02|2|SKU76221
+                    bearing +11.0 deg  elevation  -0.2 deg
+                    estimated position x=2.18 y=3.30 z=2.40
+           DETECTED WH1|H|02|2|SKU71135
+                    bearing -30.6 deg  elevation  -5.1 deg
+                    estimated position x=2.72 y=4.05 z=2.40
+           DETECTED WH1|G|02|2|SKU21752
+                    bearing  +9.1 deg  elevation  -0.2 deg
+                    estimated position x=2.18 y=4.04 z=2.40
+           DETECTED WH1|H|02|2|SKU93091
+                    bearing -28.8 deg  elevation  -5.1 deg
+                    estimated position x=2.72 y=4.78 z=2.40
+           DETECTED WH1|G|02|2|SKU42311
+                    bearing  +7.1 deg  elevation  -0.2 deg
+                    estimated position x=2.18 y=4.76 z=2.40
+           DETECTED WH1|G|01|2|SKU89349
+                    bearing +21.0 deg  elevation  -0.4 deg
+                    estimated position x=2.18 y=6.00 z=2.40
+           DETECTED WH1|H|01|2|SKU63643
+                    bearing -15.1 deg  elevation  -4.8 deg
+                    estimated position x=2.72 y=6.02 z=2.40
+           DETECTED WH1|H|01|2|SKU87631
+                    bearing -12.6 deg  elevation  -4.6 deg
+                    estimated position x=2.72 y=6.75 z=2.40
+           MARKER 8 at (+2.5, +9.0)  drift 0.039 m  offset now 0.003 m
+           DETECTED WH1|G|01|2|SKU21139
+                    bearing +16.9 deg  elevation  -0.5 deg
+                    estimated position x=2.18 y=7.46 z=2.40
+           DETECTED WH1|H|01|2|SKU86960
+                    bearing -10.1 deg  elevation  -4.8 deg
+                    estimated position x=2.72 y=7.49 z=2.40
+           MARKER 8 at (+2.5, +9.0)  drift 0.084 m  offset now 0.003 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.719 m  offset now 0.003 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.042 m  offset now 0.003 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.289 m  offset now 0.003 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.119 m  offset now 0.003 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.050 m  offset now 0.003 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.063 m  offset now 0.003 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.031 m  offset now 0.003 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.006 m  offset now 0.003 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.011 m  offset now 0.005 m
+           reached  codes 381  barcodes 381  alt worst -0.062 spread 0.013 residual -0.061 settled in 8.1s
+
+[WAYPOINT 23/24] x=+2.5 y=+9.0 z=0.70 heading -90  1.7 m  climb at 0.15 m/s
+           MARKER 8 at (+2.5, +9.0)  drift 0.009 m  offset now 0.005 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.003 m  offset now 0.005 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.001 m  offset now 0.005 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.004 m  offset now 0.005 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.002 m  offset now 0.005 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.002 m  offset now 0.005 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.001 m  offset now 0.005 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.001 m  offset now 0.005 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.001 m  offset now 0.005 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.001 m  offset now 0.005 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.001 m  offset now 0.002 m
+           MARKER 8 at (+2.5, +9.0)  drift 0.000 m  offset now 0.001 m
+           reached  codes 381  barcodes 381  alt worst +1.639 spread 1.646 residual -0.060 settled in 0.0s  OUT OF FRAME
+
+[WAYPOINT 24/24] x=+2.5 y=-9.0 z=0.70 heading -90  18.0 m  cruise at 1.0 m/s
+           MARKER 8 at (+2.5, +9.0)  drift 0.141 m  offset now 0.001 m
+           DETECTED WH1|G|01|1|SKU91371
+                    bearing -18.3 deg  elevation  -1.5 deg
+                    estimated position x=2.18 y=7.50 z=0.70
+           DETECTED WH1|G|01|1|SKU30107
+                    bearing -17.4 deg  elevation  -1.2 deg
+                    estimated position x=2.18 y=6.75 z=0.70
+           DETECTED WH1|H|01|1|SKU74846
+                    bearing +20.1 deg  elevation  -5.8 deg
+                    estimated position x=2.72 y=6.75 z=0.70
+           DETECTED WH1|G|01|1|SKU22596
+                    bearing -16.9 deg  elevation  -0.9 deg
+                    estimated position x=2.18 y=6.01 z=0.70
+           DETECTED WH1|H|01|1|SKU98598
+                    bearing +19.4 deg  elevation  -5.4 deg
+                    estimated position x=2.72 y=6.02 z=0.70
+           DETECTED WH1|G|02|1|SKU42276
+                    bearing -14.7 deg  elevation  -0.4 deg
+                    estimated position x=2.18 y=4.79 z=0.70
+           DETECTED WH1|H|02|1|SKU40198
+                    bearing  +6.9 deg  elevation  -4.9 deg
+                    estimated position x=2.72 y=4.78 z=0.70
+           DETECTED WH1|G|02|1|SKU57934
+                    bearing -13.6 deg  elevation  -0.4 deg
+                    estimated position x=2.18 y=4.04 z=0.70
+           DETECTED WH1|H|02|1|SKU56678
+                    bearing  +5.5 deg  elevation  -4.9 deg
+                    estimated position x=2.72 y=4.05 z=0.70
+           DETECTED WH1|G|02|1|SKU70715
+                    bearing -12.3 deg  elevation  -0.3 deg
+                    estimated position x=2.18 y=3.31 z=0.70
+           DETECTED WH1|H|02|1|SKU67605
+                    bearing  +4.0 deg  elevation  -4.7 deg
+                    estimated position x=2.72 y=3.32 z=0.70
+           DETECTED WH1|H|03|1|SKU72083
+                    bearing +37.4 deg  elevation  -5.2 deg
+                    estimated position x=2.72 y=2.08 z=0.70
+           DETECTED WH1|G|03|1|SKU67684
+                    bearing -10.4 deg  elevation  -0.3 deg
+                    estimated position x=2.18 y=2.07 z=0.70
+           DETECTED WH1|H|03|1|SKU56923
+                    bearing +36.3 deg  elevation  -5.1 deg
+                    estimated position x=2.72 y=1.35 z=0.70
+           DETECTED WH1|G|03|1|SKU76694
+                    bearing  -8.9 deg  elevation  -0.2 deg
+                    estimated position x=2.18 y=1.34 z=0.70
+           DETECTED WH1|H|03|1|SKU44998
+                    bearing +35.1 deg  elevation  -5.1 deg
+                    estimated position x=2.72 y=0.62 z=0.70
+           DETECTED WH1|G|03|1|SKU40378
+                    bearing  -7.3 deg  elevation  -0.2 deg
+                    estimated position x=2.18 y=0.61 z=0.70
+           DETECTED WH1|G|04|1|SKU96346
+                    bearing -21.9 deg  elevation  -0.4 deg
+                    estimated position x=2.18 y=-0.63 z=0.70
+           DETECTED WH1|H|04|1|SKU84302
+                    bearing +25.2 deg  elevation  -4.9 deg
+                    estimated position x=2.72 y=-0.62 z=0.70
+           DETECTED WH1|G|04|1|SKU72662
+                    bearing -20.2 deg  elevation  -0.4 deg
+                    estimated position x=2.18 y=-1.36 z=0.70
+           DETECTED WH1|H|04|1|SKU60122
+                    bearing +23.5 deg  elevation  -4.9 deg
+                    estimated position x=2.72 y=-1.35 z=0.70
+           DETECTED WH1|G|04|1|SKU77147
+                    bearing -18.5 deg  elevation  -0.4 deg
+                    estimated position x=2.18 y=-2.09 z=0.70
+           DETECTED WH1|H|04|1|SKU62545
+                    bearing +21.5 deg  elevation  -5.0 deg
+                    estimated position x=2.72 y=-2.09 z=0.70
+           DETECTED WH1|G|05|1|SKU40590
+                    bearing -14.7 deg  elevation  -0.4 deg
+                    estimated position x=2.18 y=-3.30 z=0.70
+           DETECTED WH1|H|05|1|SKU56478
+                    bearing  +7.2 deg  elevation  -4.9 deg
+                    estimated position x=2.72 y=-3.32 z=0.70
+           DETECTED WH1|G|05|1|SKU78492
+                    bearing -13.0 deg  elevation  -0.3 deg
+                    estimated position x=2.18 y=-4.04 z=0.70
+           DETECTED WH1|H|05|1|SKU79206
+                    bearing  +4.9 deg  elevation  -4.7 deg
+                    estimated position x=2.72 y=-4.05 z=0.70
+           DETECTED WH1|G|05|1|SKU82815
+                    bearing -11.1 deg  elevation  -0.3 deg
+                    estimated position x=2.18 y=-4.79 z=0.70
+           DETECTED WH1|H|05|1|SKU13369
+                    bearing  +2.6 deg  elevation  -4.6 deg
+                    estimated position x=2.72 y=-4.79 z=0.70
+           DETECTED WH1|H|06|1|SKU21844
+                    bearing +35.8 deg  elevation  -5.3 deg
+                    estimated position x=2.72 y=-6.02 z=0.70
+           DETECTED WH1|G|06|1|SKU17597
+                    bearing  -8.1 deg  elevation  -0.3 deg
+                    estimated position x=2.18 y=-6.03 z=0.70
+           DETECTED WH1|H|06|1|SKU87141
+                    bearing +34.0 deg  elevation  -5.1 deg
+                    estimated position x=2.72 y=-6.75 z=0.70
+           DETECTED WH1|G|06|1|SKU38632
+                    bearing -22.7 deg  elevation  -0.5 deg
+                    estimated position x=2.18 y=-6.76 z=0.70
+           DETECTED WH1|H|06|1|SKU43561
+                    bearing +32.1 deg  elevation  -5.1 deg
+                    estimated position x=2.72 y=-7.48 z=0.70
+           DETECTED WH1|G|06|1|SKU82940
+                    bearing -20.7 deg  elevation  -0.5 deg
+                    estimated position x=2.18 y=-7.46 z=0.70
+           MARKER 7 at (+2.5, -9.0)  drift 0.101 m  offset now 0.001 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.006 m  offset now 0.001 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.105 m  offset now 0.001 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.044 m  offset now 0.001 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.014 m  offset now 0.001 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.022 m  offset now 0.001 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.005 m  offset now 0.001 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.006 m  offset now 0.001 m
+           MARKER 7 at (+2.5, -9.0)  drift 0.004 m  offset now 0.001 m
+           reached  codes 416  barcodes 416  alt worst -0.062 spread 0.013 residual -0.061 settled in 8.1s
+[INFO] camera_hires_link: 3528 frames decoded, 2977 dropped with the queue full, 0 too old
+[INFO] camera_track_rear_link: 1845 frames decoded, 758 dropped with the queue full, 0 too old
+
+====================================================================
+  SCAN COMPLETE
+  Waypoints reached : 24/24
+  Codes decoded     : 416
+  Marker fixes      : 351
+  Drift at fix      : median 0.011 m, max 1.414 m
+  Final offset      : 0.001 m
+====================================================================
+
+[INFO] Inventory written to /home/coban/Desktop/warehouse-inventory-sim/out/inventory_scanned.json
+[INFO] Navigation report written to /home/coban/Desktop/warehouse-inventory-sim/out/navigation_report.json
+[INFO] Landing
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)

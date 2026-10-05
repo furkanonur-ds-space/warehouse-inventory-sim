@@ -1,0 +1,517 @@
+{
+  "report_date": "2026-10-05T19:43:02",
+  "world": "warehouse",
+  "configuration": {
+    "drift_correction": true,
+    "recording": false,
+    "marker_map_loaded": 8,
+    "opencv_threads": 1
+  },
+  "mission_duration_s": 614.1,
+  "waypoints": {
+    "planned": 24,
+    "reached": 24,
+    "success_rate": 1.0
+  },
+  "frames": {
+    "camera_hires_link": {
+      "decoded": 856,
+      "dropped": 5243,
+      "too_old": 0
+    },
+    "camera_track_rear_link": {
+      "decoded": 397,
+      "dropped": 2041,
+      "too_old": 0
+    }
+  },
+  "lanes": {
+    "before the scan": {
+      "decoded": 104,
+      "skipped": 0,
+      "too_old": 0,
+      "age_median": -0.004
+    },
+    "aisle 2.40 m": {
+      "decoded": 2213,
+      "skipped": 0,
+      "too_old": 0,
+      "age_median": 0.004
+    },
+    "aisle 1.77 m": {
+      "decoded": 2039,
+      "skipped": 0,
+      "too_old": 0,
+      "age_median": 0.004
+    },
+    "aisle 1.13 m": {
+      "decoded": 2256,
+      "skipped": 0,
+      "too_old": 0,
+      "age_median": 0.004
+    },
+    "aisle 0.50 m": {
+      "decoded": 2033,
+      "skipped": 0,
+      "too_old": 0,
+      "age_median": 0.0
+    }
+  },
+  "frame_timing": {
+    "before the scan | camera_hires_link": {
+      "arrival_gap_ms": {
+        "min": 49.404,
+        "p05": 53.067,
+        "median": 67.285,
+        "p95": 88.763,
+        "max": 101.282,
+        "samples": 73
+      },
+      "stamp_gap_ms": {
+        "min": 48.0,
+        "p05": 48.0,
+        "median": 52.0,
+        "p95": 52.0,
+        "max": 52.0,
+        "samples": 73
+      },
+      "decode_ms": null,
+      "total_ms": null,
+      "back_to_back_pct": 0.0
+    },
+    "before the scan | camera_track_rear_link": {
+      "arrival_gap_ms": {
+        "min": 143.621,
+        "p05": 145.909,
+        "median": 173.054,
+        "p95": 195.429,
+        "max": 209.849,
+        "samples": 29
+      },
+      "stamp_gap_ms": {
+        "min": 124.0,
+        "p05": 124.0,
+        "median": 124.0,
+        "p95": 128.0,
+        "max": 128.0,
+        "samples": 29
+      },
+      "decode_ms": null,
+      "total_ms": null,
+      "back_to_back_pct": 0.0
+    },
+    "aisle 2.40 m | camera_hires_link": {
+      "arrival_gap_ms": {
+        "min": 41.513,
+        "p05": 74.927,
+        "median": 100.268,
+        "p95": 138.313,
+        "max": 193.347,
+        "samples": 1581
+      },
+      "stamp_gap_ms": {
+        "min": 48.0,
+        "p05": 48.0,
+        "median": 48.0,
+        "p95": 52.0,
+        "max": 52.0,
+        "samples": 1581
+      },
+      "decode_ms": {
+        "min": 825.462,
+        "p05": 1453.999,
+        "median": 3015.888,
+        "p95": 4161.032,
+        "max": 4277.625,
+        "samples": 57
+      },
+      "total_ms": {
+        "min": 0.048,
+        "p05": 0.061,
+        "median": 0.083,
+        "p95": 0.111,
+        "max": 1.723,
+        "samples": 1581
+      },
+      "back_to_back_pct": 0.0
+    },
+    "aisle 2.40 m | camera_track_rear_link": {
+      "arrival_gap_ms": {
+        "min": 145.354,
+        "p05": 197.857,
+        "median": 254.933,
+        "p95": 325.839,
+        "max": 411.361,
+        "samples": 632
+      },
+      "stamp_gap_ms": {
+        "min": 124.0,
+        "p05": 124.0,
+        "median": 124.0,
+        "p95": 128.0,
+        "max": 128.0,
+        "samples": 632
+      },
+      "decode_ms": {
+        "min": 1857.73,
+        "p05": 2362.271,
+        "median": 3986.854,
+        "p95": 5093.709,
+        "max": 5227.243,
+        "samples": 44
+      },
+      "total_ms": {
+        "min": 0.035,
+        "p05": 0.06,
+        "median": 0.085,
+        "p95": 0.85,
+        "max": 1.319,
+        "samples": 632
+      },
+      "back_to_back_pct": 0.0
+    },
+    "aisle 1.77 m | camera_hires_link": {
+      "arrival_gap_ms": {
+        "min": 20.22,
+        "p05": 77.143,
+        "median": 99.257,
+        "p95": 130.282,
+        "max": 188.04,
+        "samples": 1456
+      },
+      "stamp_gap_ms": {
+        "min": 48.0,
+        "p05": 48.0,
+        "median": 52.0,
+        "p95": 52.0,
+        "max": 52.0,
+        "samples": 1456
+      },
+      "decode_ms": {
+        "min": 655.074,
+        "p05": 786.559,
+        "median": 1694.248,
+        "p95": 3643.373,
+        "max": 4608.824,
+        "samples": 68
+      },
+      "total_ms": {
+        "min": 0.055,
+        "p05": 0.063,
+        "median": 0.084,
+        "p95": 0.108,
+        "max": 1.13,
+        "samples": 1456
+      },
+      "back_to_back_pct": 0.0
+    },
+    "aisle 1.77 m | camera_track_rear_link": {
+      "arrival_gap_ms": {
+        "min": 174.917,
+        "p05": 206.176,
+        "median": 251.117,
+        "p95": 300.313,
+        "max": 340.377,
+        "samples": 583
+      },
+      "stamp_gap_ms": {
+        "min": 124.0,
+        "p05": 124.0,
+        "median": 124.0,
+        "p95": 128.0,
+        "max": 128.0,
+        "samples": 583
+      },
+      "decode_ms": {
+        "min": 918.526,
+        "p05": 1238.549,
+        "median": 3034.786,
+        "p95": 4500.798,
+        "max": 4516.873,
+        "samples": 48
+      },
+      "total_ms": {
+        "min": 0.047,
+        "p05": 0.062,
+        "median": 0.082,
+        "p95": 0.743,
+        "max": 1.17,
+        "samples": 583
+      },
+      "back_to_back_pct": 0.0
+    },
+    "aisle 1.13 m | camera_hires_link": {
+      "arrival_gap_ms": {
+        "min": 37.808,
+        "p05": 77.832,
+        "median": 99.459,
+        "p95": 128.74,
+        "max": 163.27,
+        "samples": 1612
+      },
+      "stamp_gap_ms": {
+        "min": 48.0,
+        "p05": 48.0,
+        "median": 52.0,
+        "p95": 52.0,
+        "max": 52.0,
+        "samples": 1612
+      },
+      "decode_ms": {
+        "min": 14.937,
+        "p05": 362.713,
+        "median": 1006.666,
+        "p95": 1853.256,
+        "max": 2036.643,
+        "samples": 143
+      },
+      "total_ms": {
+        "min": 0.053,
+        "p05": 0.062,
+        "median": 0.083,
+        "p95": 0.108,
+        "max": 0.686,
+        "samples": 1612
+      },
+      "back_to_back_pct": 0.0
+    },
+    "aisle 1.13 m | camera_track_rear_link": {
+      "arrival_gap_ms": {
+        "min": 177.318,
+        "p05": 204.874,
+        "median": 250.901,
+        "p95": 295.779,
+        "max": 329.397,
+        "samples": 644
+      },
+      "stamp_gap_ms": {
+        "min": 124.0,
+        "p05": 124.0,
+        "median": 124.0,
+        "p95": 128.0,
+        "max": 128.0,
+        "samples": 644
+      },
+      "decode_ms": {
+        "min": 1074.734,
+        "p05": 1450.79,
+        "median": 3776.421,
+        "p95": 5458.247,
+        "max": 5897.622,
+        "samples": 44
+      },
+      "total_ms": {
+        "min": 0.043,
+        "p05": 0.061,
+        "median": 0.083,
+        "p95": 0.714,
+        "max": 1.515,
+        "samples": 644
+      },
+      "back_to_back_pct": 0.0
+    },
+    "aisle 0.50 m | camera_track_rear_link": {
+      "arrival_gap_ms": {
+        "min": 169.34,
+        "p05": 202.428,
+        "median": 247.935,
+        "p95": 292.649,
+        "max": 329.718,
+        "samples": 581
+      },
+      "stamp_gap_ms": {
+        "min": 124.0,
+        "p05": 124.0,
+        "median": 124.0,
+        "p95": 128.0,
+        "max": 128.0,
+        "samples": 581
+      },
+      "decode_ms": {
+        "min": 7.359,
+        "p05": 13.578,
+        "median": 550.874,
+        "p95": 863.836,
+        "max": 911.19,
+        "samples": 261
+      },
+      "total_ms": {
+        "min": 0.045,
+        "p05": 0.058,
+        "median": 0.078,
+        "p95": 0.11,
+        "max": 0.932,
+        "samples": 581
+      },
+      "back_to_back_pct": 0.0
+    },
+    "aisle 0.50 m | camera_hires_link": {
+      "arrival_gap_ms": {
+        "min": 35.727,
+        "p05": 76.582,
+        "median": 98.113,
+        "p95": 125.702,
+        "max": 162.719,
+        "samples": 1452
+      },
+      "stamp_gap_ms": {
+        "min": 48.0,
+        "p05": 48.0,
+        "median": 52.0,
+        "p95": 52.0,
+        "max": 52.0,
+        "samples": 1452
+      },
+      "decode_ms": {
+        "min": 9.046,
+        "p05": 12.279,
+        "median": 266.224,
+        "p95": 326.915,
+        "max": 408.535,
+        "samples": 588
+      },
+      "total_ms": {
+        "min": 0.047,
+        "p05": 0.061,
+        "median": 0.08,
+        "p95": 0.104,
+        "max": 0.467,
+        "samples": 1452
+      },
+      "back_to_back_pct": 0.0
+    }
+  },
+  "sightings_per_code": {
+    "A": {
+      "codes": 19,
+      "min": 1,
+      "median": 1,
+      "max": 2,
+      "read_once": 18,
+      "read_twice_or_fewer": 19
+    },
+    "B": {
+      "codes": 2,
+      "min": 1,
+      "median": 1,
+      "max": 1,
+      "read_once": 2,
+      "read_twice_or_fewer": 2
+    },
+    "C": {
+      "codes": 41,
+      "min": 1,
+      "median": 1,
+      "max": 2,
+      "read_once": 40,
+      "read_twice_or_fewer": 41
+    },
+    "D": {
+      "codes": 25,
+      "min": 1,
+      "median": 1,
+      "max": 2,
+      "read_once": 22,
+      "read_twice_or_fewer": 25
+    },
+    "E": {
+      "codes": 38,
+      "min": 1,
+      "median": 2,
+      "max": 3,
+      "read_once": 19,
+      "read_twice_or_fewer": 37
+    },
+    "F": {
+      "codes": 22,
+      "min": 1,
+      "median": 1,
+      "max": 1,
+      "read_once": 22,
+      "read_twice_or_fewer": 22
+    },
+    "G": {
+      "codes": 43,
+      "min": 1,
+      "median": 1,
+      "max": 3,
+      "read_once": 22,
+      "read_twice_or_fewer": 38
+    },
+    "H": {
+      "codes": 41,
+      "min": 1,
+      "median": 1,
+      "max": 2,
+      "read_once": 28,
+      "read_twice_or_fewer": 41
+    }
+  },
+  "callback_threads": {
+    "camera_hires_link": [
+      131167474931392
+    ],
+    "camera_track_rear_link": [
+      131167474931392
+    ]
+  },
+  "frame_age_s": {
+    "median": 0.004,
+    "p95": 0.02,
+    "max": 0.044,
+    "samples": 8646,
+    "dropped_for_age": 0,
+    "limit": 0.5
+  },
+  "localization_error_m": {
+    "median": 0.024,
+    "p95": 0.561,
+    "max": 1.495,
+    "samples": 325,
+    "source": "ArUco marker fix versus estimator at the sighting"
+  },
+  "maximum_drift_m": 1.495,
+  "final_drift_offset_m": 0.002,
+  "marker_correction_count": 325,
+  "markers_seen": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+  ],
+  "minimum_obstacle_distance_m": 0.189,
+  "clearance_samples": 6445,
+  "clearance_alarm_threshold_m": 0.2,
+  "clearance_alarms": 5,
+  "clearance_alarm_positions": [
+    {
+      "x": 2.46,
+      "y": -2.66,
+      "clearance_m": 0.198
+    },
+    {
+      "x": 2.45,
+      "y": -5.42,
+      "clearance_m": 0.195
+    },
+    {
+      "x": 2.45,
+      "y": -8.08,
+      "clearance_m": 0.19
+    },
+    {
+      "x": 2.46,
+      "y": -8.18,
+      "clearance_m": 0.2
+    },
+    {
+      "x": 2.46,
+      "y": -5.35,
+      "clearance_m": 0.199
+    }
+  ]
+}
