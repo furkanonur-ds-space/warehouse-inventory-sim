@@ -74,8 +74,10 @@ import collections
 import json
 import math
 import os
+import queue
 import re
 import sys
+import threading
 import time
 from collections import deque
 from datetime import datetime
@@ -610,6 +612,8 @@ class Session:
         # Set by live(); a replay has no camera to account for.
         self.frame_book = None
         self.saved = 0
+        # Set by main() when --save-raw asks for it.
+        self.raw: RawRecorder | None = None
         readings.parent.mkdir(parents=True, exist_ok=True)
         self._fh = readings.open("a")
 
@@ -724,6 +728,8 @@ class Session:
             "unlinked_payloads": self.unlinked,
             "frames_saved": self.saved,
         }
+        if self.raw is not None:
+            body["raw_frames"] = self.raw.summary()
         if self.yolo is not None:
             # Written whether or not the locator recovered anything: a run
             # that used it and gained nothing is a result, and a report that
@@ -756,6 +762,9 @@ class Session:
         return clean, len(self.boxes) - clean
 
     def close(self) -> None:
+        if self.raw is not None:
+            # First, so the summary below counts every frame it wrote.
+            self.raw.close()
         if self._boxes_fh is not None:
             try:
                 self._boxes_fh.flush(); self._boxes_fh.close()
@@ -764,6 +773,93 @@ class Session:
             self._boxes_fh = None
         self.flush()
         self._fh.close()
+
+
+class RawRecorder:
+    """
+    Every Nth frame exactly as the camera gave it, lossless, with an index.
+
+    The other two ways frames leave this process do not serve a noise study.
+    --save-frames keeps only the frames where a QR read and the barcode did
+    not, so every one of them is already a failure; --yolo-save-boxes keeps
+    JPEGs with boxes drawn on them. Asking "would this label still read
+    through a real camera's noise, blur and exposure" needs clean frames that
+    DID read, untouched, spread over the whole route and every light band -
+    the noise is then added offline, as many times and as many ways as wanted,
+    on identical pixels.
+
+    Written on a thread of its own. A 1024x768 PNG is about 20 ms to encode,
+    a frame arrives every 50 ms of simulation, and the decoder loop is what
+    the camera's frames queue for; encoding there would shed frames the
+    readings need. When the writer falls behind a frame is dropped and
+    counted, never waited for.
+
+    index.jsonl beside the images, one line per image written: its file, the
+    frame number the readings carry, the simulation time, the pose, and what
+    the ordinary decode read in it. That is the baseline an offline sweep
+    compares against, and the pose and payloads are what tie a frame to its
+    labels - and through ground truth to the light each one got.
+    """
+
+    def __init__(self, out: Path, every: int, limit: int, camera: str):
+        self.out = out
+        self.every = max(1, every)
+        self.limit = limit
+        self.camera = camera
+        self.saved = 0
+        self.dropped = 0
+        self._taken = 0
+        out.mkdir(parents=True, exist_ok=True)
+        self._index = (out / "index.jsonl").open("a")
+        self._q: queue.Queue = queue.Queue(maxsize=16)
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def offer(self, frame_no, frame, taken_at, pose, qrs, bars) -> None:
+        """Hand over a frame; kept if it falls on the stride and there is room."""
+        if frame_no % self.every or self._taken >= self.limit:
+            return
+        name = f"{self.camera}_{frame_no:06d}.png"
+        row = {"file": name, "frame": frame_no,
+               "sim_t": None if taken_at is None else round(taken_at, 3),
+               "pose": None if pose is None else [round(v, 4) for v in pose],
+               "qr": [p for p, _, _ in qrs], "barcode": [p for p, _, _ in bars]}
+        try:
+            # No copy: every frame is a fresh array that nothing writes into
+            # afterwards - draw() works on a copy of its own.
+            self._q.put_nowait((frame, row))
+            self._taken += 1
+        except queue.Full:
+            self.dropped += 1
+
+    def _run(self) -> None:
+        while True:
+            item = self._q.get()
+            if item is None:
+                return
+            frame, row = item
+            try:
+                if cv2.imwrite(str(self.out / row["file"]), frame):
+                    self.saved += 1
+                    # Flushed per line: the launcher stops this process with
+                    # a kill, and what is on disk is what the index must say.
+                    self._index.write(json.dumps(row) + "\n")
+                    self._index.flush()
+            except Exception:
+                pass
+
+    def summary(self) -> dict:
+        return {"dir": str(self.out), "every": self.every, "limit": self.limit,
+                "saved": self.saved, "dropped_writer_busy": self.dropped}
+
+    def close(self, timeout: float = 10.0) -> None:
+        """Let the writer finish what it was handed, then close the index."""
+        self._q.put(None)
+        self._thread.join(timeout)
+        try:
+            self._index.close()
+        except Exception:
+            pass
 
 
 class FrameBook:
@@ -1154,6 +1250,9 @@ def step(frame, decoder, linker, session, args, wait: int = 1,
         except Exception:
             pass
 
+    if session.raw is not None:
+        session.raw.offer(session.frames, frame, taken_at, pose, qrs, bars)
+
     if isinstance(decoder, YoloDecoder):
         session.record_boxes(session.frames, decoder.last_boxes, pose=pose,
                              taken_at=taken_at,
@@ -1227,6 +1326,16 @@ def main() -> int:
     ap.add_argument("--save-limit", type=int, default=200,
                     help="how many such frames to keep, per camera (default "
                          "200; a Gazebo frame is a few hundred kB lossless)")
+    ap.add_argument("--save-raw", type=Path, metavar="DIR",
+                    help="write every Nth frame untouched, lossless, with an "
+                         "index.jsonl of frame, sim time, pose and what was "
+                         "read - the input for an offline noise study")
+    ap.add_argument("--save-raw-every", type=int, default=4,
+                    help="keep one frame in this many (default 4: a flight is "
+                         "about 7400 frames per camera, so about 1850)")
+    ap.add_argument("--save-raw-limit", type=int, default=2500,
+                    help="stop after this many, per camera (default 2500; "
+                         "120-230 kB each)")
     ap.add_argument("--headless", action="store_true",
                     help="no window; print progress instead")
     ap.add_argument("--scale", type=float, default=1.0,
@@ -1337,6 +1446,10 @@ def main() -> int:
         args.pose_topic = f"/world/{layout['world']}/dynamic_pose/info"
     source = str(args.replay) if args.replay else args.topic
     session = Session(args.readings, args.summary, source)
+    if args.save_raw:
+        session.raw = RawRecorder(args.save_raw, args.save_raw_every,
+                                  args.save_raw_limit, session.camera_link)
+        print(f"raw frames: one in {session.raw.every} -> {args.save_raw}")
     if args.yolo:
         # Settings, not results: the results are counted as the run goes and
         # merged in at flush. Kept in the summary so a report reading a
@@ -1393,6 +1506,9 @@ def main() -> int:
             if session.box_frames:
                 print(f"box log: {session.box_frames} frames -> "
                       f"{session.boxes_path}")
+        if session.raw is not None:
+            print(f"raw frames: {session.raw.saved} in {args.save_raw}"
+                  f" ({session.raw.dropped} dropped, writer busy)")
         print(f"readings: {args.readings}")
         print(f"summary : {args.summary}")
     return rc

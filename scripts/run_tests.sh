@@ -88,6 +88,8 @@ run test_light_report.py
 # QR, and filed back in the frame's own pixels.
 cd "$HERE/perception" || exit 1
 run test_level.py
+# Raw frames: every Nth, untouched, indexed, for --replay.
+run test_raw_frames.py
 
 # The stressed world itself: no carton inside another, in the rack, on its
 # deck, out of the vehicle's way, labels on its face, and the clean world

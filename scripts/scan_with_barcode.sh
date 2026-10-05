@@ -41,6 +41,15 @@
 #       --replay out/barcode_frames \
 #       --readings out/replay_readings.jsonl --summary out/replay.json
 #
+# SAVE_RAW=1 keeps one frame in RAW_EVERY (default 4) untouched, lossless,
+# per camera in out/raw_frames_<camera>, with an index.jsonl of frame number,
+# simulation time, pose and what the reader got out of it. Not failures only,
+# as above: these are the clean frames an offline sweep adds camera noise,
+# blur and exposure to. About 1850 frames a camera, 0.5-0.8 GB a flight.
+# RAW_LIMIT caps it per camera (default 2500).
+#
+#   SAVE_RAW=1 ./scripts/scan_with_barcode.sh
+#
 # NOT RECORD_VIDEO=1. That is the scanner's own switch and it records both
 # cameras through two cv2.VideoWriter threads; on 2026-09-04 it took the scan
 # down with `corrupted double-linked list` at waypoint 11 of 24, half way up
@@ -84,6 +93,14 @@ if [ "${SAVE_CROPS:-0}" != "0" ]; then
     # read as if they belonged to this one.
     rm -rf "$HERE"/out/yolo_crops_*
     echo "  keeping the crops the model framed in out/yolo_crops_<camera>"
+fi
+# Cleared on EVERY run, not only when SAVE_RAW asks for frames: a run without
+# it left the last run's 5.6 GB of frames in out/, every `cp -r out` copied
+# them into an archive they did not belong to, and on 2026-10-05 that filled
+# the disk.
+rm -rf "$HERE"/out/raw_frames_*
+if [ "${SAVE_RAW:-0}" != "0" ]; then
+    echo "  keeping one frame in ${RAW_EVERY:-4} untouched in out/raw_frames_<camera>"
 fi
 if [ "$SAVE_FRAMES" != "0" ]; then
     # Same reason the readings are cleared: frames from an older run would be
@@ -131,6 +148,11 @@ start_barcode() {
     local shots=()
     if [ "$SAVE_FRAMES" != "0" ]; then
         shots=(--save-frames "$SHOTS")
+    fi
+    if [ "${SAVE_RAW:-0}" != "0" ]; then
+        shots+=(--save-raw "$HERE/out/raw_frames_$tag"
+                --save-raw-every "${RAW_EVERY:-4}"
+                --save-raw-limit "${RAW_LIMIT:-2500}")
     fi
     local yolo=()
     if [ "$YOLO" != "0" ]; then
