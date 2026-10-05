@@ -65,6 +65,29 @@ for _i, _a in enumerate(sys.argv):
     if _a == "--hires-rate" and _i + 1 < len(sys.argv):
         HIRES_RATE = int(sys.argv[_i + 1])
 
+# Sensor noise on every camera, for a stress flight; off by default.
+#
+#   python3 build_c27_drone.py --camera-noise 0.03
+#
+# Gazebo's own camera noise: zero-mean Gaussian, the same value added to all
+# three channels of a pixel, on the 0..1 scale of the finished image, on the
+# GPU (no cost in frame rate). A real sensor's noise grows with the signal
+# (shot noise) and this does not, so it stands for one operating point.
+# THE STDDEV IS NOT THE NOISE YOU GET: measured in the frames on 2026-10-05,
+# 0.03 gave ~1.5 grey levels (and most pixels untouched), 0.09 gave ~6 and
+# 0.15 gave ~14. Measure the frames before quoting a level.
+# Every camera gets it, the ArUco reader below included,
+# because a real vehicle's cameras are all noisy; navigation health is in the
+# reports to show whether that mattered.
+#
+# launch_sim.sh refuses to fly a noisy model unless CAMERA_NOISE=1 says it was
+# meant, for the reason it refuses a drift-test model: a test left installed
+# is a day of results nobody can explain. Rebuild without the flag to undo.
+CAMERA_NOISE = 0.0
+for _i, _a in enumerate(sys.argv):
+    if _a == "--camera-noise" and _i + 1 < len(sys.argv):
+        CAMERA_NOISE = float(sys.argv[_i + 1])
+
 GZ_MODELS = os.path.expanduser('~/PX4-Autopilot/Tools/simulation/gz/models')
 model_name = "x500_c27"
 model_dir = os.path.join(GZ_MODELS, model_name)
@@ -89,6 +112,12 @@ def camera_block(link_name, joint_name, x_off, y_off, z_off,
     airframe. The inertial values are deliberately tiny so the added links do
     not measurably change the flight dynamics.
     """
+    noise = f'''
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>{CAMERA_NOISE}</stddev>
+          </noise>''' if CAMERA_NOISE > 0 else ""
     return f'''
     <joint name="{joint_name}" type="fixed">
       <parent>base_link</parent>
@@ -115,7 +144,7 @@ def camera_block(link_name, joint_name, x_off, y_off, z_off,
             <height>{height}</height>
             <format>R8G8B8</format>
           </image>
-          <clip><near>0.05</near><far>100</far></clip>
+          <clip><near>0.05</near><far>100</far></clip>{noise}
         </camera>
       </sensor>
     </link>'''
@@ -410,6 +439,12 @@ print("  camera_track_front_link  1280x800  front, 90 deg   odometry")
 print("  camera_track_rear_link   1280x800  rear,  90 deg   odometry")
 print("  camera_track_down_link   1280x800  down,  90 deg   odometry and ArUco")
 print("  OdometryPublisher         plugin   VIO simulation")
+if CAMERA_NOISE > 0:
+    print()
+    print("  CAMERA NOISE on every camera: gaussian, stddev %g" % CAMERA_NOISE)
+    print("  (%.1f grey levels). Fly it with CAMERA_NOISE=1; rebuild without"
+          % (CAMERA_NOISE * 255))
+    print("  --camera-noise to get the clean cameras back.")
 if INJECT_DRIFT:
     print()
     print("  WIRED FOR A DRIFT TEST. The odometry goes to")

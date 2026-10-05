@@ -86,6 +86,21 @@ if [ -f "$SDF" ] && grep -q odom_covariance_topic "$SDF"; then
     echo "drift test: start scanner/inject_drift.py or nothing will fly"
 fi
 
+# Camera noise is a stress test (build_c27_drone.py --camera-noise). Same rule
+# as the drift test: a model left noisy flies every later run noisy, and no
+# report would say why the reads dropped. So say it, and fly only on request.
+if [ -f "$SDF" ] && grep -q "<noise>" "$SDF"; then
+    sigma=$(grep -A 3 "<noise>" "$SDF" | grep -o "<stddev>[^<]*" | head -1 | cut -d'>' -f2)
+    if [ "${CAMERA_NOISE:-0}" != "1" ]; then
+        echo "the installed model has camera noise (stddev $sigma)."
+        echo
+        echo "  clean cameras:  $PY scanner/build_c27_drone.py"
+        echo "  meant it:       CAMERA_NOISE=1 $0 ${1:-}"
+        exit 1
+    fi
+    echo "camera noise: stddev $sigma on every camera"
+fi
+
 # The spawn point has to match layout.json, which is what the scanner treats
 # as the origin of everything it commands.
 read -r X Y < <("$PY" - "$HERE/scanner/layout.json" <<'PYEOF'
