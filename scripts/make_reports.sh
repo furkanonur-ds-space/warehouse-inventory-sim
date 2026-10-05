@@ -40,6 +40,13 @@ run() {
 }
 
 run report/validate_inventory.py --list-worst 5 --list-missed
+# Old labels: QR codes that name a place other than where they were read.
+# The scanner's inventory is left as it is and scored above; the copy without
+# them is scored beside it, so the two numbers say what the old labels cost.
+run report/stale_labels.py
+run report/validate_inventory.py --inventory out/inventory_qr_checked.json \
+    --out out/validation_report_qr_checked.json \
+    --offsets out/position_offsets_qr_checked.csv
 run report/coverage_report.py --html out/coverage.html
 run report/view_inventory.py
 run report/drift_report.py --html out/drift.html

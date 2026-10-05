@@ -78,6 +78,14 @@ run test_barcode_inventory.py
 run test_box_inventory.py
 # The stressed-world report, over an invented run whose answer is known.
 run test_stress_report.py
+# Old labels: a QR naming another place, a barcode beaten by a nearer one
+# under the same QR. Both rules truth-free; the test builds the old labels.
+run test_stale_labels.py
+
+# A barcode on a label stuck on crooked: read off a levelled copy round its
+# QR, and filed back in the frame's own pixels.
+cd "$HERE/perception" || exit 1
+run test_level.py
 
 # The stressed world itself: no carton inside another, in the rack, on its
 # deck, out of the vehicle's way, labels on its face, and the clean world

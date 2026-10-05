@@ -28,8 +28,10 @@ so the push_in rows say how far the face-plane assumption is from the truth.
 OLD LABELS (`decoy`) are codes that read perfectly and say the wrong thing:
 a QR with another address, a barcode with a number the warehouse does not
 have. Every one that turns up in an inventory is a false record, so for
-those rows the number that matters is how many were read - the lower the
-better - next to whether the real labels above them still were.
+those rows the numbers are how many were read and how many of those the
+stale-label rules then caught (report/stale_labels.py for the QR,
+barcode_inventory.stale_barcodes() for the barcode) - next to whether the
+real labels above them still read.
 
 EMPTY SLOTS have nothing to read. What they can show is a phantom: a carton
 cluster the detector placed where no carton is. Counted from every cluster in
@@ -126,7 +128,13 @@ def build(truth_path: Path, out_dir: Path, cfg: dict) -> dict:
         return {"stressed": False}
 
     qr = by_id(load(out_dir / "inventory_scanned.json"))
-    bc = by_id(load(out_dir / "inventory_barcode.json"))
+    bc_inv = load(out_dir / "inventory_barcode.json")
+    bc = by_id(bc_inv)
+    # Read but left out as an old label. The barcode inventory drops them
+    # itself; the QR inventory is the scanner's and keeps them, the checked
+    # copy beside it does not.
+    stale_bc = {s["id"] for s in (bc_inv or {}).get("stale_labels", [])}
+    stale_qr = {s["id"] for s in (load(out_dir / "stale_labels_qr.json") or {}).get("stale", [])}
     box_report = load(out_dir / "box_report.json")
     cartons = by_id(box_report)
     clusters = (box_report or {}).get("items", [])
@@ -156,10 +164,11 @@ def build(truth_path: Path, out_dir: Path, cfg: dict) -> dict:
             b["kind"] = "unlabelled"
             b["carton"] = {"found": c["payload"] in cartons}
         elif c["type"] == "box_decoy":
-            inv = qr if c["symbology"] == "QR" else bc
+            inv, caught = (qr, stale_qr) if c["symbology"] == "QR" else (bc, stale_bc)
+            p = c["payload"]
             b.setdefault("decoys", []).append({
-                "symbology": c["symbology"], "payload": c["payload"],
-                "read": c["payload"] in inv})
+                "symbology": c["symbology"], "payload": p,
+                "read": p in inv or p in caught, "caught": p in caught})
         elif c["type"] == "box_absent":
             b["kind"] = "absent"
             near = []
@@ -184,7 +193,7 @@ def build(truth_path: Path, out_dir: Path, cfg: dict) -> dict:
             "values": set(), "cartons": 0, "unlabelled": 0, "absent": 0,
             "faces": {}, "qr_read": 0, "qr_of": 0, "bc_read": 0, "bc_of": 0,
             "carton_found": 0, "carton_of": 0, "phantom_slots": 0,
-            "decoy_codes": 0, "decoy_read": 0,
+            "decoy_codes": 0, "decoy_read": 0, "decoy_caught": 0,
             "_qr_in": [], "_qr_depth": [], "_bc_in": [], "_bc_depth": []})
         r["values"].add(abs(b["cell"]["value"]))
         f = r["faces"].setdefault(b["row"], {"n": 0, "qr": 0, "bc": 0, "carton": 0})
@@ -198,6 +207,7 @@ def build(truth_path: Path, out_dir: Path, cfg: dict) -> dict:
         for d in b.get("decoys", []):
             r["decoy_codes"] += 1
             r["decoy_read"] += d["read"]
+            r["decoy_caught"] += d["caught"]
         if b["qr"]:
             r["qr_of"] += 1
             if b["qr"]["read"]:
@@ -268,8 +278,9 @@ def render(data: dict) -> str:
             f"{mm(r['barcode_inplane_median_m'])} {mm(r['barcode_depth_median_m'])}  "
             f"{pct(r['carton_found'], r['carton_of']) if have['carton'] else 'no file':>14}")
         if r["decoy_codes"]:
-            lines.append(f"{'':<12}{'':>10} {'':>4}  old labels READ: {r['decoy_read']} of "
-                         f"{r['decoy_codes']}  (each one a false record; lower is better)")
+            lines.append(f"{'':<12}{'':>10} {'':>4}  old labels read: {r['decoy_read']} of "
+                         f"{r['decoy_codes']}, caught as stale: {r['decoy_caught']}, "
+                         f"left as false records: {r['decoy_read'] - r['decoy_caught']}")
     lines.append("")
     lines.append("compare every row with `none`: that is the same flight, the same "
                  "faces, nothing done to the carton.")

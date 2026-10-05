@@ -158,6 +158,43 @@ def place(row, geometry) -> dict | None:
     }
 
 
+def stale_barcodes(readings) -> dict[str, dict]:
+    """
+    Barcodes that are an OLD label on a carton whose own barcode also read.
+
+    A carton carries one barcode, straight under its QR, and the reader links
+    every barcode to the QR it sits under, with how far off the predicted spot
+    it landed. An old label left from an earlier shipment sits further down
+    the same face and links to the same QR - just further off. So under each
+    QR the barcode nearest the prediction is the carton's own, and one that is
+    nearest under no QR at all is a leftover. It is dropped from the
+    inventory and listed, because it reads perfectly and says something false:
+    the number of a carton that is not here.
+
+    Truth-free: nothing here knows which numbers exist. On the 2026-10-05
+    label flight it caught all 29 old barcodes that linked to their carton's
+    QR and flagged none of the 2796 real readings. An old label whose real
+    barcode never read is not caught - there is nothing nearer to beat it.
+    """
+    by_qr: dict[str, dict[str, float]] = defaultdict(dict)
+    for row in readings:
+        qr, err, code = row.get("linked_qr"), row.get("link_error_m"), row.get("payload")
+        if row.get("symbology") != "CODE128" or not qr or err is None or not code:
+            continue
+        by_qr[qr][code] = min(err, by_qr[qr].get(code, float("inf")))
+    nearest = {qr: min(links, key=links.get) for qr, links in by_qr.items()}
+    winners = set(nearest.values())
+    stale = {}
+    for qr, links in by_qr.items():
+        best = nearest[qr]
+        for code, err in links.items():
+            if code != best and code not in winners:
+                stale[code] = {"id": code, "under_qr": qr,
+                               "link_error_m": round(err, 4), "nearer": best,
+                               "nearer_error_m": round(links[best], 4)}
+    return stale
+
+
 def build(readings, truth_path=GROUND_TRUTH, layout_path=LAYOUT) -> dict:
     layout = json.loads(Path(layout_path).read_text())
     geometry = {
@@ -179,13 +216,14 @@ def build(readings, truth_path=GROUND_TRUTH, layout_path=LAYOUT) -> dict:
     # on that run was inside 0.13 m.
     ground = min(geometry["flight_z"]) - LANE_MARGIN_M
 
+    stale = stale_barcodes(readings)
     best = {}
     placed = skipped = off_lane = 0
     for row in readings:
         if row.get("symbology") != "CODE128":
             continue
         code = row.get("payload")
-        if not code:
+        if not code or code in stale:
             continue
         uav = row.get("uav")
         if uav and uav.get("z", 0.0) < ground:
@@ -228,6 +266,8 @@ def build(readings, truth_path=GROUND_TRUTH, layout_path=LAYOUT) -> dict:
         "readings_placed": placed,
         "readings_without_a_pose": skipped,
         "readings_off_lane": off_lane,
+        # Read, and left out on purpose: see stale_barcodes().
+        "stale_labels": sorted(stale.values(), key=lambda r: r["id"]),
         "items": items,
     }
 
@@ -275,6 +315,9 @@ def main() -> int:
     if inv["readings_without_a_pose"]:
         print("  no pose, so not placed     %d" % inv["readings_without_a_pose"])
     print("  barcodes filed             %d" % inv["total_detected"])
+    if inv["stale_labels"]:
+        print("  old labels left out        %d  (a nearer barcode under the same QR)"
+              % len(inv["stale_labels"]))
     print("\nwritten to %s" % args.out)
     print("score it with:")
     print("  report/validate_inventory.py --inventory %s --code-type box_placard"

@@ -159,10 +159,14 @@ class Linker:
         if side_px < MIN_QR_SIDE_PX:
             return None
         px_per_m = side_px / self.qr_side_m
-        # The vehicle flies level and the labels are upright, so "down the
-        # box face" is +y in the image.
-        return (float(qr_poly[:, 0].mean()),
-                float(qr_poly[:, 1].mean()) + self.drop_m * px_per_m,
+        # The vehicle flies level, so "down the box face" is +y in the image -
+        # turned by the QR's own angle when the label was stuck on crooked,
+        # since the barcode turns with it. Level QRs read under 1 degree here,
+        # which moves the prediction by under a millimetre.
+        a = math.radians(qr_angle(qr_poly))
+        drop = self.drop_m * px_per_m
+        return (float(qr_poly[:, 0].mean()) - drop * math.sin(a),
+                float(qr_poly[:, 1].mean()) + drop * math.cos(a),
                 px_per_m)
 
     def link(self, qrs: list, bar_poly: np.ndarray):
@@ -212,6 +216,37 @@ def barcode_of_qr(payload: str):
 
 # ---------------------------------------------------------------- decode
 
+# A QR turned further than this from level gets its neighbourhood levelled and
+# read again for the barcode. Below it a skewed barcode still reads as it is:
+# zbar scans in straight lines and a line crosses every bar while the tilt is
+# under atan(bar height / bar length) = atan(24/166) = 8.2 degrees. Measured on
+# the 2026-10-05 label flight: 5 degrees read every barcode, 12 and 25 read
+# none. 4 leaves room for the perspective a level QR picks up off axis.
+LEVEL_MIN_DEG = 4.0
+
+# How far round the QR to cut, in QR sides. The barcode label is 3.4 QR sides
+# wide and its bars sit 0.9 sides below the QR's centre; 2.4 either way holds
+# all of it at any turn the label can take on a carton.
+LEVEL_REACH = 2.4
+
+
+def qr_angle(poly: np.ndarray) -> float:
+    """
+    How far a QR is turned from level, in degrees, folded into (-45, 45].
+
+    From the smallest rectangle round its corners, so it does not depend on
+    the order zbar lists them in. 0 for a polygon too short to say.
+    """
+    if poly is None or len(poly) < 4:
+        return 0.0
+    angle = cv2.minAreaRect(np.asarray(poly, dtype=np.float32))[2]
+    while angle > 45.0:
+        angle -= 90.0
+    while angle <= -45.0:
+        angle += 90.0
+    return float(angle)
+
+
 class Decoder:
     """
     zbar over the grey frame, QR and CODE128 in one pass.
@@ -229,6 +264,9 @@ class Decoder:
         self._zbar = pyzbar
         self._symbols = [ZBarSymbol.QRCODE, ZBarSymbol.CODE128]
         self._code128 = ZBarSymbol.CODE128
+        # This frame's barcodes that only the levelling pass read, for the
+        # caller to mark each reading with. Session counts them.
+        self.last_levelled: set[str] = set()
 
     def __call__(self, frame_bgr: np.ndarray):
         gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
@@ -248,7 +286,64 @@ class Decoder:
                 qrs.append((payload, poly, int(r.quality)))
             elif BARCODE_PAYLOAD.match(payload):
                 bars.append((payload, poly, int(r.quality)))
+        self.last_levelled = set()
+        bars += self._level(gray, qrs, {p for p, _, _ in bars})
         return qrs, bars
+
+    def _level(self, gray: np.ndarray, qrs, have: set) -> list:
+        """
+        Barcodes under a turned QR, read off a levelled copy of its surroundings.
+
+        A label stuck on crooked turns the QR and the barcode under it together,
+        so the QR's own angle is the barcode's: no search over angles, one
+        rotation per turned QR, and nothing at all on a frame whose QRs are
+        level - which is nearly every frame. The polygons come back in frame
+        pixels, so linking and placing them is unchanged.
+        """
+        out = []
+        h_img, w_img = gray.shape[:2]
+        for _, poly, _ in qrs:
+            angle = qr_angle(poly)
+            if abs(angle) < LEVEL_MIN_DEG:
+                continue
+            n = len(poly)
+            side = float(np.mean([np.linalg.norm(poly[i] - poly[(i + 1) % n])
+                                  for i in range(n)]))
+            cx, cy = (float(v) for v in poly.mean(axis=0))
+            reach = LEVEL_REACH * side
+            x0, y0 = max(0, int(cx - reach)), max(0, int(cy - reach))
+            x1, y1 = min(w_img, int(cx + reach)), min(h_img, int(cy + reach))
+            if x1 - x0 < 8 or y1 - y0 < 8:
+                continue
+            crop = gray[y0:y1, x0:x1]
+            # Which way minAreaRect's angle turns the label back depends on its
+            # convention, so the other sign is tried when the first reads
+            # nothing. Still two rotations at most, and only for turned QRs.
+            for turn in (angle, -angle):
+                m = cv2.getRotationMatrix2D((cx - x0, cy - y0), turn, 1.0)
+                level = cv2.warpAffine(crop, m, (x1 - x0, y1 - y0),
+                                       flags=cv2.INTER_LINEAR,
+                                       borderMode=cv2.BORDER_REPLICATE)
+                found = self._zbar.decode(level, symbols=[self._code128])
+                if not found:
+                    _, binary = cv2.threshold(level, 0, 255,
+                                              cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                    found = self._zbar.decode(binary, symbols=[self._code128])
+                back = cv2.invertAffineTransform(m)
+                got = False
+                for r in found:
+                    payload = r.data.decode("utf-8", "replace")
+                    if not BARCODE_PAYLOAD.match(payload) or payload in have:
+                        continue
+                    pts = polygon_of(r)
+                    pts = pts @ back[:, :2].T + back[:, 2] + (x0, y0)
+                    out.append((payload, pts, int(r.quality)))
+                    have.add(payload)
+                    self.last_levelled.add(payload)
+                    got = True
+                if got:
+                    break
+        return out
 
 
 # Every box barcode in this world is four digits. A Code128 symbol read at the
@@ -316,6 +411,9 @@ class YoloDecoder(Decoder):
 
     def __call__(self, frame_bgr: np.ndarray):
         qrs, bars = super().__call__(frame_bgr)
+        # Every crop below runs Decoder.__call__ again, which starts its own
+        # levelled set; the frame's is gathered here across all of them.
+        levelled = set(self.last_levelled)
         self.last_recovered = set()
         self.last_boxes = []
         regions = self._finder(frame_bgr)
@@ -339,6 +437,7 @@ class YoloDecoder(Decoder):
             # Decoder.__call__ on the crop: one grey pass, one Otsu pass if no
             # barcode came back. Exactly what the frame gets, on fewer pixels.
             c_qrs, c_bars = super().__call__(crop)
+            levelled |= self.last_levelled
             self._keep(crop, region, c_qrs, c_bars)
             for payload, poly, quality in c_qrs:
                 if payload in have:
@@ -359,6 +458,7 @@ class YoloDecoder(Decoder):
 
         # After the crop pass, so a box whose code only a crop read counts as
         # covered. Doing it before would blame the locator's own successes.
+        self.last_levelled = levelled
         polys = [poly for _, poly, _ in qrs] + [poly for _, poly, _ in bars]
         self.last_boxes, uncovered = code_finder.coverage(regions, polys)
         self.boxes_seen += len(self.last_boxes)
@@ -490,6 +590,7 @@ class Session:
         self.bar_hits = 0
         self.linked = 0
         self.via = collections.Counter()
+        self.levelled = 0
         # One line per frame that saw a carton: the boxes, and the pose the
         # frame was taken from. Opened only when a run asks for it. This is
         # the raw material for following one physical box across the frames
@@ -514,7 +615,7 @@ class Session:
 
     def record(self, payload, poly, quality, linked, dist, frame_no,
                pose=None, frame_size=None, drop_m=None, taken_at=None,
-               via=None) -> None:
+               via=None, levelled=False) -> None:
         self.bar_hits += 1
         now = datetime.now().isoformat(timespec="seconds")
         poly = np.asarray(poly, dtype=float)
@@ -531,6 +632,11 @@ class Session:
             # run would otherwise not have.
             row["via"] = via
             self.via[via] += 1
+        if levelled:
+            # Read only off a levelled copy of the frame round a turned QR:
+            # a label stuck on crooked. See Decoder._level.
+            row["levelled"] = True
+            self.levelled += 1
         # Where the bars sat in the frame and where the vehicle was when the
         # frame arrived. Everything a position needs, and nothing that decides
         # one: the geometry is done in report/barcode_inventory.py, which is
@@ -611,6 +717,7 @@ class Session:
             "qr_readings": self.qr_hits,
             "barcode_readings": self.bar_hits,
             "barcode_readings_linked": self.linked,
+            "barcode_readings_levelled": self.levelled,
             "boxes_with_barcode": len(self.boxes),
             "boxes_consistent": agree,
             "boxes_conflicting": disagree,
@@ -1061,7 +1168,8 @@ def step(frame, decoder, linker, session, args, wait: int = 1,
                        pose=pose,
                        frame_size=(frame.shape[1], frame.shape[0]),
                        drop_m=linker.drop_m, taken_at=taken_at,
-                       via=via_of(decoder, payload))
+                       via=via_of(decoder, payload),
+                       levelled=payload in decoder.last_levelled)
         drawn_bars.append((payload, poly, quality, linked, dist))
 
     now = time.perf_counter()
