@@ -649,3 +649,78 @@ def print_texture(rng, dims):
             d.rectangle([x, by, min(bx + bw, x + t), by + bh], fill=(10, 10, 10))
         x += t + int(rng.integers(1, 4))
     return img, {"brand": name, "base_rgb": list(base)}
+
+
+# ------------------------------------------------------------------- ışık
+#
+# Bozulma kolilere değil bütün depoya: genel ışık kısılır, tavan lambalarının
+# bir kısmı söner. Tek bir uçuş yine de bir eğri verir, çünkü her etiketin
+# aldığı ışık farklıdır - sönen lambanın altındakiler karanlıkta kalır. Bu
+# yüzden her etiketin ışığı HESAPLANIP yer gerçeğine yazılır; rapor sonucu
+# ışığa göre dilimler.
+#
+# Model, render'ın kendi varsayımlarıyla: gölge kapalı (lambalar rafların
+# içinden geçer, gen_world.lighting'deki cast_shadows false), nokta lamba
+# Ogre'nin sönümüyle 1 / (c + l*d + q*d^2) ve menzil dışında sıfır, yüzeyin
+# normaline göre kosinüs; üstüne sahnenin ortam ışığı. Mutlak bir lüks değil,
+# aynı etiketin temiz dünyadaki ışığına ORAN: model sabitleri yanlış olsa
+# bile bu oran, ışığın ne kadar kısıldığını sıralar.
+
+LAMP_ATTENUATION = (0.3, 0.05, 0.005)     # gen_world.lighting ile aynı
+
+
+def lamps(cfg: dict) -> list[tuple[int, tuple]]:
+    """Tavan lambaları, gen_world.lighting'in sırasıyla: (sıra, (x, y, z)), config çerçevesi."""
+    lt = cfg["lighting"]["ceiling_lights"]
+    out, i = [], 0
+    for xc in lt["x_positions"]:
+        for yc in lt["y_positions"]:
+            out.append((i, (xc, yc, lt["height"])))
+            i += 1
+    return out
+
+
+def light_plan(cfg: dict) -> dict:
+    """Bu dünyanın ışığı: ortam, lamba rengi, sönen lambalar.
+
+    `lights_stress` kapalıysa temiz dünyanınki. Sönecek lambalar, sayı
+    verilirse tohumla seçilir; `dead` listesi verilirse o.
+    """
+    lg = cfg["lighting"]
+    st = cfg.get("lights_stress") or {}
+    plan = {"ambient": list(lg["ambient"]), "diffuse": list(lg["ceiling_lights"]["diffuse"]),
+            "dead": set(), "on": False}
+    if not st.get("enabled"):
+        return plan
+    a, d = float(st.get("ambient_scale", 1.0)), float(st.get("diffuse_scale", 1.0))
+    plan["ambient"] = [c * a for c in plan["ambient"][:3]] + [plan["ambient"][3]]
+    plan["diffuse"] = [c * d for c in plan["diffuse"][:3]] + [plan["diffuse"][3]]
+    n = len(lamps(cfg))
+    if st.get("dead") is not None and len(st["dead"]):
+        plan["dead"] = {int(i) for i in st["dead"]}
+        if any(i < 0 or i >= n for i in plan["dead"]):
+            raise SystemExit(f"lights_stress.dead: lamba sırası 0..{n - 1} olmalı")
+    else:
+        k = int(round(float(st.get("dead_fraction", 0.0)) * n))
+        plan["dead"] = set(random.Random(st.get("seed", 0)).sample(range(n), k))
+    plan["on"] = True
+    return plan
+
+
+def illuminance(p, normal, plan: dict, cfg: dict) -> float:
+    """Bir yüzey noktasının aldığı ışık, modelin birimiyle (bkz. yukarı)."""
+    rng_max = cfg["lighting"]["ceiling_lights"]["attenuation_range"]
+    c, l, q = LAMP_ATTENUATION
+    n = np.asarray(normal, dtype=float)
+    p = np.asarray(p, dtype=float)
+    lum = float(np.mean(plan["diffuse"][:3]))
+    e = float(np.mean(plan["ambient"][:3]))
+    for i, pos in lamps(cfg):
+        if i in plan["dead"]:
+            continue
+        v = np.asarray(pos, dtype=float) - p
+        d = float(np.linalg.norm(v))
+        if d >= rng_max or d <= 1e-9:
+            continue
+        e += lum * max(0.0, float(n @ v) / d) / (c + l * d + q * d * d)
+    return e

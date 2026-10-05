@@ -488,6 +488,42 @@ lighting:
     specular: [0.10, 0.10, 0.10, 1.0]
     attenuation_range: 14.0
 
+# ------------------------------------------------------- ışık bozulması
+# Kod: warehouse/stress.py (light_plan, illuminance). Bütün depoya: ortam
+# ışığı ve lambalar kısılır, bazı lambalar söner. Her etiketin aldığı ışık
+# hesaplanıp yer gerçeğine yazılır (`light`: E bu dünyada, E_clean temiz
+# dünyada, rel oranı); report/light_report.py sonucu ışığa göre dilimler.
+#
+# Işık rafların İÇİNDEN geçer: gölge kapalı (gen_world.lighting). Bir etiket
+# tepesindeki lambayı neredeyse yandan görür, ışığının çoğunu karşı
+# koridorların lambalarından alır. Bu yüzden sönen lamba "kendi koridorunu"
+# karartmaz, ışığı her yerde birlikte düşürür: ışığının çoğunu veren lambası
+# sönük olan etiketin oranı 0.22, yanık olanınki 0.26 (warehouse/test_lights.py).
+# Etiketten etikete fark asıl yükseklikten ve yüzün geometrisinden gelir;
+# rapor bu yüzden ışığı yüz yüz de gösterir.
+#   temiz dünya        E 0.55 .. 8.3 (ortanca 3.8)
+#   bu ayar            E 0.10 .. 2.1 (ortanca 0.9); 69 QR 0.25'in altında,
+#                      114'ü temiz dünyanın en karanlık bandında (0.5-1) -
+#                      ikisi arasında köprü
+# Sönük lambalar dama tahtası düzeninde; ışık her yönden geldiği için
+# desenin sonuca etkisi az.
+# Sıra: lamba i = x_sırası * 4 + koridor_sırası (gen_world.lighting).
+#
+# DİKKAT, NAVİGASYON: aşağı bakan kamera ArUco'yu ve optik akış zemini
+# okuyor. Karanlık koridor ucunda markör düzeltmesi kaçabilir, akış zayıflar.
+# Bu da ölçülen şeyin parçası; uçuşta araç savrulursa kes.
+#
+# setup_px4.sh ve simülatörün yeniden başlatılması şart. Kapalıyken dünya ve
+# yer gerçeği bit bit eskisiyle aynı.
+lights_stress:
+  enabled: false
+  ambient_scale: 0.20
+  diffuse_scale: 0.50
+  dead: [0, 2, 4, 6, 9, 11, 13, 15]
+  # dead verilmezse bu pay kadar lamba tohumla seçilir:
+  dead_fraction: 0.0
+  seed: 20261005
+
 # --------------------------------------------------------------- kameralar
 # Furkan'ın x500_scanner'ı: iki YAN kamera, yaw +-90, raf yüzlerine bakar.
 # Bizim eski "front" kameramızın işlevsel karşılığı. Aşağı/arka kamera yok.

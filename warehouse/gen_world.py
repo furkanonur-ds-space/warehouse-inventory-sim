@@ -996,9 +996,12 @@ def aisle_markers(cfg, textures, manifest) -> str:
     return "".join(out)
 
 
-def lighting(cfg) -> str:
+def lighting(cfg, plan=None) -> str:
     lt = cfg["lighting"]["ceiling_lights"]
-    dr, dg, db, da = lt["diffuse"]
+    # Işık bozulması (stress.light_plan): lambalar kısılmış, bazıları sönük.
+    # Kapalıyken plan temiz dünyanınkidir ve buradan çıkan metin değişmez.
+    plan = plan or sx.light_plan(cfg)
+    dr, dg, db, da = plan["diffuse"]
     sr, sg, sb, sa = lt["specular"]
     yaw = world_yaw_rad(cfg)
     out = []
@@ -1008,6 +1011,11 @@ def lighting(cfg) -> str:
             # Işıklar <model> içinde değil, world düzeyinde <light> -- yani
             # model pozuyla dönmezler. Konumları burada elle çevriliyor.
             x, y = rotate_xy(xc, yc, yaw)
+            if i in plan["dead"]:
+                # SÖNÜK LAMBA. Sahneye hiç konmaz; sıra numarası yine harcanır
+                # ki öbür lambaların adı temiz dünyadakiyle aynı kalsın.
+                i += 1
+                continue
             # cast_shadows kapalı: nokta ışık gölgeleri OGRE2'de pahalı ve
             # iGPU'da kare hızını yarıya düşürüyor. Kodların okunması için
             # gölge değil, düzgün ve parlamasız aydınlatma gerekiyor.
@@ -1025,7 +1033,8 @@ def lighting(cfg) -> str:
   </light>
 """)
             i += 1
-    print(f"  tavan lambası  : {i}")
+    print(f"  tavan lambası  : {i - len(plan['dead'])}"
+          + (f"  ({len(plan['dead'])} sönük: {sorted(plan['dead'])})" if plan["dead"] else ""))
     return "".join(out)
 
 
@@ -1033,12 +1042,37 @@ def lighting(cfg) -> str:
 # birleştirme
 # --------------------------------------------------------------------------
 
+def tag_light(cfg, plan, manifest) -> None:
+    """Her etiketin aldığı ışık, yer gerçeğine: bu dünyada ve temiz dünyada.
+
+    Config çerçevesinde, rotate_manifest'ten ÖNCE: lambaların konumu da o
+    çerçevede yazılı. Raporlar bunu okur, hesaplamaz - ışığın nasıl kurulduğu
+    üreticinin kararı ve iki yerde hesaplanırsa ayrışır.
+    """
+    clean = sx.light_plan(dict(cfg, lights_stress=None))
+    n = 0
+    for rec in manifest:
+        if rec["type"] not in ("box_qr", "box_placard", "box_unlabelled", "box_decoy"):
+            continue
+        p, nrm = rec["label_pose_xyzrpy"][:3], rec["normal"]
+        e = sx.illuminance(p, nrm, plan, cfg)
+        e0 = sx.illuminance(p, nrm, clean, cfg)
+        rec["light"] = {"E": round(e, 4), "E_clean": round(e0, 4),
+                        "rel": round(e / e0, 4) if e0 > 0 else None}
+        n += 1
+    es = sorted(r["light"]["E"] for r in manifest if r.get("type") == "box_qr" and "light" in r)
+    if es:
+        print(f"  IŞIK           : {n} etiket; QR ışığı en az {es[0]:.2f}, ortanca "
+              f"{es[len(es)//2]:.2f}, en çok {es[-1]:.2f} (model birimi)")
+
+
 def build(cfg) -> tuple[str, list]:
     rng = random.Random(cfg["seed"])
     textures: dict = {}
     manifest: list = []
     lg = cfg["lighting"]
-    ar, ag, ab, aa = lg["ambient"]
+    plan = sx.light_plan(cfg)
+    ar, ag, ab, aa = plan["ambient"]
     br, bg, bb, ba = lg["background"]
 
     yaw = world_yaw_rad(cfg)
@@ -1053,9 +1087,11 @@ def build(cfg) -> tuple[str, list]:
         racking(cfg),
         inventory(cfg, rng, textures, manifest),
     ]
+    if plan["on"]:
+        tag_light(cfg, plan, manifest)
     rotate_manifest(manifest, yaw)
     body.append(aisle_markers(cfg, textures, manifest))
-    body.append(lighting(cfg))
+    body.append(lighting(cfg, plan))
     if yaw:
         print(f"  dünya dönüşü   : {math.degrees(yaw):+.0f} deg "
               f"(config çerçevesi -> Furkan'ın çerçevesi)")
@@ -1156,11 +1192,13 @@ def main() -> int:
     mm_path.write_text(json.dumps(mm, indent=2))
 
     gt_path = args.out / "out" / "ground_truth.json"
-    gt_path.write_text(json.dumps({
-        "world": "warehouse",
-        "seed": cfg["seed"],
-        "codes": manifest,
-    }, indent=2, ensure_ascii=False))
+    truth = {"world": "warehouse", "seed": cfg["seed"], "codes": manifest}
+    plan = sx.light_plan(cfg)
+    if plan["on"]:
+        # Kapalıyken yazılmaz: temiz dünyanın yer gerçeği bit bit aynı kalsın.
+        truth["lighting"] = {"ambient": plan["ambient"], "diffuse": plan["diffuse"],
+                             "dead_lamps": sorted(plan["dead"])}
+    gt_path.write_text(json.dumps(truth, indent=2, ensure_ascii=False))
 
     images = [n for n in textures if not n.startswith("mesh:")]
     tex_bytes = sum((tex_dir / n).stat().st_size for n in images)

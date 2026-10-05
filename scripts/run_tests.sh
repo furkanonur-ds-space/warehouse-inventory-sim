@@ -81,6 +81,8 @@ run test_stress_report.py
 # Old labels: a QR naming another place, a barcode beaten by a nearer one
 # under the same QR. Both rules truth-free; the test builds the old labels.
 run test_stale_labels.py
+# The light report, over an invented run that reads only the brighter labels.
+run test_light_report.py
 
 # A barcode on a label stuck on crooked: read off a levelled copy round its
 # QR, and filed back in the frame's own pixels.
@@ -92,6 +94,9 @@ run test_level.py
 # unchanged when it is off.
 cd "$HERE/warehouse" || exit 1
 run test_stress.py
+# The dimmed world: dark lamps gone, the rest turned down, and the light
+# written into ground truth equal to the light the SDF's own lamps give.
+run test_lights.py
 
 if [ "$failed" -eq 0 ]; then
     echo "all suites passed"

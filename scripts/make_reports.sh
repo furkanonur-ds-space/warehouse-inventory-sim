@@ -112,6 +112,12 @@ if ls out/yolo_boxes_*.jsonl >/dev/null 2>&1; then
   fi
 fi
 
+# The dimmed warehouse, split by the light each label got. Says so and exits
+# cleanly when the truth carries no light, like the stress report below.
+echo
+echo "-- light --"
+run report/light_report.py
+
 # The stressed warehouse, split by what was done to each carton. Last, because
 # it reads what the blocks above wrote. It says so and exits cleanly on a world
 # built without stress, so it needs no guard of its own.
