@@ -1,0 +1,122 @@
+<?xml version="1.0" ?>
+<!--
+  HITL world for the x500_voxl model.
+
+  The system plugins and the 4 ms physics step are the ones the ModalAI
+  document lists for this setup. The sensor topic names are passed to the
+  bridge explicitly: Gazebo builds them from the scoped name of each sensor,
+  so a renamed model would otherwise leave the bridge subscribed to nothing
+  with no error.
+-->
+<sdf version="1.9">
+  <world name="hitl_x500">
+
+    <physics name="250hz" type="ode">
+      <max_step_size>0.004</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <plugin filename="gz-sim-physics-system"
+            name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system"
+            name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-imu-system"
+            name="gz::sim::systems::Imu"/>
+    <plugin filename="gz-sim-air-pressure-system"
+            name="gz::sim::systems::AirPressure"/>
+    <plugin filename="gz-sim-magnetometer-system"
+            name="gz::sim::systems::Magnetometer"/>
+    <plugin filename="gz-sim-navsat-system"
+            name="gz::sim::systems::NavSat"/>
+
+    <plugin filename="hitl_bridge" name="hitl_bridge::HitlBridge">
+      <imu_topic>/world/hitl_x500/model/x500_voxl/link/base_link/sensor/imu_sensor/imu</imu_topic>
+      <mag_topic>/world/hitl_x500/model/x500_voxl/link/base_link/sensor/magnetometer_sensor/magnetometer</mag_topic>
+      <baro_topic>/world/hitl_x500/model/x500_voxl/link/base_link/sensor/air_pressure_sensor/air_pressure</baro_topic>
+      <gps_topic>/world/hitl_x500/model/x500_voxl/link/base_link/sensor/navsat_sensor/navsat</gps_topic>
+      <report_every_s>1.0</report_every_s>
+
+      <!-- Where PX4 is. 127.0.0.1 is this machine; for a real VOXL2 over
+           USB-C it is either 127.0.0.1 with adb forwarding or the board's
+           own address, usually 192.168.101.2. -->
+      <mavlink_addr>127.0.0.1</mavlink_addr>
+      <mavlink_udp_remote_port>14560</mavlink_udp_remote_port>
+
+      <!-- What the motor model actually listens to: the model name and its
+           commandSubTopic, with no /model prefix. maxRotVelocity in the
+           model says what a command of 1.0 means. -->
+      <motor_topic>/x500_voxl/command/motor_speed</motor_topic>
+      <max_rot_velocity>1000.0</max_rot_velocity>
+      <motor_count>4</motor_count>
+
+      <!-- The VIO path: ground truth pose as MAVLink ODOMETRY, which
+           voxl-hitl-vio-server reads on the drone and hands to
+           voxl-vision-hub in place of real VIO. -->
+      <en_vio_output>true</en_vio_output>
+      <vio_mavlink_addr>127.0.0.1</vio_mavlink_addr>
+      <vio_udp_remote_port>14570</vio_udp_remote_port>
+      <vio_update_rate>250</vio_update_rate>
+      <odometry_model>x500_voxl</odometry_model>
+    </plugin>
+
+    <!-- NavSat reports nothing without an origin on the earth. -->
+    <spherical_coordinates>
+      <surface_model>EARTH_WGS84</surface_model>
+      <world_frame_orientation>ENU</world_frame_orientation>
+      <latitude_deg>39.925</latitude_deg>
+      <longitude_deg>32.837</longitude_deg>
+      <elevation>890</elevation>
+    </spherical_coordinates>
+
+    <gravity>0 0 -9.8066</gravity>
+    <!-- From PX4's own World Magnetic Model tables for the latitude and
+         longitude above, by scripts/magnetic_field.py: declination 6.17,
+         inclination 58.15, 48136 nT, written ENU. PX4 compares the
+         magnetometer against that model to find north, so this has to
+         agree with it. The first version pointed east and up, which would
+         have put the heading about 90 degrees out. -->
+    <magnetic_field>2.7321e-06 2.5255e-05 -4.0888e-05</magnetic_field>
+
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <include>
+      <uri>model://x500_voxl</uri>
+      <pose>0 0 0.25 0 0 0</pose>
+    </include>
+
+  </world>
+</sdf>
