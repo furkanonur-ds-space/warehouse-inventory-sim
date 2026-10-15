@@ -482,6 +482,50 @@ and is what found it.
 ../.venv/bin/python test_drift_correction.py
 ```
 
+## What the vehicle looks like
+
+By default the Starling 2 is drawn as the boxes and discs its physics is
+made of. It can be drawn from ModalAI's own CAD instead (D0014 Starling 2,
+C27 cameras), which ModalAI supplies as a STEP file:
+
+```sh
+~/cad_venv/bin/python scanner/cad/step_to_stl.py \
+    "D0014 Starling 2-C27 HW Rev1.STEP" starling2_c27_body.stl --min-volume 100
+cd scanner
+../.venv/bin/python build_starling2.py --body-mesh ../starling2_c27_body.stl
+../.venv/bin/python build_c27_drone.py
+```
+
+The converter needs gmsh, which brings its own CAD kernel and installs
+without root into a virtualenv of its own (`python3 -m venv ~/cad_venv &&
+~/cad_venv/bin/pip install gmsh numpy`). Converting takes about eight
+minutes and gives a 547,000 triangle mesh. The mesh is not in this
+repository: it is derived from ModalAI's file and this repository is
+public. `setup_px4.sh` builds the box version; rebuild with `--body-mesh`
+afterwards to keep the CAD one.
+
+Only the look changes. Mass, inertia, collisions and rotor joints stay as
+ModalAI's PX4 parameters give them. The CAD body wraps the sensors as the
+real one does, so it carries a visibility flag that the vehicle's own
+cameras and TOF are told to ignore; checked by rendering the vehicle both
+ways, the downward camera's frame is identical to the pixel.
+
+Two things the CAD showed, both left for a decision rather than changed:
+
+- **The box model's propellers were in its own camera frames.** Drawn as
+  solid discs, they covered about 10 per cent of the hires frame and 13 per
+  cent of the rear one, in the top corners, in every scan so far. The CAD
+  build hides them from the sensors, which is closer to a real propeller
+  spinning at speed, but it does change what the cameras see, so the first
+  scan with it is a measurement, not a formality.
+- **ModalAI's CAD and ModalAI's parameters disagree about the motors.** The
+  CAD puts them 66 mm fore and aft and 88 mm across; the PX4 parameters
+  (CA_ROTOR*_PX/PY) put them 85 and 62.5, the other way round. The front is
+  settled by ModalAI's camera extrinsics, which put the front cameras 66 to
+  68 mm ahead. The physics keeps the parameters, which are what PX4 flies;
+  the drawn propellers follow the CAD. The same extrinsics put the body
+  33 mm above the ground at rest, against 60 mm here.
+
 ## Naming
 
 The scanner is `x500_c27`, its airframe `4023_gz_x500_c27`. Both halves of the

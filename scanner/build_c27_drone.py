@@ -134,6 +134,18 @@ with open(os.path.join(model_dir, 'model.config'), 'w') as f:
     f.write(config)
 
 
+# What the vehicle's own sensors may see: everything except the bit the
+# vehicle's visuals carry (build_starling2.VEHICLE_VISUAL_FLAG, bit 1).
+#
+# The airframe can be drawn from ModalAI's CAD, and that body wraps the
+# sensors as the real one does: the downward camera looks straight at the
+# battery and the TOF fires into the front camera housing. Every scan result
+# so far was measured with sensors that saw past the vehicle, so they keep
+# doing so. Visuals that do not carry the bit, which is everything in the
+# warehouse, are unaffected: Gazebo's default flags are all ones.
+SENSOR_VISIBILITY_MASK = 0xFFFFFFFF & ~0x2
+
+
 def camera_block(link_name, joint_name, x_off, y_off, z_off,
                  roll, pitch, yaw, fov, width, height, update_rate=30):
     """
@@ -170,6 +182,7 @@ def camera_block(link_name, joint_name, x_off, y_off, z_off,
             <format>R8G8B8</format>
           </image>
           <clip><near>0.05</near><far>100</far></clip>
+          <visibility_mask>{SENSOR_VISIBILITY_MASK}</visibility_mask>
         </camera>
       </sensor>
     </link>'''
@@ -233,6 +246,7 @@ def range_block(link_name, joint_name, x_off, y_off, z_off,
           <range>
             <min>0.1</min><max>{max_range}</max><resolution>0.01</resolution>
           </range>
+          <visibility_mask>{SENSOR_VISIBILITY_MASK}</visibility_mask>
         </ray>
       </sensor>
     </link>'''

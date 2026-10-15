@@ -37,6 +37,8 @@ the whole time.
 import math
 import os
 import re
+import shutil
+import sys
 
 PX4_MODELS = os.path.expanduser(
     "~/PX4-Autopilot/Tools/simulation/gz/models")
@@ -63,6 +65,51 @@ BODY_X, BODY_Y, BODY_Z = 0.110, 0.085, 0.045
 # number has to match reality; measure it in the simulator rather than trust
 # it, as ground_offset in layout.json has been wrong before.
 REST_HEIGHT_M = 0.060
+
+# --- WHAT IT LOOKS LIKE ---------------------------------------------------
+# By default the vehicle is drawn as the boxes and discs its physics is made
+# of. Given --body-mesh, it is drawn from ModalAI's own CAD instead, D0014
+# Starling 2 C27 (STEP, converted by ~/starling2_CAD/step_to_stl.py). The mesh
+# is not in this repository: it is derived from ModalAI's file and this
+# repository is public, so it is built locally from the STEP.
+#
+# Only the look changes. Mass, inertia, collisions and the rotor joints stay
+# exactly as above, from ModalAI's PX4 parameters, because that is what the
+# vehicle is flown with and what every scan result was measured against.
+#
+# Measured in the STEP, millimetres, Y up:
+#   the camera clusters sit at the two ends of Z, and ModalAI's extrinsics
+#   (D0014_Starling_2.conf) put the front cameras 66 to 68 mm ahead of the
+#   body and the rear one 62 mm behind, so -Z is forward and X is across;
+#   the motor mounts are at X +-88, Z +-66: 66 mm fore and aft, 88 across;
+#   the feet are 29.7 mm below the file's origin.
+#
+# That motor layout disagrees with the parameters above, which put the
+# motors 85 mm fore and aft and 62.5 across, the other way round. Both come
+# from ModalAI. The parameters are what PX4 flies, so the physics keeps them;
+# the drawn propellers follow the CAD, so what is seen is the real airframe.
+# Raised with ModalAI and the company as a question, not settled here.
+CAD_MOTOR_FWD = 0.066
+CAD_MOTOR_LAT = 0.088
+CAD_FEET_BELOW_ORIGIN = 0.0297
+CAD_PROP_PLANE = 0.018          # propeller plane above the file's origin
+# Feet on the ground: base_link rests REST_HEIGHT_M up, the CAD's feet are
+# CAD_FEET_BELOW_ORIGIN below its origin. ModalAI's extrinsics put the real
+# body 33 mm above the ground, against REST_HEIGHT_M here; left alone for now
+# because it moves every commanded altitude.
+MESH_Z = -(REST_HEIGHT_M - CAD_FEET_BELOW_ORIGIN)
+# Y up and -Z forward in the file, to x forward, y left, z up here: roll 90
+# degrees about x, then yaw -90 about z.
+MESH_RPY = "1.570796 0 -1.570796"
+MESH_FILE = "starling2_c27_body.stl"
+
+# The bit every vehicle visual carries, and the one the vehicle's own
+# sensors are told not to see (build_c27_drone.SENSOR_VISIBILITY_MASK). The
+# CAD body wraps the cameras as the real one does, and every scan so far was
+# measured by sensors that looked past the vehicle.
+VEHICLE_VISUAL_FLAG = 0x2
+
+BODY_MESH = None                # set from --body-mesh in main()
 
 # --- THE MOTORS -----------------------------------------------------------
 # 1504 3000 kv on 2S. Under load the propellers fall well short of the no load
@@ -137,6 +184,91 @@ def borrow_sensors():
                      for line in block.splitlines())
 
 
+def rotor_visual(index):
+    """The propeller as drawn on its own spinning link, or nothing.
+
+    With the CAD body the drawn propellers move to the CAD's motors, which
+    are not where the rotor joints are (see CAD_MOTOR_FWD), so they are drawn
+    on base_link instead by cad_visuals(). Drawn on the rotor link they would
+    orbit the joint axis rather than spin about their own centre. A flat disc
+    looks the same spinning or still, so nothing is lost.
+    """
+    if BODY_MESH:
+        return ""
+    return f'''      <visual name="rotor_{index}_visual">
+        <geometry>
+          <cylinder>
+            <radius>{PROP_DIAMETER_M / 2:.4f}</radius>
+            <length>0.004</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.2 0.2 0.2 1</ambient>
+          <diffuse>0.2 0.2 0.2 1</diffuse>
+        </material>
+      </visual>'''
+
+
+def cad_visuals():
+    """The ModalAI body and four propeller discs, all on base_link."""
+    discs = "".join(f'''
+      <visual name="prop_{i}_visual">
+        <pose>{xs * CAD_MOTOR_FWD:.4f} {ys * CAD_MOTOR_LAT:.4f} {MESH_Z + CAD_PROP_PLANE:.4f} 0 0 0</pose>
+        <geometry>
+          <cylinder><radius>{PROP_DIAMETER_M / 2:.4f}</radius><length>0.002</length></cylinder>
+        </geometry>
+        <material>
+          <ambient>0.3 0.3 0.3 1</ambient>
+          <diffuse>0.3 0.3 0.3 1</diffuse>
+        </material>
+        <transparency>0.7</transparency>
+        <visibility_flags>{VEHICLE_VISUAL_FLAG}</visibility_flags>
+      </visual>''' for i, (xs, ys) in enumerate(((+1, -1), (-1, +1), (+1, +1), (-1, -1))))
+    return f'''      <visual name="body_cad_visual">
+        <pose>0 0 {MESH_Z:.4f} {MESH_RPY}</pose>
+        <geometry>
+          <mesh>
+            <uri>model://{BASE_NAME}/meshes/{MESH_FILE}</uri>
+            <scale>0.001 0.001 0.001</scale>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.12 0.12 0.13 1</ambient>
+          <diffuse>0.35 0.35 0.37 1</diffuse>
+          <specular>0.2 0.2 0.2 1</specular>
+        </material>
+        <visibility_flags>{VEHICLE_VISUAL_FLAG}</visibility_flags>
+      </visual>{discs}'''
+
+
+def box_visuals():
+    """The body and arms as the boxes the physics is made of."""
+    return f'''      <visual name="base_link_visual">
+        <geometry>
+          <box><size>{BODY_X} {BODY_Y} {BODY_Z}</size></box>
+        </geometry>
+        <material>
+          <ambient>0.1 0.1 0.1 1</ambient>
+          <diffuse>0.15 0.15 0.15 1</diffuse>
+        </material>
+      </visual>'''
+
+
+def arms_visual():
+    if BODY_MESH:
+        return ""
+    return f'''
+      <visual name="arms_visual">
+        <geometry>
+          <box><size>{2 * ARM_X:.4f} {2 * ARM_Y:.4f} 0.006</size></box>
+        </geometry>
+        <material>
+          <ambient>0.05 0.05 0.05 1</ambient>
+          <diffuse>0.08 0.08 0.08 1</diffuse>
+        </material>
+      </visual>'''
+
+
 def rotor_link(index, x_sign, y_sign, direction):
     """One arm: a motor and propeller, as a thin disc on a hinge."""
     mass = ROTOR_MASS_KG
@@ -158,18 +290,7 @@ def rotor_link(index, x_sign, y_sign, direction):
           <izz>{2 * i_axis:.6e}</izz>
         </inertia>
       </inertial>
-      <visual name="rotor_{index}_visual">
-        <geometry>
-          <cylinder>
-            <radius>{PROP_DIAMETER_M / 2:.4f}</radius>
-            <length>0.004</length>
-          </cylinder>
-        </geometry>
-        <material>
-          <ambient>0.2 0.2 0.2 1</ambient>
-          <diffuse>0.2 0.2 0.2 1</diffuse>
-        </material>
-      </visual>
+{rotor_visual(index)}
       <collision name="rotor_{index}_collision">
         <geometry>
           <cylinder>
@@ -197,13 +318,18 @@ def leg(index, x_sign, y_sign):
     """A short leg, so the vehicle rests at a height we chose rather than one
     that falls out of whatever collides first."""
     height = REST_HEIGHT_M - BODY_Z / 2
-    return f'''
+    collision = f'''
       <collision name="leg_{index}_collision">
         <pose>{x_sign * 0.045:.4f} {y_sign * 0.045:.4f} {-BODY_Z / 2 - height / 2:.4f} 0 0 0</pose>
         <geometry>
           <box><size>0.008 0.008 {height:.4f}</size></box>
         </geometry>
-      </collision>
+      </collision>'''
+    # The CAD body draws its own legs; the collision stays, since it is what
+    # the vehicle stands on.
+    if BODY_MESH:
+        return collision
+    return collision + f'''
       <visual name="leg_{index}_visual">
         <pose>{x_sign * 0.045:.4f} {y_sign * 0.045:.4f} {-BODY_Z / 2 - height / 2:.4f} 0 0 0</pose>
         <geometry>
@@ -234,6 +360,16 @@ def motor_plugin(index, direction):
 
 
 def main():
+    global BODY_MESH
+    if "--body-mesh" in sys.argv:
+        at = sys.argv.index("--body-mesh")
+        if at + 1 >= len(sys.argv):
+            raise SystemExit("--body-mesh needs the path of the STL")
+        BODY_MESH = os.path.expanduser(sys.argv[at + 1])
+        if not os.path.isfile(BODY_MESH):
+            raise SystemExit("no mesh at %s; build it from the STEP with "
+                             "~/starling2_CAD/step_to_stl.py" % BODY_MESH)
+
     body_mass = MASS_KG - 4 * ROTOR_MASS_KG
     ixx, iyy, izz = box_inertia(body_mass, BODY_X, BODY_Y, BODY_Z)
 
@@ -261,29 +397,12 @@ def main():
       </inertial>
       <gravity>true</gravity>
       <velocity_decay />
-      <visual name="base_link_visual">
-        <geometry>
-          <box><size>{BODY_X} {BODY_Y} {BODY_Z}</size></box>
-        </geometry>
-        <material>
-          <ambient>0.1 0.1 0.1 1</ambient>
-          <diffuse>0.15 0.15 0.15 1</diffuse>
-        </material>
-      </visual>
+{cad_visuals() if BODY_MESH else box_visuals()}
       <collision name="base_link_collision">
         <geometry>
           <box><size>{BODY_X} {BODY_Y} {BODY_Z}</size></box>
         </geometry>
-      </collision>
-      <visual name="arms_visual">
-        <geometry>
-          <box><size>{2 * ARM_X:.4f} {2 * ARM_Y:.4f} 0.006</size></box>
-        </geometry>
-        <material>
-          <ambient>0.05 0.05 0.05 1</ambient>
-          <diffuse>0.08 0.08 0.08 1</diffuse>
-        </material>
-      </visual>
+      </collision>{arms_visual()}
 {"".join(leg(i, xs, ys) for i, xs, ys in [(0, +1, +1), (1, +1, -1), (2, -1, +1), (3, -1, -1)])}
 
 {borrow_sensors()}
@@ -303,6 +422,16 @@ def main():
   </model>
 </sdf>
 '''
+
+    # The mesh travels with the model rather than being referred to where it
+    # was built, so the model directory is complete on its own. A run without
+    # --body-mesh removes it, so a stale copy cannot outlive the choice.
+    meshes = os.path.join(PX4_MODELS, BASE_NAME, "meshes")
+    if BODY_MESH:
+        os.makedirs(meshes, exist_ok=True)
+        shutil.copyfile(BODY_MESH, os.path.join(meshes, MESH_FILE))
+    elif os.path.isdir(meshes):
+        shutil.rmtree(meshes)
 
     for name, text in ((BASE_NAME, base), (MODEL_NAME, model)):
         directory = os.path.join(PX4_MODELS, name)
