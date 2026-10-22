@@ -79,8 +79,8 @@ REAR_MAX_STANDOFF = LAYOUT.get("rear_max_standoff", 1.10)
 SHELF_STANDOFF = LAYOUT.get("shelf_standoff", HIRES_MAX_STANDOFF)
 
 # How wide the vehicle is, so an aisle it does not fit down can be named
-# rather than flown into. The Starling 2 is 290 mm across at the propeller
-# tips.
+# rather than flown into. The Starling 2 is 252 mm front to back at the
+# propeller tips, which is the way it faces across an aisle.
 VEHICLE_HALF_SPAN = LAYOUT.get("vehicle_half_span", 0.0)
 
 # How much room to leave between a propeller tip and a shelf.

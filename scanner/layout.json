@@ -257,7 +257,7 @@
       "clearance_each_side": 0.105
     }
   ],
-  "vehicle_half_span": 0.145,
+  "vehicle_half_span": 0.126,
   "flight_z": [
     0.75,
     2.45,
@@ -294,11 +294,13 @@
     "starling2_furkan. ground_offset is the airframe's, not the building's:",
     "0.060 for the Starling 2 where the x500 measured 0.227.",
     "",
-    "vehicle_half_span is 0.145, half of the Starling's 290 mm across the",
-    "propeller tips. The aisle table's flyable flags are recomputed from it,",
-    "which changes the narrowest aisle: an x500 does not fit in 0.50 m and a",
-    "Starling does, with 105 mm a side. Whether that is enough to fly is a",
-    "separate question from whether it fits."
+    "vehicle_half_span is 0.126, half of the Starling's 252 mm front to back",
+    "across the propeller tips (CAD; about 260 with a ruler), the way it faces",
+    "across an aisle. It was 0.145 from the motor positions in the PX4",
+    "parameters until 22 October 2026. The aisle table's flyable flags are",
+    "recomputed from it, which changes the narrowest aisle: an x500 does not",
+    "fit in 0.50 m and a Starling does, with 124 mm a side. Whether that is",
+    "enough to fly is a separate question from whether it fits."
   ],
   "_camera_reach_note": [
     "How far each camera reads, measured by standoff_sweep.py on real label",

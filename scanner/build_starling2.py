@@ -51,12 +51,18 @@ PROP_DIAMETER_M = 0.120
 MASS_KG = 0.285             # take-off weight, 182 g of it without the battery
 ROTOR_MASS_KG = 0.008       # motor plus propeller, one arm
 
-# CA_ROTOR0_PX and PY. The motors are not on a square: the frame is 170 mm
-# front to back and 125 mm across, so roll and pitch do not behave alike and
-# PX4's gains for them differ, 0.072 against 0.097.
-ARM_X = 0.085
-ARM_Y = 0.0625
-DIAGONAL_M = 2 * math.sqrt(ARM_X ** 2 + ARM_Y ** 2)      # 0.211 m
+# Where the motors really are: ModalAI's CAD (CAD_MOTOR_FWD and _LAT below),
+# 66 mm fore and aft and 88 across, confirmed on the vehicle with a ruler on
+# 22 October 2026 (140 and 180 mm between motor centres, 230 diagonal). The
+# frame is wider than it is long.
+#
+# PX4 is told otherwise. CA_ROTOR0_PX and PY on the vehicle itself, read from
+# its parameter file, are 85 and 62.5 mm, longer than wide. The simulated PX4
+# keeps those parameters on purpose: the real vehicle flies with this frame
+# and those parameters, so the simulator flies both together too.
+ARM_X = 0.066
+ARM_Y = 0.088
+DIAGONAL_M = 2 * math.sqrt(ARM_X ** 2 + ARM_Y ** 2)      # 0.220 m
 
 # The body, inside the motors.
 BODY_X, BODY_Y, BODY_Z = 0.110, 0.085, 0.045
@@ -74,8 +80,7 @@ REST_HEIGHT_M = 0.060
 # repository is public, so it is built locally from the STEP.
 #
 # Only the look changes. Mass, inertia, collisions and the rotor joints stay
-# exactly as above, from ModalAI's PX4 parameters, because that is what the
-# vehicle is flown with and what every scan result was measured against.
+# exactly as above.
 #
 # Measured in the STEP, millimetres, Y up:
 #   the camera clusters sit at the two ends of Z, and ModalAI's extrinsics
@@ -84,11 +89,9 @@ REST_HEIGHT_M = 0.060
 #   the motor mounts are at X +-88, Z +-66: 66 mm fore and aft, 88 across;
 #   the feet are 29.7 mm below the file's origin.
 #
-# That motor layout disagrees with the parameters above, which put the
-# motors 85 mm fore and aft and 62.5 across, the other way round. Both come
-# from ModalAI. The parameters are what PX4 flies, so the physics keeps them;
-# the drawn propellers follow the CAD, so what is seen is the real airframe.
-# Raised with ModalAI and the company as a question, not settled here.
+# The motor layout is what ARM_X and ARM_Y above now use. It disagrees with
+# PX4's CA_ROTOR parameters (85 and 62.5, the other way round); raised with
+# ModalAI and the company as a question, not settled here.
 CAD_MOTOR_FWD = 0.066
 CAD_MOTOR_LAT = 0.088
 CAD_FEET_BELOW_ORIGIN = 0.0297

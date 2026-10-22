@@ -316,6 +316,12 @@ formula allows 16.8 m and the run lost 4 codes without colliding, which is
 what being slightly over the line looks like. At 0.25% it allows 33.6 m and
 the run read all 432. That prediction was made before the flight.
 
+Those runs flew a vehicle 290 mm across, which came from the motor positions
+in ModalAI's PX4 parameters. The real airframe is narrower in that direction:
+252 mm from the CAD, about 260 with a ruler on the vehicle (see "What the
+vehicle looks like"). With 252 the clearance at face H is 0.103 m and the
+table becomes 10.3, 20.6 and 41.2 m. The experiment above stands as flown.
+
 This is the part that travels. Measure what `voxl-qvio-server` actually drifts
 over a known path, measure the clearance in the real aisles, and the marker
 spacing follows, before anybody marks a floor.
@@ -504,8 +510,9 @@ repository: it is derived from ModalAI's file and this repository is
 public. `setup_px4.sh` builds the box version; rebuild with `--body-mesh`
 afterwards to keep the CAD one.
 
-Only the look changes. Mass, inertia, collisions and rotor joints stay as
-ModalAI's PX4 parameters give them. The CAD body wraps the sensors as the
+Only the look changes: mass, inertia, collisions and rotor joints are the
+same in both builds, with the rotors where the CAD and the real vehicle have
+them (below). The CAD body wraps the sensors as the
 real one does, so it carries a visibility flag that the vehicle's own
 cameras and TOF are told to ignore; checked by rendering the vehicle both
 ways, the downward camera's frame is identical to the pixel.
@@ -522,9 +529,14 @@ Two things the CAD showed, both left for a decision rather than changed:
   CAD puts them 66 mm fore and aft and 88 mm across; the PX4 parameters
   (CA_ROTOR*_PX/PY) put them 85 and 62.5, the other way round. The front is
   settled by ModalAI's camera extrinsics, which put the front cameras 66 to
-  68 mm ahead. The physics keeps the parameters, which are what PX4 flies;
-  the drawn propellers follow the CAD. The same extrinsics put the body
-  33 mm above the ground at rest, against 60 mm here.
+  68 mm ahead. A ruler on the real vehicle sides with the CAD: 140 mm
+  between motor centres fore and aft, 180 across, 230 on the diagonal. The
+  vehicle's own parameter file has the 85 and 62.5. So the physics now puts
+  the rotors where the CAD has them, and the simulated PX4 keeps the
+  parameters, because that pairing is what the real vehicle flies with. The
+  same extrinsics put the body 33 mm above the ground at rest, against 60 mm
+  here, and the hires 15 mm below the rear camera rather than above it;
+  both are still open.
 
 ## Naming
 
@@ -611,7 +623,7 @@ succeeded.
 ./scripts/run_tests.sh
 ```
 
-Seven suites, seconds each, no simulator. They import the scanner, read the
+Eight suites, seconds each, no simulator. They import the scanner, read the
 layout, and work through the geometry, so they fail loudly on a virtualenv
 missing a package or a `setup_px4.sh` that did not finish, which are the two
 ways a fresh install goes wrong. `all suites passed` means the next thing to
@@ -731,7 +743,7 @@ measurement, so it was not short of the eight processors WSL is given.
 ./scripts/run_tests.sh
 ```
 
-Seven suites, seconds each, no simulator:
+Eight suites, seconds each, no simulator:
 
 - `test_pose_history.py` - that a code is filed against the pose its frame was
   taken at. Includes the case the whole thing exists for: a frame handled two
