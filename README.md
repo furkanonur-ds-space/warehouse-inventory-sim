@@ -497,15 +497,20 @@ C27 cameras), which ModalAI supplies as a STEP file:
 ```sh
 ~/cad_venv/bin/python scanner/cad/step_to_stl.py \
     "D0014 Starling 2-C27 HW Rev1.STEP" starling2_c27_body.stl --min-volume 100
+~/cad_venv/bin/python scanner/cad/drop_folded_propellers.py \
+    starling2_c27_body.stl starling2_c27_body_noprops.stl
 cd scanner
-../.venv/bin/python build_starling2.py --body-mesh ../starling2_c27_body.stl
+../.venv/bin/python build_starling2.py --body-mesh ../starling2_c27_body_noprops.stl
 ../.venv/bin/python build_c27_drone.py
 ```
 
 The converter needs gmsh, which brings its own CAD kernel and installs
 without root into a virtualenv of its own (`python3 -m venv ~/cad_venv &&
 ~/cad_venv/bin/pip install gmsh numpy`). Converting takes about eight
-minutes and gives a 547,000 triangle mesh. The mesh is not in this
+minutes and gives a 547,000 triangle mesh. The STEP has the propellers
+folded back along the arms for transport; `drop_folded_propellers.py` finds
+the eight blades by shape and takes them out (519,000 triangles left), since
+the simulator draws each spinning propeller as a disc. The mesh is not in this
 repository: it is derived from ModalAI's file and this repository is
 public. `setup_px4.sh` builds the box version; rebuild with `--body-mesh`
 afterwards to keep the CAD one.
