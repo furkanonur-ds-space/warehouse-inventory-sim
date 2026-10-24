@@ -22,6 +22,7 @@ import json
 import math
 import random
 import sys
+import zlib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -145,10 +146,10 @@ def pose(x, y, z, roll=0.0, pitch=0.0, yaw=0.0) -> str:
     return " ".join(fmt(v) for v in (x, y, z, roll, pitch, yaw))
 
 
-def box_visual(name: str, size, xyz, rgb, ind="        ") -> str:
+def box_visual(name: str, size, xyz, rgb, ind="        ", rpy=(0.0, 0.0, 0.0)) -> str:
     r, g, b = rgb
     return f"""{ind}<visual name="{name}">
-{ind}  <pose>{pose(*xyz)}</pose>
+{ind}  <pose>{pose(*xyz, *rpy)}</pose>
 {ind}  <geometry><box><size>{fmt(size[0])} {fmt(size[1])} {fmt(size[2])}</size></box></geometry>
 {ind}  <material>
 {ind}    <ambient>{fmt(r*0.5)} {fmt(g*0.5)} {fmt(b*0.5)} 1</ambient>
@@ -356,16 +357,264 @@ def check_aisles(cfg) -> None:
                              f"aisles[].y_center {aisle['y_center']:.3f}")
 
 
-def racking(cfg) -> str:
+# --------------------------------------------------------------------------
+# gerçekçilik (warehouse.yaml -> realism:)
+# --------------------------------------------------------------------------
+#
+# Gerçek depo fotoğraflarına (mavi delikli dikme, turuncu kiriş, çapraz
+# bağlantılı çerçeve, paletli yük) yaklaşmak için. Her anahtar kapalıyken
+# dünya bit bit eskisi gibi üretilir; açıkken de KUTULARIN VE KODLARIN
+# YERİ DEĞİŞMEZ -- ground_truth.json aynı kalır, scanner/layout.json'daki
+# code_z ve uçuş irtifaları geçerliliğini korur.
+
+# Euro palet (EN 13698-1): 1200 x 800 x 144 mm. 800 kenarı koridora bakar.
+PALLET_H = 0.144
+PALLET_W = 0.80
+# Kutudan taşma payı: palet yükten biraz geniş durur, ama en fazla Euro eni.
+PALLET_OVERHANG = 0.05
+# Dikme delik dokusunun bir karosu (m). Gerçek dikmelerde delik adımı 50 mm;
+# bir karoda iki delik var.
+UPRIGHT_TILE_M = 0.10
+
+
+def realism(cfg) -> dict:
+    r = cfg.get("realism") or {}
+    return {k: bool(r.get(k)) for k in ("rack", "pallets", "cartons", "film", "building")}
+
+
+def mesh_visual(name: str, uri: str, xyz, rgb, ind="        ", texture=None,
+                roughness=0.9, specular=0.05) -> str:
+    """Kendi ürettiğimiz OBJ mesh'i. `texture` verilirse renk dokudan gelir,
+    `rgb` de verildiyse onu tonlar."""
+    r, g, b = rgb if rgb else (1.0, 1.0, 1.0)
+    tex = (f"\n{ind}      <albedo_map>model://{ASSET_MODEL}/materials/textures/{texture}</albedo_map>"
+           if texture else "")
+    return f"""{ind}<visual name="{name}">
+{ind}  <pose>{pose(*xyz)}</pose>
+{ind}  <geometry><mesh><uri>model://{ASSET_MODEL}/meshes/{uri}</uri></mesh></geometry>
+{ind}  <material>
+{ind}    <ambient>{fmt(r*0.5)} {fmt(g*0.5)} {fmt(b*0.5)} 1</ambient>
+{ind}    <diffuse>{fmt(r)} {fmt(g)} {fmt(b)} 1</diffuse>
+{ind}    <specular>{fmt(specular)} {fmt(specular)} {fmt(specular)} 1</specular>
+{ind}    <pbr><metal>{tex}
+{ind}      <metalness>0.0</metalness>
+{ind}      <roughness>{fmt(roughness)}</roughness>
+{ind}    </metal></pbr>
+{ind}  </material>
+{ind}</visual>
+"""
+
+
+def quads_obj(quads, header: str) -> str:
+    """Dörtgenlerden OBJ. Her dörtgen (köşeler, normal, uv'ler); köşeler
+    dışarıdan bakınca saat yönünün tersine: sol-alt, sağ-alt, sağ-üst, sol-üst."""
+    vs, vts, vns, fs = [], [], [], []
+    for corners, normal, uvs in quads:
+        b = len(vs)
+        vs += corners
+        vts += uvs
+        vns.append(normal)
+        n = len(vns)
+        a, c, d, e = (f"{b+k+1}/{b+k+1}/{n}" for k in range(4))
+        fs += [f"f {a} {c} {d}", f"f {a} {d} {e}"]
+    lines = [f"# {header} -- gen_world.py üretti"]
+    lines += [f"v {x:.4f} {y:.4f} {z:.4f}" for x, y, z in vs]
+    lines += [f"vt {u:.4f} {v:.4f}" for u, v in vts]
+    lines += [f"vn {x:.0f} {y:.0f} {z:.0f}" for x, y, z in vns]
+    return "\n".join(lines + fs) + "\n"
+
+
+def box_quads(cx, cy, cz, sx, sy, sz, ru=1.0, rv=1.0, caps=True):
+    """Kutunun yan yüzleri; her yüzde u yatay 0..ru, v dikey 0..rv.
+    SDF <box>'ın UV'si yüze nasıl oturuyor garanti değil (etiket quad'ının
+    neden kendi mesh'i olduğuna bak); deliklerin dikey durması için burada
+    elle veriliyor."""
+    hx, hy, hz = sx / 2, sy / 2, sz / 2
+    lo, hi = cz - hz, cz + hz
+    side = [((0, 0), (ru, 0), (ru, rv), (0, rv))]
+    q = []
+    for (x0, y0), (x1, y1), n in (
+            ((cx + hx, cy - hy), (cx + hx, cy + hy), (1, 0, 0)),
+            ((cx - hx, cy + hy), (cx - hx, cy - hy), (-1, 0, 0)),
+            ((cx + hx, cy + hy), (cx - hx, cy + hy), (0, 1, 0)),
+            ((cx - hx, cy - hy), (cx + hx, cy - hy), (0, -1, 0))):
+        q.append(([(x0, y0, lo), (x1, y1, lo), (x1, y1, hi), (x0, y0, hi)], n, side[0]))
+    if caps:
+        flat = ((0, 0), (0, 0), (0, 0), (0, 0))
+        q.append(([(cx - hx, cy - hy, hi), (cx + hx, cy - hy, hi),
+                   (cx + hx, cy + hy, hi), (cx - hx, cy + hy, hi)], (0, 0, 1), flat))
+        q.append(([(cx - hx, cy + hy, lo), (cx + hx, cy + hy, lo),
+                   (cx + hx, cy - hy, lo), (cx - hx, cy - hy, lo)], (0, 0, -1), flat))
+    return q
+
+
+def upright_texture(px: int = 64) -> "Image.Image":
+    """Mavi boyalı dikme, ortada 50 mm adımlı delik sırası. Bir karo
+    UPRIGHT_TILE_M x UPRIGHT_TILE_M; mesh UV'si onu dikmece tekrar ettirir."""
+    from PIL import ImageDraw
+    img = Image.new("RGB", (px, px), (22, 88, 168))
+    d = ImageDraw.Draw(img)
+    # profil kenarları: bükümler biraz koyu görünür
+    d.rectangle([0, 0, 2, px - 1], fill=(14, 62, 124))
+    d.rectangle([px - 3, 0, px - 1, px - 1], fill=(14, 62, 124))
+    sw, sh = px * 12 // 100, px * 28 // 100          # 12 x 28 mm delik
+    for k in range(2):
+        yc = px // 4 + k * px // 2
+        x0 = (px - sw) // 2
+        d.rectangle([x0, yc - sh // 2, x0 + sw, yc + sh // 2], fill=(18, 22, 30))
+        # damla biçimi: üst ucu biraz geniş
+        d.rectangle([x0 - 2, yc - sh // 2, x0 + sw + 2, yc - sh // 2 + sh // 4],
+                    fill=(18, 22, 30))
+    return img
+
+
+def world_uv(quads, tu: float, tv: float = None, along_long: bool = False):
+    """Dörtgenlere gerçek boyuta göre UV verir: u yüzün eni / tu, v boyu / tv.
+    Doku böylece her parçada aynı ölçekte tekrarlar. `along_long` ise u her
+    yüzde uzun kenar boyunca gider -- tahtada lif, tahtanın boyunca akar."""
+    tv = tv or tu
+    out = []
+    for c, n, _ in quads:
+        e1 = [b - a for a, b in zip(c[0], c[1])]
+        e2 = [b - a for a, b in zip(c[0], c[3])]
+        w, h = math.hypot(*e1), math.hypot(*e2)
+        ab = ((0, 0), (w, 0), (w, h), (0, h))
+        if along_long and h > w:
+            ab = tuple((b, a) for a, b in ab)
+        out.append((c, n, tuple((a / tu, b / tv) for a, b in ab)))
+    return out
+
+
+def _tileable_field(px: int, rng, terms: int, kmax: int) -> np.ndarray:
+    """Tam periyotlu sinüslerin toplamı: karo kenarında dikiş olmaz."""
+    yy, xx = np.mgrid[0:px, 0:px] / px
+    f = np.zeros((px, px))
+    for _ in range(terms):
+        k1, k2 = rng.integers(-kmax, kmax + 1, 2)
+        f += rng.uniform(0.3, 1.0) * np.sin(2 * np.pi * (k1 * xx + k2 * yy) + rng.uniform(0, 6.3))
+    return f / terms
+
+
+WOOD_TILE_M = 0.30
+
+
+def wood_texture(paint=None, px: int = 256, seed: int = 3) -> "Image.Image":
+    """Palet tahtası: u boyunca akan lif, budak, ince benek. `paint` verilirse
+    üstü o renge boyalı (mavi kiralık palet); lif boyanın altından seçilir,
+    yer yer boya aşınmış ve ham tahta görünür."""
+    rng = np.random.default_rng(seed)
+    yy, xx = np.mgrid[0:px, 0:px] / px
+    warp = _tileable_field(px, rng, 6, 2)
+    lines = np.sin(2 * np.pi * (34 * yy + 1.6 * warp))
+    grain = 0.5 + 0.5 * np.sign(lines) * np.abs(lines) ** 0.4
+    fine = rng.normal(0, 1, (px, px))
+    raw = np.array([212, 182, 136], float)
+    img = raw[None, None] * (1 - 0.16 * grain[..., None]) + 5 * fine[..., None]
+    for _ in range(2):           # budak: koyu çekirdek, etrafında halka
+        cx, cy = rng.uniform(0.15, 0.85, 2)
+        r = np.hypot((xx - cx) * 0.6, yy - cy)
+        img *= (1 - 0.45 * np.exp(-(r / 0.018) ** 2))[..., None]
+        img *= (1 - 0.10 * np.exp(-((r - 0.035) / 0.008) ** 2))[..., None]
+    if paint is not None:
+        p = np.array(paint, float)
+        wear = _tileable_field(px, rng, 8, 3) + 0.15 * fine
+        keep = np.clip((wear + 0.55) * 4, 0, 1)[..., None]   # 1 = boya duruyor
+        painted = p[None, None] * (1 - 0.10 * grain[..., None]) + 3 * fine[..., None]
+        img = keep * painted + (1 - keep) * img
+    return Image.fromarray(np.clip(img, 0, 255).astype(np.uint8), "RGB")
+
+
+BEAM_TILE_U, BEAM_TILE_V = 0.50, 0.10
+
+
+def beam_texture(w: int = 320, h: int = 64, seed: int = 5) -> "Image.Image":
+    """Boyalı çelik kiriş profili: üstte parlak büküm, altta gölge, üst
+    kenara yakın basamak (step) çizgisi, yer yer çizik ve forklift izi."""
+    rng = np.random.default_rng(seed)
+    v = np.linspace(0, 1, h)[:, None]
+    shade = (1.12 - 0.30 * v) * np.ones((1, w))
+    shade[: h // 16] *= 1.15                          # üst büküm parlak
+    shade[-h // 12:] *= 0.70                          # alt büküm gölgede
+    shade[h // 5: h // 5 + 2] *= 0.55                 # basamak çizgisi
+    base = np.array([214, 86, 18], float)
+    img = base[None, None] * shade[..., None] + rng.normal(0, 3, (h, w, 1))
+    for _ in range(14):                               # çizikler: ince, yatay
+        x0 = rng.integers(0, w - 20)
+        y0 = rng.integers(h // 4, h - 4)
+        ln = rng.integers(6, 30)
+        img[y0, x0:x0 + ln] = img[y0, x0:x0 + ln] * 0.6 + np.array([120, 110, 100]) * 0.4
+    return Image.fromarray(np.clip(img, 0, 255).astype(np.uint8), "RGB")
+
+
+def beam_obj(length: float, ft: float) -> str:
+    """Kiriş ve iki ucundaki bağlantı plakası tek mesh'te. Plaka kirişten
+    3 cm taşar, dikmeye bu plakayla asılır; kirişin içinde kalır ki
+    dikmeye girmesin."""
+    q = box_quads(0, 0, 0, length, ft, ft)
+    for sx in (-1, 1):
+        q += box_quads(sx * (length / 2 - 0.006), 0, 0, 0.012, ft * 1.04, ft + 0.06)
+    return quads_obj(world_uv(q, BEAM_TILE_U, BEAM_TILE_V),
+                     f"Kiriş {length*1000:.0f} mm, uçta bağlantı plakası")
+
+
+def pallet_obj(w: float, d: float) -> str:
+    """Euro palet: üstte boyuna tahtalar (aralarında boşluk), üç kuşak, 3x3
+    takoz, üç alt kızak. Önden bakınca gerçek paletteki iki forklift
+    boşluğu görünür. Orijin paletin geometrik merkezi. UV gerçek boyutta,
+    lif her parçanın boyunca."""
+    t = 0.022                                  # tahta kalınlığı
+    bh = PALLET_H - 3 * t                      # takoz yüksekliği (78 mm)
+    bw = min(0.145, w * 0.22)                  # dar paletlerde takoz daralır
+    bd = 0.10
+    z0 = -PALLET_H / 2
+    xs = (-w / 2 + bw / 2, 0.0, w / 2 - bw / 2)
+    ys = (-d / 2 + bd / 2, 0.0, d / 2 - bd / 2)
+    # üst tahtalar: Euro'da 145/100/145/100/145 mm, dar palette üç tahta
+    pattern = (1.45, 1.0, 1.45, 1.0, 1.45) if w >= 0.6 else (1.45, 1.0, 1.45)
+    cover = 0.78 * w
+    widths = [cover * k / sum(pattern) for k in pattern]
+    gap = (w - cover) / (len(widths) - 1)
+    q = []
+    x = -w / 2
+    for bwid in widths:
+        q += box_quads(x + bwid / 2, 0, z0 + PALLET_H - t / 2, bwid, d, t)  # üst tahta
+        x += bwid + gap
+    for y in ys:
+        q += box_quads(0, y, z0 + t + bh + t / 2, w, bd, t)               # kuşak
+    for x in xs:
+        for y in ys:
+            q += box_quads(x, y, z0 + t + bh / 2, bw, bd, bh)            # takoz
+        q += box_quads(x, 0, z0 + t / 2, bw, d, t)                       # alt kızak
+    return quads_obj(world_uv(q, WOOD_TILE_M, along_long=True),
+                     f"Euro palet {w*1000:.0f}x{d*1000:.0f} mm")
+
+
+def racking(cfg, textures, meshes) -> str:
     rk = cfg["racking"]
     bw, nb, depth = rk["bay_width"], rk["bay_count"], rk["depth"]
     ft, uh = rk["frame_thickness"], rk["upright_height"]
     levels, x0 = rk["level_heights"], rk["x_origin"]
     yaw = world_yaw_rad(cfg)
+    real = realism(cfg)
 
-    upright_rgb = (0.72, 0.30, 0.08)   # turuncu dikme
-    beam_rgb = (0.10, 0.26, 0.55)      # mavi kiriş
+    if real["rack"]:
+        # Fotoğraflardaki gibi: mavi delikli dikme, turuncu kiriş.
+        beam_rgb = (0.82, 0.28, 0.04)
+        textures["beam.png"] = beam_texture()
+        meshes["beam.obj"] = beam_obj(bw - ft, ft)
+        textures["upright.png"] = upright_texture()
+        meshes["upright.obj"] = quads_obj(
+            box_quads(0, 0, 0, ft, ft, uh, ru=1.0, rv=uh / UPRIGHT_TILE_M),
+            f"Dikme {ft*1000:.0f}x{ft*1000:.0f}x{uh*1000:.0f} mm, delik dokusu tekrarlı")
+    else:
+        upright_rgb = (0.72, 0.30, 0.08)   # turuncu dikme
+        beam_rgb = (0.10, 0.26, 0.55)      # mavi kiriş
     deck_rgb = (0.55, 0.56, 0.58)      # galvaniz raf tablası
+    brace_rgb = (0.05, 0.24, 0.52)
+    # Paletliyse yük paletin üstüne oturur ve level_heights yükün kotudur;
+    # kirişler palet boyu kadar aşağı iner, kutular yerinde kalır. Gerçek
+    # paletli rafta tabla yoktur, palet ön ve arka kirişe basar.
+    drop = PALLET_H if real["pallets"] else 0.0
 
     out = []
     for row in rk["rows"]:
@@ -378,25 +627,344 @@ def racking(cfg) -> str:
         for i in range(nb + 1):
             x = x0 + i * bw
             for tag, y in (("f", y0 + ft / 2), ("b", y0 + depth - ft / 2)):
-                out.append(box_visual(f"up_{i}_{tag}_v", (ft, ft, uh), (x, y, uh / 2),
-                                      upright_rgb, "      "))
+                if real["rack"]:
+                    out.append(mesh_visual(f"up_{i}_{tag}_v", "upright.obj", (x, y, uh / 2),
+                                           None, "      ", texture="upright.png",
+                                           roughness=0.6))
+                else:
+                    out.append(box_visual(f"up_{i}_{tag}_v", (ft, ft, uh), (x, y, uh / 2),
+                                          upright_rgb, "      "))
                 out.append(box_collision(f"up_{i}_{tag}_c", (ft, ft, uh), (x, y, uh / 2), "      "))
+            if real["rack"]:
+                out.append(frame_bracing(f"br_{i}", x, y0 + ft, y0 + depth - ft, uh,
+                                         brace_rgb))
 
         for li, z in enumerate(levels):
+            zb = z - drop
             for bi in range(nb):
                 xc = x0 + (bi + 0.5) * bw
                 # ön ve arka kirişler
                 for tag, y in (("f", y0 + ft / 2), ("b", y0 + depth - ft / 2)):
-                    out.append(box_visual(f"beam_{li}_{bi}_{tag}_v", (bw - ft, ft, ft),
-                                          (xc, y, z - ft / 2), beam_rgb, "      "))
+                    if real["rack"]:
+                        out.append(mesh_visual(f"beam_{li}_{bi}_{tag}_v", "beam.obj",
+                                               (xc, y, zb - ft / 2), None, "      ",
+                                               texture="beam.png", roughness=0.4,
+                                               specular=0.3))
+                    else:
+                        out.append(box_visual(f"beam_{li}_{bi}_{tag}_v", (bw - ft, ft, ft),
+                                              (xc, y, zb - ft / 2), beam_rgb, "      "))
                     out.append(box_collision(f"beam_{li}_{bi}_{tag}_c", (bw - ft, ft, ft),
-                                             (xc, y, z - ft / 2), "      "))
+                                             (xc, y, zb - ft / 2), "      "))
+                if real["pallets"]:
+                    continue
                 # raf tablası: kutuların üstünde durduğu yüzey
                 out.append(box_visual(f"deck_{li}_{bi}_v", (bw - ft, depth - 2 * ft, 0.02),
                                       (xc, yc, z - 0.01), deck_rgb, "      "))
                 out.append(box_collision(f"deck_{li}_{bi}_c", (bw - ft, depth - 2 * ft, 0.02),
                                          (xc, yc, z - 0.01), "      "))
         out.append("    </link>\n  </model>\n")
+    return "".join(out)
+
+
+def frame_bracing(name: str, x: float, y_f: float, y_b: float, uh: float, rgb) -> str:
+    """Yan çerçevenin çapraz bağlantısı: ön ve arka dikme arasında altta ve
+    üstte yatay, aralarında zikzak. Çerçeve düzlemi göz sınırında, kameranın
+    baktığı ön yüze dik -- kutuların önünü kapatmaz. Yalnız görsel; çarpışma
+    kutusu yok, raf zarfının içinde kalıyor ve drone oraya girmiyor."""
+    tx, tz = 0.03, 0.04
+    span = y_b - y_f
+    z_lo, z_hi = 0.15, uh - 0.15
+    n = max(1, round((z_hi - z_lo) / 1.0))
+    h = (z_hi - z_lo) / n
+    ym = (y_f + y_b) / 2
+    out = []
+    for tag, z in (("lo", z_lo), ("hi", z_hi)):
+        out.append(box_visual(f"{name}_{tag}_v", (tx, span, tz), (x, ym, z), rgb, "      "))
+    length = math.hypot(span, h)
+    for k in range(n):
+        za = z_lo + k * h
+        # zikzak: bir çubuk önden arkaya yükselir, sonraki arkadan öne
+        roll = math.atan2(h, span if k % 2 == 0 else -span)
+        out.append(box_visual(f"{name}_d{k}_v", (tx, length, tz), (x, ym, za + h / 2),
+                              rgb, "      ", rpy=(roll, 0.0, 0.0)))
+    return "".join(out)
+
+
+# Koli baskısı. Markalar uydurma; gerçek bir markanın adı ya da logosu
+# kullanılmıyor. Renkler fotoğraflardaki mürekkeplerden: pembe, mavi, yeşil,
+# lacivert, kırmızı, turuncu.
+CARTON_BRANDS = [
+    ("NOVA", (214, 64, 140)), ("PERLA", (38, 108, 186)), ("VITA", (34, 132, 70)),
+    ("ZEFIR", (32, 44, 92)), ("AKSU", (40, 140, 200)), ("SOLE", (206, 46, 44)),
+    ("ORKA", (28, 28, 30)), ("LUMA", (228, 118, 22)), ("TERRA", (120, 70, 40)),
+    ("MAVI", (24, 84, 160)),
+]
+CARTON_PPM = 500          # baskı dokusu çözünürlüğü (piksel / m)
+CARTON_TAPE_M = 0.048     # koli bandı eni
+
+
+def carton_regions(dx: float, dy: float, dz: float, ppm: int = CARTON_PPM):
+    """Koli dokusunun yerleşimi (piksel, y aşağı): üst sırada ön yüz (dx x dz)
+    ve yan yüz (dy x dz), altında kapak (dx x dy). Ön/arka ve iki yan aynı
+    bölgeyi paylaşır -- gerçekte de karşılıklı yüzler aynı basılır."""
+    fx, fz, sy = round(dx * ppm), round(dz * ppm), round(dy * ppm)
+    W, H = fx + sy, fz + sy
+    return W, H, {"front": (0, 0, fx, fz), "side": (fx, 0, W, fz), "top": (0, fz, fx, H)}
+
+
+def carton_obj(dx: float, dy: float, dz: float) -> str:
+    W, H, reg = carton_regions(dx, dy, dz)
+
+    def uv(r):
+        x0, y0, x1, y1 = r
+        u0, u1, vb, vt = x0 / W, x1 / W, 1 - y1 / H, 1 - y0 / H
+        return ((u0, vb), (u1, vb), (u1, vt), (u0, vt))
+
+    q = box_quads(0, 0, 0, dx, dy, dz)
+    # box_quads sırası: +x, -x, +y, -y, üst, alt. Ürün yüzü ±y (koridor).
+    faces = ["side", "side", "front", "front", "top", "top"]
+    q = [(c, n, uv(reg[f])) for (c, n, _), f in zip(q, faces)]
+    return quads_obj(q, f"Koli {dx*1000:.0f}x{dy*1000:.0f}x{dz*1000:.0f} mm, baskı atlası")
+
+
+def carton_brand(link: str) -> int:
+    """Kolinin markası. rng ÇEKİLMEZ (bkz. pallet_look)."""
+    return zlib.crc32(link.encode()) % len(CARTON_BRANDS)
+
+
+def carton_texture(dx: float, dy: float, dz: float, brand: int) -> "Image.Image":
+    """Baskılı oluklu mukavva: kraft zemin, oluk izi, kenar gölgesi, marka,
+    ürün numarası, koli bandı, yan yüzde "bu taraf yukarı" okları.
+    Sahte barkod BİLEREK yok: okuyucu onu kod sanıp envantere yazabilirdi.
+    Yazı tipi Pillow'un gömülü fontu -- iki makinede de aynı doku çıksın."""
+    from PIL import ImageDraw, ImageFont
+    W, H, reg = carton_regions(dx, dy, dz)
+    name, ink = CARTON_BRANDS[brand]
+    seed = zlib.crc32(f"{name}{dx}{dy}{dz}".encode())
+    rng = np.random.default_rng(seed)
+
+    # kraft zemin: ince benek + iri leke + oluk çizgileri (~8 mm adım)
+    yy, xx = np.mgrid[0:H, 0:W]
+    fine = rng.normal(0, 5.0, (H, W))
+    blot = rng.normal(0, 1.0, (max(2, H // 40), max(2, W // 40)))
+    blot = np.asarray(Image.fromarray(((blot - blot.min()) / (np.ptp(blot) + 1e-9) * 255)
+                                      .astype(np.uint8)).resize((W, H), Image.BILINEAR),
+                      dtype=np.float64) / 255 - 0.5
+    flute = 2.5 * np.sin(2 * np.pi * yy / (0.008 * CARTON_PPM))
+    g = fine + 14 * blot + flute
+    kraft = np.array([192, 154, 106], dtype=np.float64)
+    img = np.clip(kraft[None, None, :] * (1 + g[..., None] / 255 * 2.2), 0, 255)
+    # yüz kenarları biraz koyu: katlama ve kir
+    for x0, y0, x1, y1 in reg.values():
+        e = max(3, (x1 - x0 + y1 - y0) // 60)
+        sub = img[y0:y1, x0:x1]
+        dist = np.minimum.reduce([xx[y0:y1, x0:x1] - x0, x1 - 1 - xx[y0:y1, x0:x1],
+                                  yy[y0:y1, x0:x1] - y0, y1 - 1 - yy[y0:y1, x0:x1]])
+        sub *= (0.86 + 0.14 * np.clip(dist / e, 0, 1))[..., None]
+    base = Image.fromarray(img.astype(np.uint8), "RGB")
+
+    ink_layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(ink_layer)
+    dark = (44, 40, 36)
+
+    def font(px):
+        return ImageFont.load_default(size=max(6, int(px)))
+
+    def fit(text, px, max_w):
+        f = font(px)
+        while px > 6 and d.textlength(text, font=f) > max_w:
+            px *= 0.9
+            f = font(px)
+        return f
+
+    number = f"{68000000 + seed % 999999:08d}"
+    pack = f"{4 + seed % 3 * 4}x{1 + seed % 3}"
+
+    # ön yüz: marka sol üstte, logo halkası, numara sağ altta
+    x0, y0, x1, y1 = reg["front"]
+    fw, fh = x1 - x0, y1 - y0
+    m = int(0.06 * min(fw, fh))
+    f = fit(name, fh * 0.17, fw * 0.55)
+    d.text((x0 + m, y0 + m), name, font=f, fill=ink + (225,),
+           stroke_width=max(1, f.size // 12), stroke_fill=ink + (225,))
+    r = f.size * 0.45
+    cx_, cy_ = x0 + m + d.textlength(name, font=f) + r * 1.6, y0 + m + f.size * 0.55
+    d.ellipse([cx_ - r, cy_ - r, cx_ + r, cy_ + r], outline=ink + (220,), width=max(2, int(r / 4)))
+    fn = fit(number, fh * 0.07, fw * 0.4)
+    d.text((x1 - m - d.textlength(number, font=fn), y1 - m - fn.size), number, font=fn,
+           fill=dark + (210,))
+    fp = font(fh * 0.065)
+    d.rectangle([x0 + m, y1 - m - fp.size * 1.3, x0 + m + d.textlength(pack, font=fp) + fp.size * 0.6,
+                 y1 - m], outline=dark + (200,), width=2)
+    d.text((x0 + m + fp.size * 0.3, y1 - m - fp.size * 1.15), pack, font=fp, fill=dark + (210,))
+
+    # ürün paneli sağ üstte (şişe silüeti) ve alt tarafta boydan boya şerit
+    pw_, ph_ = fh * 0.30, fh * 0.30
+    px0, py0 = x1 - m - pw_, y0 + m
+    d.rounded_rectangle([px0, py0, px0 + pw_, py0 + ph_], radius=pw_ * 0.12,
+                        outline=ink + (215,), width=max(2, int(fh / 90)))
+    bx0, bx1 = px0 + pw_ * 0.36, px0 + pw_ * 0.64
+    d.rectangle([bx0, py0 + ph_ * 0.38, bx1, py0 + ph_ * 0.86], fill=ink + (190,))
+    d.rectangle([px0 + pw_ * 0.45, py0 + ph_ * 0.18, px0 + pw_ * 0.55, py0 + ph_ * 0.38],
+                fill=ink + (190,))
+    sy_ = y0 + fh * 0.74
+    d.rectangle([x0, sy_, x1, sy_ + fh * 0.03], fill=ink + (170,))
+
+    # yan yüz: marka, "bu taraf yukarı" okları, numara
+    x0, y0, x1, y1 = reg["side"]
+    sw, sh = x1 - x0, y1 - y0
+    m = int(0.07 * min(sw, sh))
+    f = fit(name, sh * 0.13, sw * 0.7)
+    d.text((x0 + m, y0 + sh * 0.42), name, font=f, fill=ink + (225,),
+           stroke_width=max(1, f.size // 12), stroke_fill=ink + (225,))
+    a = sh * 0.09
+    for k in range(2):
+        ax = x1 - m - a * (2.4 - 1.2 * k)
+        ay = y0 + m
+        d.polygon([(ax, ay + a * 0.5), (ax + a * 0.5, ay), (ax + a, ay + a * 0.5)], fill=dark + (220,))
+        d.rectangle([ax + a * 0.38, ay + a * 0.5, ax + a * 0.62, ay + a * 1.3], fill=dark + (220,))
+    fn = fit(number, sh * 0.07, sw * 0.6)
+    d.text((x0 + m, y1 - m - fn.size), number, font=fn, fill=dark + (210,))
+
+    # kapak: ortadaki ek yeri ve boydan boya bant; bant ön/arka yüze de iner
+    x0, y0, x1, y1 = reg["top"]
+    tw = CARTON_TAPE_M * CARTON_PPM
+    ym = (y0 + y1) / 2
+    tape = (214, 186, 132, 150)
+    d.rectangle([x0, ym - tw / 2, x1, ym + tw / 2], fill=tape)
+    d.line([x0, ym, x1, ym], fill=(70, 52, 32, 200), width=2)
+    fx0, _, fx1, _ = reg["front"]
+    fc = (fx0 + fx1) / 2
+    d.rectangle([fc - tw / 2, 0, fc + tw / 2, 0.06 * CARTON_PPM], fill=tape)
+
+    return Image.alpha_composite(base.convert("RGBA"), ink_layer).convert("RGB")
+
+
+# Streç film: kolinin dışında ince, parlak, yarı saydam bir kabuk.
+FILM_GAP = 0.010          # kolinin yüzünden uzaklık; etiket 4 mm'de, film önünde
+FILM_DROP = 0.05          # paletliyse film palet üst tahtasına iner
+FILM_TILE_M = 0.30        # kırışık dokusunun bir karosu
+FILM_TRANSPARENCY = 0.62  # 0 opak, 1 görünmez
+FILM_SHARE = 0.75         # filmli kolilerin oranı; gerisi çıplak (fotoğraf 2)
+
+
+def film_texture(px: int = 128, seed: int = 11) -> "Image.Image":
+    """Tekrarlanabilir kırışık doku: açık gri zemin, eğik parlak şeritler ve
+    ince kırışık çizgileri. Saydamlık malzemeden gelir; doku yalnız filmin
+    nerede daha beyaz, nerede daha açık göründüğünü belirler."""
+    rng = np.random.default_rng(seed)
+    yy, xx = np.mgrid[0:px, 0:px] / px
+    g = np.full((px, px), 185.0)
+    for _ in range(6):          # eğik şeritler; karo kenarında sürekli kalsın diye tam periyot
+        k = rng.integers(1, 4)
+        ph = rng.uniform(0, 2 * np.pi)
+        g += rng.uniform(12, 34) * np.sin(2 * np.pi * k * (xx + yy) + ph)
+    for _ in range(10):         # kırışıklar
+        k = rng.integers(2, 7)
+        ph = rng.uniform(0, 2 * np.pi)
+        g += 55 * np.maximum(0, np.sin(2 * np.pi * k * (xx - 2 * yy) + ph)) ** 24
+    a = np.clip(g, 150, 255).astype(np.uint8)
+    return Image.fromarray(np.stack([a, a, np.clip(a.astype(int) + 6, 0, 255).astype(np.uint8)],
+                                    -1), "RGB")
+
+
+def film_wanted(link: str) -> bool:
+    """Bu koli filmli mi. rng ÇEKİLMEZ (bkz. pallet_look)."""
+    return (zlib.crc32(("film" + link).encode()) % 100) < FILM_SHARE * 100
+
+
+def film_obj(dx: float, dy: float, dz: float, drop: float) -> str:
+    """Kolinin yan yüzleri ve kapağı, FILM_GAP kadar dışarıda; alt yüz yok.
+    Orijin kolinin merkezi -- kabuk aşağıya `drop` kadar uzanır."""
+    sx, sy, sz = dx + 2 * FILM_GAP, dy + 2 * FILM_GAP, dz + FILM_GAP + drop
+    cz = (FILM_GAP - drop) / 2
+    q = box_quads(0, 0, cz, sx, sy, sz, ru=max(sx, sy) / FILM_TILE_M, rv=sz / FILM_TILE_M)
+    return quads_obj(q[:5], f"Streç film {sx*1000:.0f}x{sy*1000:.0f}x{sz*1000:.0f} mm")
+
+
+def film_visual(name: str, mesh: str, xyz, ind="        ") -> str:
+    """Yalnız görsel, çarpışma yok: film kolinin zarfında kalıyor. Parlak
+    (düşük pürüzlülük, yüksek specular) -- lambaların yansıması kodun
+    üstüne düşebilir, deneyin konusu da bu."""
+    return f"""{ind}<visual name="{name}">
+{ind}  <pose>{pose(*xyz)}</pose>
+{ind}  <geometry><mesh><uri>model://{ASSET_MODEL}/meshes/{mesh}</uri></mesh></geometry>
+{ind}  <transparency>{fmt(FILM_TRANSPARENCY)}</transparency>
+{ind}  <cast_shadows>false</cast_shadows>
+{ind}  <material>
+{ind}    <ambient>0.9 0.9 0.92 1</ambient>
+{ind}    <diffuse>0.95 0.95 0.97 1</diffuse>
+{ind}    <specular>0.8 0.8 0.8 1</specular>
+{ind}    <pbr><metal>
+{ind}      <albedo_map>model://{ASSET_MODEL}/materials/textures/film.png</albedo_map>
+{ind}      <metalness>0.0</metalness>
+{ind}      <roughness>0.15</roughness>
+{ind}    </metal></pbr>
+{ind}  </material>
+{ind}</visual>
+"""
+
+
+PALLET_BLUE = (34, 78, 150)
+
+
+def pallet_look(name: str, textures: dict) -> tuple:
+    """Paletin dokusu ve tonu: çoğu ham tahta (beyazla sarı arası), bir
+    kısmı mavi boyalı kiralık palet. Karışık dağılır ama her üretimde aynı
+    çıkar: seçim adın özetinden yapılır, rng ÇEKİLMEZ -- inventory'nin
+    çekiliş sırası değişirse bütün SKU'lar ve kutu renkleri kayardı."""
+    h = zlib.crc32(name.encode())
+    shade = 0.86 + 0.14 * ((h >> 8) % 11) / 10        # palet palet ton farkı
+    blue = h % 5 < 2                                    # %40 mavi
+    tex = "wood_blue.png" if blue else "wood_raw.png"
+    if tex not in textures:
+        textures[tex] = wood_texture(PALLET_BLUE if blue else None)
+    return tex, (min(1.0, shade),) * 3
+
+
+def pallets(cfg, slots, meshes, textures) -> str:
+    """Her kutunun altına bir Euro palet. Palet üstü = level_heights kotu,
+    yani kutuların oturduğu yer; kutular ve kodlar yerinden oynamaz.
+    Palet derinliği raf derinliği: gerçekte 1200 mm palet kirişten 50'şer mm
+    taşar, ama en dar koridor 0.50 m ve o 10 cm drone'un payından yenirdi."""
+    rk = cfg["racking"]
+    bw, depth, ft, x0 = rk["bay_width"], rk["depth"], rk["frame_thickness"], rk["x_origin"]
+    rows = {r["id"]: r for r in rk["rows"]}
+    out = ['  <model name="pallets">\n    <static>true</static>\n'
+           + model_pose_tag(world_yaw_rad(cfg)) + '    <link name="pallets">\n']
+
+    by_slot: dict = {}
+    for s in slots:
+        by_slot.setdefault((s["row"], s["bay"], s["level"]), []).append(s)
+    for (rid, bi, li), group in by_slot.items():
+        group.sort(key=lambda s: s["cx"])
+        # paletler birbirine ve dikmelere girmesin
+        left = x0 + bi * bw + ft / 2
+        right = x0 + (bi + 1) * bw - ft / 2
+        edges = [left]
+        for s in group:
+            w = min(PALLET_W, s["dx"] + 2 * PALLET_OVERHANG)
+            s["w"] = w
+            edges += [s["cx"] - w / 2, s["cx"] + w / 2]
+        edges.append(right)
+        if any(b < a - 1e-9 for a, b in zip(edges, edges[1:])):
+            raise SystemExit(f"{rid} göz {bi+1} seviye {li+1}: paletler sığmıyor "
+                             f"({', '.join(f'{s['w']:.2f}' for s in group)} m)")
+        y0 = rows[rid]["y0"]
+        for s in group:
+            w = s["w"]
+            mesh = f"pallet_{w*1000:.0f}.obj"
+            if mesh not in meshes:
+                meshes[mesh] = pallet_obj(w, depth)
+            name = f"p_{rid}_{bi+1:02d}_{li+1}_{s['si']}"
+            tex, tint = pallet_look(name, textures)
+            z = s["z"] - PALLET_H / 2
+            out.append(mesh_visual(f"{name}_v", mesh, (s["cx"], y0 + depth / 2, z),
+                                   tint, "      ", texture=tex, roughness=0.9))
+            out.append(box_collision(f"{name}_c", (w, depth, PALLET_H),
+                                     (s["cx"], y0 + depth / 2, z), "      "))
+    out.append("    </link>\n  </model>\n")
+    print(f"  palet          : {len(slots)}")
     return "".join(out)
 
 
@@ -427,7 +995,8 @@ def parse_unlabelled(spec) -> set:
     return out
 
 
-def inventory(cfg, rng, textures, manifest) -> str:
+def inventory(cfg, rng, textures, manifest, pallet_slots=None, meshes=None,
+              film_meshes=None) -> str:
     """Raflardaki kutular, üzerlerindeki QR etiketleri ve konum barkodları."""
     rk, bx, codes = cfg["racking"], cfg["boxes"], cfg["codes"]
     bw, nb, depth = rk["bay_width"], rk["bay_count"], rk["depth"]
@@ -506,6 +1075,9 @@ def inventory(cfg, rng, textures, manifest) -> str:
                         cy = y_face + bx["front_gap"] + dy / 2
                         y_label = cy - dy / 2
                     cz = z + dz / 2
+                    if pallet_slots is not None:
+                        pallet_slots.append({"row": rid, "bay": bi, "level": li, "si": si,
+                                             "cx": cx, "dx": dx, "z": z})
 
                     sku = f"SKU{rng.randint(10000, 99999)}"
                     payload = gl.box_payload(sku, rid, bi + 1, li + 1)
@@ -541,8 +1113,31 @@ def inventory(cfg, rng, textures, manifest) -> str:
                     cardboard = tuple(min(1.0, c * shade) for c in (0.68, 0.52, 0.34))
 
                     out.append(f'    <link name="{link}">\n')
-                    out.append(box_visual("body", (dx, dy, dz), (cx, cy, cz), cardboard, "      "))
+                    if meshes is not None:
+                        # Baskılı koli. Doku boy+marka başına bir tane; aynı
+                        # ürün aynı baskıyla gelir. Kutudan kutuya ton farkı
+                        # eskisi gibi `shade`'den.
+                        brand = carton_brand(link)
+                        ctex = f"carton_{size['name']}_{brand}.png"
+                        cmesh = f"carton_{size['name']}.obj"
+                        if ctex not in textures:
+                            textures[ctex] = carton_texture(dx, dy, dz, brand)
+                        if cmesh not in meshes:
+                            meshes[cmesh] = carton_obj(dx, dy, dz)
+                        tint = (min(1.0, shade),) * 3
+                        out.append(mesh_visual("body", cmesh, (cx, cy, cz), tint, "      ",
+                                               texture=ctex))
+                    else:
+                        out.append(box_visual("body", (dx, dy, dz), (cx, cy, cz), cardboard,
+                                              "      "))
                     out.append(box_collision("body_c", (dx, dy, dz), (cx, cy, cz), "      "))
+                    if film_meshes is not None and film_wanted(link):
+                        drop = FILM_DROP if pallet_slots is not None else 0.0
+                        fmesh = f"film_{size['name']}{'_p' if drop else ''}.obj"
+                        if fmesh not in film_meshes:
+                            film_meshes[fmesh] = film_obj(dx, dy, dz, drop)
+                            textures.setdefault("film.png", film_texture())
+                        out.append(film_visual("film", fmesh, (cx, cy, cz), "      "))
 
                     # QR SEMBOLÜ kutu merkezinin sabit bir yüksekliğinde
                     # durur, barkod da onun altına asılır.
@@ -717,6 +1312,227 @@ def aisle_markers(cfg, textures, manifest) -> str:
     return "".join(out)
 
 
+# --------------------------------------------------------------------------
+# bina ayrıntıları (realism.building)
+# --------------------------------------------------------------------------
+
+WALL_TILE_U = 4.0         # duvar dokusu yatayda 4 m'de bir tekrarlar
+
+
+def wall_texture(H: float, px_w: int = 400, seed: int = 9) -> "Image.Image":
+    """Bir duvar şeridi, 4 m x tam yükseklik: altta 1.2 m koyu gri boyalı
+    süpürgelik ve sarı şerit, üstünde badanalı briket (400 x 200 mm), en
+    üstte 3 m oluklu sac kaplama. Fotoğraf 2'deki duvar."""
+    from PIL import ImageDraw
+    rng = np.random.default_rng(seed)
+    ppm = px_w / WALL_TILE_U
+    ph = int(round(H * ppm))
+    img = np.empty((ph, px_w, 3))
+    img[:] = (214, 211, 203)
+    img += rng.normal(0, 4, (ph, px_w, 1))
+    img += 10 * _tileable_field(px_w, rng, 8, 3)[np.arange(ph) % px_w][..., None]
+    im = Image.fromarray(np.clip(img, 0, 255).astype(np.uint8), "RGB")
+    d = ImageDraw.Draw(im)
+    z2y = lambda z: ph - 1 - z * ppm          # noqa: E731  (z m -> piksel satırı)
+    # briket derzleri
+    clad = H - 3.0
+    k = 0
+    z = 1.2
+    while z < clad:
+        y = z2y(z)
+        d.line([0, y, px_w, y], fill=(184, 181, 174), width=1)
+        off = 0 if k % 2 == 0 else 0.2 * ppm
+        x = off
+        while x < px_w:
+            d.line([x, z2y(min(z + 0.2, clad)), x, y], fill=(184, 181, 174), width=1)
+            x += 0.4 * ppm
+        z += 0.2
+        k += 1
+    # oluklu sac: dikey nervürler
+    d.rectangle([0, 0, px_w, z2y(clad)], fill=(176, 182, 188))
+    x = 0.0
+    while x < px_w:
+        d.rectangle([x, 0, x + 0.04 * ppm, z2y(clad)], fill=(150, 156, 162))
+        x += 0.2 * ppm
+    # süpürgelik ve sarı şerit
+    d.rectangle([0, z2y(1.2), px_w, ph], fill=(92, 96, 100))
+    d.rectangle([0, z2y(1.25), px_w, z2y(1.2)], fill=(226, 184, 30))
+    return im
+
+
+def walls_obj(L: float, W: float, H: float) -> str:
+    """Dört duvarın İÇ yüzleri, 5 mm içeride. Normal içeri bakar; u duvar
+    boyunca, v tabandan tavana 0..1 (doku tam yüksekliği bir kez taşır)."""
+    q = []
+    e = 0.005
+    for (px, py), (nx, ny), ln in (((L / 2 - e, 0), (-1, 0), W), ((-L / 2 + e, 0), (1, 0), W),
+                                   ((0, W / 2 - e), (0, -1), L), ((0, -W / 2 + e), (0, 1), L)):
+        rx, ry = -ny, nx                    # sağ = z x n
+        a = (px - rx * ln / 2, py - ry * ln / 2)
+        b = (px + rx * ln / 2, py + ry * ln / 2)
+        ru = ln / WALL_TILE_U
+        q.append(([(a[0], a[1], 0), (b[0], b[1], 0), (b[0], b[1], H), (a[0], a[1], H)],
+                  (nx, ny, 0), ((0, 0), (ru, 0), (ru, 1), (0, 1))))
+    return quads_obj(q, "Duvar iç yüzleri")
+
+
+def cyl_visual(name, r, ln, xyz, rpy, rgb, ind="      ", rough=0.6, spec=0.1) -> str:
+    cr, cg, cb = rgb
+    return f"""{ind}<visual name="{name}">
+{ind}  <pose>{pose(*xyz, *rpy)}</pose>
+{ind}  <geometry><cylinder><radius>{fmt(r)}</radius><length>{fmt(ln)}</length></cylinder></geometry>
+{ind}  <material>
+{ind}    <ambient>{fmt(cr*0.5)} {fmt(cg*0.5)} {fmt(cb*0.5)} 1</ambient>
+{ind}    <diffuse>{fmt(cr)} {fmt(cg)} {fmt(cb)} 1</diffuse>
+{ind}    <specular>{fmt(spec)} {fmt(spec)} {fmt(spec)} 1</specular>
+{ind}    <pbr><metal><metalness>0.0</metalness><roughness>{fmt(rough)}</roughness></metal></pbr>
+{ind}  </material>
+{ind}</visual>
+"""
+
+
+def building_details(cfg, textures, meshes) -> str:
+    """Fotoğraflardaki depo ayrıntıları: dokulu duvar, tavan makasları ve
+    havalandırma kanalı, zeminde sarı yürüme yolu ve taralı yasak alanlar,
+    duvar dibinde yangın dolabı, tüp, sarı-siyah koruma direkleri, sarmal
+    kapı, boş palet yığını. Hepsi duvar dibinde ya da zeminde düz; raf
+    bloğuna ve uçuş koridorlarına hiçbir şey girmiyor."""
+    b, rk = cfg["building"], cfg["racking"]
+    L, W, H = b["length"], b["width"], b["height"]
+    x0, nb, bw, depth = rk["x_origin"], rk["bay_count"], rk["bay_width"], rk["depth"]
+    out = ['  <model name="building_details">\n    <static>true</static>\n'
+           + model_pose_tag(world_yaw_rad(cfg)) + '    <link name="details">\n']
+    ind = "      "
+    yellow, black, red = (0.90, 0.72, 0.08), (0.08, 0.08, 0.09), (0.72, 0.07, 0.06)
+
+    # duvarlar
+    textures["wall.png"] = wall_texture(H)
+    meshes["walls.obj"] = walls_obj(L, W, H)
+    out.append(mesh_visual("walls_v", "walls.obj", (0, 0, 0), None, ind, texture="wall.png",
+                           roughness=0.95))
+
+    # tavan: Y boyunca makaslar (6 m arayla), X boyunca aşıklar, iki kanal.
+    # Lambalar 6 m'de ve gölgesiz; bunlar 8.5 m'nin üstünde.
+    steel = (0.30, 0.32, 0.35)
+    xt = -L / 2 + 3.0
+    i = 0
+    while xt < L / 2:
+        out.append(box_visual(f"truss_{i}", (0.20, W, 0.50), (xt, 0, H - 0.25), steel, ind))
+        xt += 6.0
+        i += 1
+    for j, yp in enumerate(np.arange(-W / 2 + 4, W / 2, 4.0)):
+        out.append(box_visual(f"purlin_{j}", (L, 0.10, 0.15), (0, float(yp), H - 0.58), steel, ind))
+    for j, yp in enumerate((-W / 4, W / 4)):
+        out.append(cyl_visual(f"duct_{j}", 0.40, L, (0, yp, H - 1.3), (0, math.pi / 2, 0),
+                              (0.74, 0.76, 0.78), ind, rough=0.3, spec=0.6))
+
+    # zemin işaretleri: 2 mm kalınlık, collision yok
+    zf, lw = 0.004, 0.10
+
+    def stripe(name, x1, y1, x2, y2, rgb=yellow, w=lw):
+        ln = math.hypot(x2 - x1, y2 - y1)
+        yaw = math.atan2(y2 - y1, x2 - x1)
+        return box_visual(name, (ln, w, 0.002), ((x1 + x2) / 2, (y1 + y2) / 2, zf), rgb, ind,
+                          rpy=(0, 0, yaw))
+
+    # her raf sırasının koridora bakan kenarı boyunca ince çizgi
+    xa, xb = x0, x0 + nb * bw
+    for row in rk["rows"]:
+        ye = row["y0"] + depth + 0.05 if row["facing"] > 0 else row["y0"] - 0.05
+        out.append(stripe(f"rowline_{row['id']}", xa, ye, xb, ye, w=0.05))
+    # raf bloğunun etrafında yürüme yolu
+    ys_ = [r["y0"] for r in rk["rows"]]
+    m = 2.0
+    bx0, bx1 = xa - m, xb + m
+    by0, by1 = min(ys_) - m, max(ys_) + depth + m
+    for k, (p1, p2) in enumerate((((bx0, by0), (bx1, by0)), ((bx1, by0), (bx1, by1)),
+                                  ((bx1, by1), (bx0, by1)), ((bx0, by1), (bx0, by0)))):
+        out.append(stripe(f"walk_{k}", *p1, *p2))
+    # taralı yasak alanlar (fotoğraf 2), duvar diplerinde
+    for k, (cx, cy) in enumerate(((L / 2 - 4, W / 2 - 6), (-L / 2 + 4, W / 2 - 6),
+                                  (L / 2 - 4, -W / 2 + 6), (-L / 2 + 4, -W / 2 + 6))):
+        hx, hy = 1.5, 1.0
+        c = [(cx - hx, cy - hy), (cx + hx, cy - hy), (cx + hx, cy + hy), (cx - hx, cy + hy)]
+        for e in range(4):
+            out.append(stripe(f"zone_{k}_{e}", *c[e], *c[(e + 1) % 4]))
+        out.append(stripe(f"zone_{k}_x1", *c[0], *c[2]))
+        out.append(stripe(f"zone_{k}_x2", *c[1], *c[3]))
+
+    # duvar dibi donanımı. Duvar boyunca 12 m'de bir yangın dolabı + tüp.
+    def on_wall(px, py, nx, ny, d_off):
+        """Duvar iç yüzünden d_off kadar içerideki nokta."""
+        return px + nx * d_off, py + ny * d_off
+
+    walls = (((L / 2, 0), (-1, 0), W), ((-L / 2, 0), (1, 0), W),
+             ((0, W / 2), (0, -1), L), ((0, -W / 2), (0, 1), L))
+    n_cab = 0
+    for wi, ((px, py), (nx, ny), ln) in enumerate(walls):
+        rx, ry = -ny, nx
+        along = (nx == 0)
+        for s_ in np.arange(-ln / 2 + 6, ln / 2 - 3, 12.0):
+            s_ = float(s_)
+            cx, cy = on_wall(px + rx * s_, py + ry * s_, nx, ny, 0.13)
+            size = (0.75, 0.25, 0.90) if along else (0.25, 0.75, 0.90)
+            out.append(box_visual(f"cab_{n_cab}", size, (cx, cy, 0.95), red, ind))
+            out.append(box_collision(f"cab_{n_cab}_c", size, (cx, cy, 0.95), ind))
+            gx, gy = on_wall(px + rx * s_, py + ry * s_, nx, ny, 0.256)
+            gsize = (0.55, 0.004, 0.55) if along else (0.004, 0.55, 0.55)
+            out.append(box_visual(f"cab_{n_cab}_glass", gsize, (gx, gy, 1.0),
+                                  (0.70, 0.78, 0.80), ind))
+            # üstünde yangın tabelası, yanında tüp
+            sx_, sy_ = on_wall(px + rx * s_, py + ry * s_, nx, ny, 0.01)
+            ssize = (0.30, 0.01, 0.30) if along else (0.01, 0.30, 0.30)
+            out.append(box_visual(f"cab_{n_cab}_sign", ssize, (sx_, sy_, 1.75), red, ind))
+            tx, ty = on_wall(px + rx * (s_ + 0.7), py + ry * (s_ + 0.7), nx, ny, 0.12)
+            out.append(cyl_visual(f"ext_{n_cab}", 0.08, 0.50, (tx, ty, 0.35), (0, 0, 0), red, ind,
+                                  rough=0.3, spec=0.5))
+            out.append(cyl_visual(f"ext_{n_cab}_top", 0.03, 0.08, (tx, ty, 0.64), (0, 0, 0),
+                                  black, ind))
+            n_cab += 1
+
+    # sarmal kapı (bir uç duvarda) ve iki yanında koruma direkleri
+    # Kapı iki yangın dolabının arasında (dolaplar bu duvarda y=-2 ve 10).
+    dx_, dy_, dw, dh = L / 2, 6.0, 4.0, 4.5
+    out.append(box_visual("door", (0.06, dw, dh), (dx_ - 0.04, dy_, dh / 2), (0.58, 0.60, 0.62), ind))
+    for k in range(int(dh / 0.15)):
+        out.append(box_visual(f"door_rib_{k}", (0.02, dw, 0.012),
+                              (dx_ - 0.075, dy_, 0.1 + k * 0.15), (0.44, 0.46, 0.48), ind))
+    out.append(box_visual("door_sign", (0.01, 0.60, 0.30), (dx_ - 0.01, dy_ - dw / 2 - 0.8, 2.2),
+                          (0.10, 0.30, 0.65), ind))
+    n_b = 0
+    for yb in (dy_ - dw / 2 - 0.4, dy_ + dw / 2 + 0.4):
+        for xb_ in (dx_ - 0.6, dx_ - 1.6):
+            out.append(cyl_visual(f"bollard_{n_b}", 0.08, 1.0, (xb_, yb, 0.5), (0, 0, 0),
+                                  yellow, ind, rough=0.4, spec=0.3))
+            for band in (0.30, 0.62):
+                out.append(cyl_visual(f"bollard_{n_b}_b{band}", 0.082, 0.12, (xb_, yb, band),
+                                      (0, 0, 0), black, ind))
+            out.append(f"""{ind}<collision name="bollard_{n_b}_c"><pose>{pose(xb_, yb, 0.5)}</pose>
+{ind}  <geometry><cylinder><radius>0.08</radius><length>1.0</length></cylinder></geometry></collision>
+""")
+            n_b += 1
+
+    # boş palet yığınları (ham ve mavi), bir köşede
+    if "wood_raw.png" not in textures:
+        textures["wood_raw.png"] = wood_texture()
+    if "wood_blue.png" not in textures:
+        textures["wood_blue.png"] = wood_texture(PALLET_BLUE)
+    meshes.setdefault("pallet_stack.obj", pallet_obj(PALLET_W, 1.20))
+    for k, (cx, cy, n, tex) in enumerate(((-L / 2 + 1.0, W / 2 - 1.2, 8, "wood_raw.png"),
+                                          (-L / 2 + 2.0, W / 2 - 1.2, 5, "wood_blue.png"),
+                                          (-L / 2 + 1.0, W / 2 - 2.8, 3, "wood_raw.png"))):
+        for j in range(n):
+            out.append(mesh_visual(f"stack_{k}_{j}", "pallet_stack.obj",
+                                   (cx, cy, PALLET_H / 2 + j * PALLET_H), None, ind,
+                                   texture=tex))
+        out.append(box_collision(f"stack_{k}_c", (PALLET_W, 1.20, n * PALLET_H),
+                                 (cx, cy, n * PALLET_H / 2), ind))
+
+    out.append("    </link>\n  </model>\n")
+    print(f"  bina ayrıntısı : {n_cab} yangın dolabı, {n_b} koruma direği, kapı, palet yığını")
+    return "".join(out)
+
+
 def lighting(cfg) -> str:
     lt = cfg["lighting"]["ceiling_lights"]
     dr, dg, db, da = lt["diffuse"]
@@ -754,10 +1570,12 @@ def lighting(cfg) -> str:
 # birleştirme
 # --------------------------------------------------------------------------
 
-def build(cfg) -> tuple[str, list]:
+def build(cfg) -> tuple[str, list, dict, dict]:
     rng = random.Random(cfg["seed"])
     textures: dict = {}
+    meshes: dict = {}
     manifest: list = []
+    slots = [] if realism(cfg)["pallets"] else None
     lg = cfg["lighting"]
     ar, ag, ab, aa = lg["ambient"]
     br, bg, bb, ba = lg["background"]
@@ -771,11 +1589,17 @@ def build(cfg) -> tuple[str, list]:
     # ArUco konumları bir kez fazladan dönerdi.
     body = [
         building(cfg, textures),
-        racking(cfg),
-        inventory(cfg, rng, textures, manifest),
+        racking(cfg, textures, meshes),
+        inventory(cfg, rng, textures, manifest, slots,
+                  meshes if realism(cfg)["cartons"] else None,
+                  meshes if realism(cfg)["film"] else None),
     ]
+    if slots is not None:
+        body.append(pallets(cfg, slots, meshes, textures))
     rotate_manifest(manifest, yaw)
     body.append(aisle_markers(cfg, textures, manifest))
+    if realism(cfg)["building"]:
+        body.append(building_details(cfg, textures, meshes))
     body.append(lighting(cfg))
     if yaw:
         print(f"  dünya dönüşü   : {math.degrees(yaw):+.0f} deg "
@@ -820,7 +1644,7 @@ def build(cfg) -> tuple[str, list]:
 {''.join(body)}  </world>
 </sdf>
 """
-    return sdf, manifest, textures
+    return sdf, manifest, textures, meshes
 
 
 def main() -> int:
@@ -837,7 +1661,7 @@ def main() -> int:
         cfg["seed"] = args.seed
 
     print(f"world üretiliyor (tohum {cfg['seed']}):")
-    sdf, manifest, textures = build(cfg)
+    sdf, manifest, textures, meshes = build(cfg)
 
     assets = args.out / "gz" / "models" / ASSET_MODEL
     tex_dir = assets / "materials" / "textures"
@@ -846,7 +1670,7 @@ def main() -> int:
         d.mkdir(parents=True, exist_ok=True)
 
     # eski dokuları temizle: tohum veya yerleşim değişince artık dosyalar kalmasın
-    for old in tex_dir.glob("*.png"):
+    for old in (*tex_dir.glob("*.png"), *mesh_dir.glob("*.obj")):
         old.unlink()
 
     (assets / "model.config").write_text(MODEL_CONFIG)
@@ -854,6 +1678,8 @@ def main() -> int:
     (mesh_dir / "label_quad.obj").write_text(LABEL_QUAD_OBJ)
     (mesh_dir / "floor_tile.obj").write_text(floor_mesh_obj(
         cfg["building"]["length"], cfg["building"]["width"], FLOOR_TILE_M))
+    for name, text in meshes.items():
+        (mesh_dir / name).write_text(text)
     for name, img in textures.items():
         img.save(tex_dir / name, optimize=True)
 

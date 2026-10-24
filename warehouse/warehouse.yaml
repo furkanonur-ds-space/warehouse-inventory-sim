@@ -178,6 +178,36 @@ racking:
 # Yani koridor 4, üstüne mevcut etiket setini basabileceğimiz EN DAR
 # koridor; daha da daraltmak etiketleri de küçültmeyi gerektirir.
 #
+# ----------------------------------------------------------- gerçekçilik
+# Gerçek depo fotoğraflarına yaklaşmak için (branch realism_ibrahim). Hepsi
+# false iken dünya bit bit eski hâli. true iken de kutular ve kodlar
+# yerinden oynamaz: ground_truth.json aynı kalır.
+#   rack:    mavi delikli dikmeler, turuncu kirişler, yan çerçevede çapraz
+#            bağlantı. Yalnız görünüş.
+#   pallets: her kutunun altında Euro palet (144 mm), karışık ham tahta ve
+#            mavi boyalı. Kutular level_heights kotunda kalır, kirişler palet
+#            boyu kadar iner ve galvaniz tabla kalkar -- gerçek paletli rafta
+#            tabla yoktur.
+#   cartons: düz renk yerine baskılı oluklu mukavva: marka yazısı, ürün
+#            numarası, bant, yan yüzde "bu taraf yukarı" okları. Markalar
+#            uydurma. Hiçbir yüzde sahte barkod YOK: okuyucu onu gerçek kod
+#            sanıp envantere yazabilirdi.
+#   film:    kolilerin ~%75'inde streç film: kolinin 10 mm dışında yarı
+#            saydam, parlak, kırışık bir kabuk; paletliyse palete iner.
+#            Yalnız görsel. ETİKETLERİN ÖNÜNDE DURUR -- lamba yansıması kod
+#            okumayı zorlaştırabilir; açmadan önceki ve sonraki uçuşu kıyasla.
+#   building: dokulu duvarlar (süpürgelik, briket, sac), tavan makasları ve
+#            havalandırma kanalı, zeminde sarı yürüme yolu ve taralı alanlar,
+#            duvar diplerinde yangın dolabı, tüp, kapı, koruma direği, boş
+#            palet yığını. Hepsi duvar dibinde ya da zeminde düz; raf
+#            bloğuna ve uçuş koridorlarına bir şey girmez.
+realism:
+  rack: true
+  pallets: true
+  cartons: true
+  film: true
+  building: true
+
 # En dar kutu (XS) ön yüzü 320x280 mm; etiket yığını (150 + 10 + 90 = 250 mm)
 # oraya 30 mm payla sığıyor -- etiket boyutlarını büyütürken bu kısıta bak.
 boxes:
