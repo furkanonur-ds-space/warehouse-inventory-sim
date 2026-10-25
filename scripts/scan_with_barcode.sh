@@ -123,7 +123,7 @@ code_finder.require_device('${YOLO_DEVICE:-0}')
         echo "  SAVE_FRAMES=1 bash $0 ${MODE:-both}"
         exit 1
     fi
-    echo "  YOLO locating labels (weights: ${YOLO_WEIGHTS:-the dataset default})"
+    echo "  YOLO locating labels (weights: ${YOLO_WEIGHTS:-models/yolo26s_640/best.pt})"
 fi
 
 start_barcode() {

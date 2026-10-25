@@ -5,3 +5,5 @@ __pycache__/
 *.ulg
 .venv/
 vehicle/build/
+# YOLO weights: handed over by hand, kept at models/yolo26s_640/best.pt
+models/

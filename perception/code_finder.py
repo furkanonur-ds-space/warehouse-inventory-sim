@@ -25,9 +25,13 @@ YOLO reports a label it can see even when zbar cannot read it. A frame with
 `seen 0` says it was never framed. The 17 boxes that give up their barcode are
 one or the other and the run has never been able to say which.
 
-WEIGHTS live outside this repository, with the dataset that trained them:
-  ~/Desktop/warehouse_dataset/birlesik/model/yolo26s_640/weights/best.pt
-Nothing here regenerates them; this is a consumer, like the report tools.
+WEIGHTS sit inside the working copy but are NOT in git (.gitignore has
+models/): they are handed over by hand, and each machine puts the file at
+  models/yolo26s_640/best.pt
+under the repository root. The one in use was trained on 2026-09-22 and
+lives with its dataset at ~/Desktop/warehouse_dataset/birlesik/model/
+yolo26s_640/weights/best.pt. Nothing here regenerates them; this is a
+consumer, like the report tools.
 
 ENVIRONMENT. ultralytics and torch are NOT in the simulator's .venv, which is
 the one that can reach gz-transport. Importing this module is therefore
@@ -64,8 +68,8 @@ PLACARD_CLASS = "etiket"
 # followed across the frames that saw it.
 BOX_CLASS = "koli"
 
-DEFAULT_WEIGHTS = Path.home() / (
-    "Desktop/warehouse_dataset/birlesik/model/yolo26s_640/weights/best.pt")
+DEFAULT_WEIGHTS = (Path(__file__).resolve().parent.parent
+                   / "models" / "yolo26s_640" / "best.pt")
 
 # Measured on the sim's own saved frames, 2026-09-22: at conf 0.25 the model
 # put a qr box in 100 of 100 frames at 0.82 mean confidence and a barkod box
@@ -133,8 +137,9 @@ class CodeFinder:
         if not weights.exists():
             raise FileNotFoundError(
                 f"no YOLO weights at {weights}\n"
-                "  they live with the dataset that trained them, not in this "
-                "repository; pass --yolo-weights to point somewhere else")
+                "  they are not in git: put best.pt at models/yolo26s_640/ "
+                "under the repository root, or pass --yolo-weights "
+                "(YOLO_WEIGHTS=) to point somewhere else")
         require_device(device)
         from ultralytics import YOLO          # lazy: see the module docstring
         self._model = YOLO(str(weights))
