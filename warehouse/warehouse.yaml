@@ -366,9 +366,15 @@ codes:
   # uygulanmadı ve x500_scanner'da aşağı bakan kamera yok -- bu markörler
   # şu an DEKORATİF. Kullanılacaksa alt kamera eklenmesi gerekir.
   aisle_marker:
-    dictionary: "DICT_5X5_100"
+    # AprilTag 36h11 (2026-10-25; önce DICT_5X5_100 ArUco idi). OpenCV'nin
+    # ArUco dedektörü AprilTag ailelerini de okur, yani Furkan'ın
+    # scanner.py'si değişmeden okur -- AMA sözlük adını scanner/layout.json'daki
+    # "aruco_dictionary"den alır. İkisi aynı olmalı; gen_world.py farklıysa
+    # dünyayı üretmeyi reddeder, yoksa araç hiçbir markörü tanımaz ve kayma
+    # düzeltmesi sessizce kapanır.
+    dictionary: "DICT_APRILTAG_36h11"
     label: [0.600, 0.600]     # 500 mm markör + 50 mm quiet zone çerçevesi
-    code: 0.500               # -> 5x5 veri + 1 modül çerçeve = 7 modül, 71.4 mm/modül
+    code: 0.500               # -> 6x6 veri + 1 modül çerçeve = 8 modül, 62.5 mm/modül
     caption_height: 0.0
     #
     # KONUM DEĞİŞTİ (Furkan'ın marker_map.json'ı y=+-8.0 diyor, biz +-9.0):

@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import random
 import sys
 import zlib
@@ -712,19 +713,146 @@ def carton_regions(dx: float, dy: float, dz: float, ppm: int = CARTON_PPM):
     return W, H, {"front": (0, 0, fx, fz), "side": (fx, 0, W, fz), "top": (0, fz, fx, H)}
 
 
-def carton_obj(dx: float, dy: float, dz: float) -> str:
+CARTON_EDGE_R = 0.012     # koli kenarlarının yuvarlatma yarıçapı
+CARTON_DAMAGE_SHARE = 0.30   # ezik/göçük kolilerin oranı
+CARTON_DAMAGE_VARIANTS = 3   # boy başına kaç ayrı hasarlı mesh
+# Göçük etiketin altına girmesin: etiket yüzün 4 mm önünde (LABEL_STANDOFF);
+# etiketin kapladığı alanda yüz bundan fazla içeri giderse etiket havada
+# asılı görünür. Bu sınırın üstünde kalan göçük atılır.
+CARTON_LABEL_DENT_MAX = 0.0015
+
+
+def _axis_samples(h: float, r: float, step: float) -> list:
+    """-h..h arası örnekler: köşe yuvarlatmasında sık, ortada `step` aralıklı."""
+    edge = [-h, -h + r * 0.12, -h + r * 0.45, -h + r]
+    n = max(1, math.ceil((2 * h - 2 * r) / step))
+    mid = [-h + r + (2 * h - 2 * r) * k / n for k in range(1, n)]
+    return edge + mid + [-v for v in reversed(edge)]
+
+
+def carton_dents(dx, dy, dz, variant: int, keep) -> list:
+    """Hasarlı bir kolinin göçükleri: (merkez, yarıçap, derinlik). Çoğu bir
+    üst köşede ya da kenarda -- koliler en çok taşınırken oradan ezilir.
+    `keep` ürün yüzündeki etiket dikdörtgeni (x yarı eni, z alt, z üst);
+    etiketin altını çökertecek göçük alınmaz."""
+    rng = random.Random(zlib.crc32(f"dent{dx}{dy}{dz}{variant}".encode()))
+    hx, hy, hz = dx / 2, dy / 2, dz / 2
+    kx, kz0, kz1 = keep
+    out = []
+    want = rng.randint(1, 3)
+    # Küçük kolide göçük de küçük: XS'in ön yüzünü etiket neredeyse
+    # dolduruyor, tam boy bir köşe ezilmesi hep etiketin altına girerdi.
+    sc = min(1.0, min(dx, dy, dz) / 0.4)
+    for _ in range(12):
+        if len(out) >= want:
+            break
+        kind = rng.random()
+        sx, sy = rng.choice((-1, 1)), rng.choice((-1, 1))
+        if kind < 0.45:          # üst köşe ezilmesi
+            c = (sx * hx, sy * hy, hz)
+            r, d = sc * rng.uniform(0.05, 0.09), sc * rng.uniform(0.012, 0.028)
+        elif kind < 0.8:         # üst kenar ya da dikey kenar boyunca göçük
+            if rng.random() < 0.5:
+                c = (rng.uniform(-hx, hx), sy * hy, hz)
+            else:
+                c = (sx * hx, sy * hy, rng.uniform(-hz * 0.6, hz * 0.6))
+            r, d = sc * rng.uniform(0.04, 0.07), sc * rng.uniform(0.008, 0.018)
+        else:                    # yan yüzde vuruk
+            c = (sx * hx, rng.uniform(-hy * 0.6, hy * 0.6), rng.uniform(-hz * 0.5, hz * 0.5))
+            r, d = sc * rng.uniform(0.05, 0.08), sc * rng.uniform(0.008, 0.015)
+        # etiket alanındaki en büyük çökme: dikdörtgende yayılan ızgara, iki ön yüz
+        worst = 0.0
+        for fy in (-hy, hy):
+            for i in range(9):
+                for j in range(9):
+                    p = (-kx + 2 * kx * i / 8, fy, kz0 + (kz1 - kz0) * j / 8)
+                    q2 = sum((a - b) ** 2 for a, b in zip(p, c))
+                    worst = max(worst, d * math.exp(-q2 / r ** 2))
+        if worst <= CARTON_LABEL_DENT_MAX:
+            out.append((c, r, d))
+    return out
+
+
+def carton_obj(dx: float, dy: float, dz: float, dents=()) -> str:
+    """Kenarları yuvarlatılmış koli, baskı atlası UV'siyle. Her yüz bir
+    ızgara; nokta iç kutuya kıstırılıp CARTON_EDGE_R kadar dışarı itilince
+    kenarlar yuvarlanır, normaller de oradan gelir -- ışık kenardan
+    yumuşakça döner. `dents` verilirse yüzey o noktalarda içeri çöker ve
+    normaller üçgenlerden yeniden hesaplanır. Yalnız içeri: koli zarfından
+    dışarı hiçbir şey taşmaz, çarpışma kutusu da değişmez."""
     W, H, reg = carton_regions(dx, dy, dz)
+    hx, hy, hz = dx / 2, dy / 2, dz / 2
+    r = min(CARTON_EDGE_R, hx * 0.4, hy * 0.4, hz * 0.4)
+    step = 0.05 if dents else 1.0
+    sx, sy, sz = (_axis_samples(h, r, step) for h in (hx, hy, hz))
+    # yüz: (sabit eksen, işaret, sağ ekseni ve yönü, yukarı ekseni ve yönü, bölge)
+    # sağ x yukarı = dışa bakan normal, yani üçgenler dışarıdan saat yönü tersi
+    faces = [
+        (0, +1, (1, +1), (2, +1), "side"), (0, -1, (1, -1), (2, +1), "side"),
+        (1, +1, (0, -1), (2, +1), "front"), (1, -1, (0, +1), (2, +1), "front"),
+        (2, +1, (0, +1), (1, +1), "top"), (2, -1, (0, +1), (1, -1), "top"),
+    ]
+    half = (hx, hy, hz)
+    samples = (sx, sy, sz)
+    vs, vts, vns, fs = [], [], [], []
+    for ax, sign, (ra, rs), (ua, us), region in faces:
+        x0, y0, x1, y1 = reg[region]
+        base = len(vs)
+        us_ = samples[ra][::rs]
+        vs_ = samples[ua][::us]
+        for b in vs_:
+            for a in us_:
+                p = [0.0, 0.0, 0.0]
+                p[ax], p[ra], p[ua] = sign * half[ax], a, b
+                inner = [max(-(h - r), min(h - r, c)) for c, h in zip(p, half)]
+                dv = [c - i for c, i in zip(p, inner)]
+                ln = math.sqrt(sum(c * c for c in dv)) or 1.0
+                n = [c / ln for c in dv]
+                pos = [i + c * r for i, c in zip(inner, n)]
+                for c, rad, dep in dents:
+                    q2 = sum((u - w) ** 2 for u, w in zip(p, c))
+                    k = dep * math.exp(-q2 / rad ** 2)
+                    pos = [u - w * k for u, w in zip(pos, n)]
+                vs.append(pos)
+                vns.append(n)
+                # UV düz yüz koordinatından: sağa u, yukarı v
+                fu = (a * rs + half[ra]) / (2 * half[ra])
+                fv = (b * us + half[ua]) / (2 * half[ua])
+                vts.append(((x0 + fu * (x1 - x0)) / W, 1 - (y1 - fv * (y1 - y0)) / H))
+        nu = len(us_)
+        for j in range(len(vs_) - 1):
+            for i in range(nu - 1):
+                a_ = base + j * nu + i
+                fs += [(a_, a_ + 1, a_ + nu + 1), (a_, a_ + nu + 1, a_ + nu)]
+    if dents:
+        # göçükte normal artık yuvarlak kutununki değil: üçgenlerden topla
+        acc = [[0.0, 0.0, 0.0] for _ in vs]
+        for t in fs:
+            p0, p1, p2 = (vs[k] for k in t)
+            e1 = [b - a for a, b in zip(p0, p1)]
+            e2 = [b - a for a, b in zip(p0, p2)]
+            cr = (e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2],
+                  e1[0] * e2[1] - e1[1] * e2[0])
+            for k in t:
+                acc[k] = [u + w for u, w in zip(acc[k], cr)]
+        for k, (a, n0) in enumerate(zip(acc, vns)):
+            ln = math.sqrt(sum(c * c for c in a))
+            vns[k] = [c / ln for c in a] if ln > 1e-12 else n0
+    lines = [f"# Koli {dx*1000:.0f}x{dy*1000:.0f}x{dz*1000:.0f} mm, kenar r={r*1000:.0f} mm, "
+             f"{len(dents)} göçük -- gen_world.py üretti"]
+    lines += [f"v {x:.5f} {y:.5f} {z:.5f}" for x, y, z in vs]
+    lines += [f"vt {u:.5f} {v:.5f}" for u, v in vts]
+    lines += [f"vn {x:.4f} {y:.4f} {z:.4f}" for x, y, z in vns]
+    lines += [f"f {a+1}/{a+1}/{a+1} {b+1}/{b+1}/{b+1} {c+1}/{c+1}/{c+1}" for a, b, c in fs]
+    return "\n".join(lines) + "\n"
 
-    def uv(r):
-        x0, y0, x1, y1 = r
-        u0, u1, vb, vt = x0 / W, x1 / W, 1 - y1 / H, 1 - y0 / H
-        return ((u0, vb), (u1, vb), (u1, vt), (u0, vt))
 
-    q = box_quads(0, 0, 0, dx, dy, dz)
-    # box_quads sırası: +x, -x, +y, -y, üst, alt. Ürün yüzü ±y (koridor).
-    faces = ["side", "side", "front", "front", "top", "top"]
-    q = [(c, n, uv(reg[f])) for (c, n, _), f in zip(q, faces)]
-    return quads_obj(q, f"Koli {dx*1000:.0f}x{dy*1000:.0f}x{dz*1000:.0f} mm, baskı atlası")
+def carton_damage(link: str) -> int:
+    """0 sağlam; 1..CARTON_DAMAGE_VARIANTS hangi hasarlı mesh. rng ÇEKİLMEZ."""
+    h = zlib.crc32(("dmg" + link).encode())
+    if h % 100 >= CARTON_DAMAGE_SHARE * 100:
+        return 0
+    return 1 + (h >> 8) % CARTON_DAMAGE_VARIANTS
 
 
 def carton_brand(link: str) -> int:
@@ -1119,11 +1247,18 @@ def inventory(cfg, rng, textures, manifest, pallet_slots=None, meshes=None,
                         # eskisi gibi `shade`'den.
                         brand = carton_brand(link)
                         ctex = f"carton_{size['name']}_{brand}.png"
-                        cmesh = f"carton_{size['name']}.obj"
+                        dmg = carton_damage(link)
+                        cmesh = f"carton_{size['name']}{f'_d{dmg}' if dmg else ''}.obj"
                         if ctex not in textures:
                             textures[ctex] = carton_texture(dx, dy, dz, brand)
                         if cmesh not in meshes:
-                            meshes[cmesh] = carton_obj(dx, dy, dz)
+                            # etiketin kapladığı alan, kolinin merkezine göre
+                            qr_rel = QR_SYMBOL_RISE_M - qr_rise
+                            keep = (max(lw, pw) / 2 + 0.01,
+                                    qr_rel - lh / 2 - label_gap - ph - 0.01,
+                                    qr_rel + lh / 2 + 0.01)
+                            dents = carton_dents(dx, dy, dz, dmg, keep) if dmg else ()
+                            meshes[cmesh] = carton_obj(dx, dy, dz, dents)
                         tint = (min(1.0, shade),) * 3
                         out.append(mesh_visual("body", cmesh, (cx, cy, cz), tint, "      ",
                                                texture=ctex))
@@ -1251,7 +1386,7 @@ def inventory(cfg, rng, textures, manifest, pallet_slots=None, meshes=None,
 
 
 def aisle_markers(cfg, textures, manifest) -> str:
-    """Koridor başlarındaki ArUco markörleri.
+    """Koridor başlarındaki zemin markörleri (AprilTag 36h11; sözlük config'ten).
 
     Eski projede burada iki ayrı AprilTag hattı vardı: koridor zeminine 4 m
     arayla dizilmiş `floor_marker`'lar (alt kamera için) ve raf dikmelerine
@@ -1274,6 +1409,23 @@ def aisle_markers(cfg, textures, manifest) -> str:
     ppm, maxpx = codes["texture_px_per_m"], codes["max_texture_px"]
     lw, lh = spec["label"]
     dict_name = spec["dictionary"]
+    # Aracın markör okuyucusu sözlüğü scanner/layout.json'dan alıyor. Burada
+    # başka bir aile basılırsa hiçbir markör tanınmaz, kayma düzeltmesi hiç
+    # çalışmaz ve uçuş bunu söylemez -- o yüzden üretim burada durur.
+    layout = PROJECT_ROOT / "scanner" / "layout.json"
+    if layout.is_file():
+        theirs = json.loads(layout.read_text()).get("aruco_dictionary")
+        if theirs and theirs != dict_name:
+            msg = (f"zemin markörü {dict_name}, ama scanner/layout.json "
+                   f"aruco_dictionary = {theirs}: araç markörleri tanımaz. "
+                   f"İkisini aynı yap (layout.json Furkan'ın dosyası).")
+            # Yalnız dünyaya BAKMAK için: MARKER_MISMATCH_OK=1 üretimi
+            # durdurmaz, uyarır. Bu dünyayla uçulan taramanın kayma
+            # düzeltmesi kördür, sonuçları puanlanmamalı.
+            if os.environ.get("MARKER_MISMATCH_OK") != "1":
+                raise SystemExit(msg)
+            print(f"  UYARI: {msg} (MARKER_MISMATCH_OK=1: yalnız görüntüleme)",
+                  file=sys.stderr)
 
     out = ['  <model name="aisle_markers">\n    <static>true</static>\n']
     n = 0

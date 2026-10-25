@@ -23733,9 +23733,9 @@
     {
       "type": "aisle_marker",
       "symbology": "ARUCO",
-      "dictionary": "DICT_5X5_100",
+      "dictionary": "DICT_APRILTAG_36h11",
       "marker_id": 1,
-      "payload": "DICT_5X5_100:1",
+      "payload": "DICT_APRILTAG_36h11:1",
       "caption": "",
       "entity": "aisle_markers::aruco_1",
       "world_frame": true,
@@ -23751,7 +23751,7 @@
         0.6,
         0.6
       ],
-      "module_size_m": 0.071429,
+      "module_size_m": 0.0625,
       "normal": [
         0.0,
         0.0,
@@ -23761,9 +23761,9 @@
     {
       "type": "aisle_marker",
       "symbology": "ARUCO",
-      "dictionary": "DICT_5X5_100",
+      "dictionary": "DICT_APRILTAG_36h11",
       "marker_id": 2,
-      "payload": "DICT_5X5_100:2",
+      "payload": "DICT_APRILTAG_36h11:2",
       "caption": "",
       "entity": "aisle_markers::aruco_2",
       "world_frame": true,
@@ -23779,7 +23779,7 @@
         0.6,
         0.6
       ],
-      "module_size_m": 0.071429,
+      "module_size_m": 0.0625,
       "normal": [
         0.0,
         0.0,
@@ -23789,9 +23789,9 @@
     {
       "type": "aisle_marker",
       "symbology": "ARUCO",
-      "dictionary": "DICT_5X5_100",
+      "dictionary": "DICT_APRILTAG_36h11",
       "marker_id": 3,
-      "payload": "DICT_5X5_100:3",
+      "payload": "DICT_APRILTAG_36h11:3",
       "caption": "",
       "entity": "aisle_markers::aruco_3",
       "world_frame": true,
@@ -23807,7 +23807,7 @@
         0.6,
         0.6
       ],
-      "module_size_m": 0.071429,
+      "module_size_m": 0.0625,
       "normal": [
         0.0,
         0.0,
@@ -23817,9 +23817,9 @@
     {
       "type": "aisle_marker",
       "symbology": "ARUCO",
-      "dictionary": "DICT_5X5_100",
+      "dictionary": "DICT_APRILTAG_36h11",
       "marker_id": 4,
-      "payload": "DICT_5X5_100:4",
+      "payload": "DICT_APRILTAG_36h11:4",
       "caption": "",
       "entity": "aisle_markers::aruco_4",
       "world_frame": true,
@@ -23835,7 +23835,7 @@
         0.6,
         0.6
       ],
-      "module_size_m": 0.071429,
+      "module_size_m": 0.0625,
       "normal": [
         0.0,
         0.0,
@@ -23845,9 +23845,9 @@
     {
       "type": "aisle_marker",
       "symbology": "ARUCO",
-      "dictionary": "DICT_5X5_100",
+      "dictionary": "DICT_APRILTAG_36h11",
       "marker_id": 5,
-      "payload": "DICT_5X5_100:5",
+      "payload": "DICT_APRILTAG_36h11:5",
       "caption": "",
       "entity": "aisle_markers::aruco_5",
       "world_frame": true,
@@ -23863,7 +23863,7 @@
         0.6,
         0.6
       ],
-      "module_size_m": 0.071429,
+      "module_size_m": 0.0625,
       "normal": [
         0.0,
         0.0,
@@ -23873,9 +23873,9 @@
     {
       "type": "aisle_marker",
       "symbology": "ARUCO",
-      "dictionary": "DICT_5X5_100",
+      "dictionary": "DICT_APRILTAG_36h11",
       "marker_id": 6,
-      "payload": "DICT_5X5_100:6",
+      "payload": "DICT_APRILTAG_36h11:6",
       "caption": "",
       "entity": "aisle_markers::aruco_6",
       "world_frame": true,
@@ -23891,7 +23891,7 @@
         0.6,
         0.6
       ],
-      "module_size_m": 0.071429,
+      "module_size_m": 0.0625,
       "normal": [
         0.0,
         0.0,
@@ -23901,9 +23901,9 @@
     {
       "type": "aisle_marker",
       "symbology": "ARUCO",
-      "dictionary": "DICT_5X5_100",
+      "dictionary": "DICT_APRILTAG_36h11",
       "marker_id": 7,
-      "payload": "DICT_5X5_100:7",
+      "payload": "DICT_APRILTAG_36h11:7",
       "caption": "",
       "entity": "aisle_markers::aruco_7",
       "world_frame": true,
@@ -23919,7 +23919,7 @@
         0.6,
         0.6
       ],
-      "module_size_m": 0.071429,
+      "module_size_m": 0.0625,
       "normal": [
         0.0,
         0.0,
@@ -23929,9 +23929,9 @@
     {
       "type": "aisle_marker",
       "symbology": "ARUCO",
-      "dictionary": "DICT_5X5_100",
+      "dictionary": "DICT_APRILTAG_36h11",
       "marker_id": 8,
-      "payload": "DICT_5X5_100:8",
+      "payload": "DICT_APRILTAG_36h11:8",
       "caption": "",
       "entity": "aisle_markers::aruco_8",
       "world_frame": true,
@@ -23947,7 +23947,7 @@
         0.6,
         0.6
       ],
-      "module_size_m": 0.071429,
+      "module_size_m": 0.0625,
       "normal": [
         0.0,
         0.0,
