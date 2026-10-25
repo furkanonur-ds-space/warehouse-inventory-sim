@@ -105,9 +105,14 @@ if ls out/yolo_boxes_*.jsonl >/dev/null 2>&1; then
   fi
 fi
 
+# Last, because it reads what everything above wrote: every page in one file,
+# out/report.html, with a button per view and a line on what each shows. The
+# separate pages are embedded whole and then removed; --keep-parts keeps them.
+run report/report_page.py
+
 echo
 if [ "$failed" -eq 0 ]; then
-  echo "== all reports written to out/ =="
+  echo "== all reports written to out/ - open out/report.html =="
 else
   echo "== $failed report(s) failed =="
 fi

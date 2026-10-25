@@ -777,6 +777,7 @@ barcode readings, exactly as that flight left them.
 | `coverage_report.py` | which parts of the warehouse the run actually covered, down to the bay | `out/coverage_report.json`, `out/coverage.html` |
 | `view_inventory.py` | does every product sit in its rack, how far each estimate shifted from where the box really is, and what the boxes that were never decoded look like | `out/inventory_3d.html` |
 | `drift_report.py` | how far the estimate wandered and whether the correction pulled it back | `out/drift_report.json`, `out/drift.html` |
+| `report_page.py` | every page above in one file, a button per view with a line on what it shows; run last by `make_reports.sh`, which then removes the separate pages (`--keep-parts` keeps them) | `out/report.html` |
 | `missed_log.py` | which boxes go undecoded, and whether it is the same ones every run | `out/missed_boxes.jsonl` |
 
 `missed_log.py` is the one report that accumulates. Every other tool
