@@ -290,7 +290,14 @@
     "(route.py, *_MOUNT_Z), so base_link's height is no longer quite theirs."
   ],
   "ground_offset": 0.033,
-  "aruco_dictionary": "DICT_5X5_100",
+  "_aruco_dictionary_note": [
+    "The floor markers are AprilTag 36h11 since 25 October 2026",
+    "(warehouse.yaml, aisle_marker.dictionary); they were ArUco DICT_5X5_100.",
+    "OpenCV's ArUco detector reads AprilTag families through the same call,",
+    "so only the name changes here. It must match warehouse.yaml:",
+    "gen_world.py refuses to build a world whose markers this would not read."
+  ],
+  "aruco_dictionary": "DICT_APRILTAG_36h11",
   "marker_map": "../warehouse/generated/out/marker_map.json",
   "output": "../out/inventory_scanned.json",
   "navigation_report": "../out/navigation_report.json",
