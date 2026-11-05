@@ -712,7 +712,14 @@ export PX4_GZ_MODEL_POSE="-8.5,-9,0.30,0,0,0"   # must match layout.json
 make px4_sitl gz_x500_c27_warehouse
 ```
 
-Wait for `INFO [commander] Ready for takeoff!` before starting the scan.
+Give the simulator a minute or two before starting the scan. Do not wait for
+`INFO [commander] Ready for takeoff!`: PX4 prints it only once a ground
+station is connected, which is the scan itself, so until then the log shows
+`Preflight Fail: No connection to the GCS` and that is expected. What is not
+expected is `Accel Sensor 0 missing` or `Found 0 compass`: see `clean.sh`
+below, and if they persist after a clean start, the WSL GPU layer may have
+stalled (`dmesg` shows `dxg ... Ioctl failed: -75`); `wsl --shutdown` clears
+it.
 
 `HEADLESS=1` starts the server with no window. Everything still renders -
 the cameras are sensors, not a display - and a scan runs faster without the
