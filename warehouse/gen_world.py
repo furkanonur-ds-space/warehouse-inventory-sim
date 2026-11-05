@@ -1076,8 +1076,11 @@ def pallets(cfg, slots, meshes, textures) -> str:
             edges += [s["cx"] - w / 2, s["cx"] + w / 2]
         edges.append(right)
         if any(b < a - 1e-9 for a, b in zip(edges, edges[1:])):
+            # Python 3.10 (Ubuntu 22.04) cannot nest the same quote inside an
+            # f-string; 3.12 can. Build the list first.
+            widths = ", ".join(f"{s['w']:.2f}" for s in group)
             raise SystemExit(f"{rid} göz {bi+1} seviye {li+1}: paletler sığmıyor "
-                             f"({', '.join(f'{s['w']:.2f}' for s in group)} m)")
+                             f"({widths} m)")
         y0 = rows[rid]["y0"]
         for s in group:
             w = s["w"]
