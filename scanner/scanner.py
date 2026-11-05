@@ -171,6 +171,25 @@ SETTLE_TIMEOUT_S = 8.0         # seconds allowed for settling
 MARKER_MAX_SPEED = 0.05        # m/s
 MARKER_MAX_TILT_DEG = 1.0
 
+# A waypoint counts as reached only when the vehicle is also still and
+# facing the way it was told to. Position alone passed in 0.3 s at the end of
+# the move into the 0.50 m aisle, while the vehicle was still swinging: on
+# 5 November 2026 it began the next leg 25 degrees off its heading and 15 cm
+# off its lane, and lost the codes it passed in that state. Until 29 October
+# the altitude test could never pass (it was out by ground_offset), so every
+# waypoint sat out the full SETTLE_TIMEOUT_S and the swing died away unseen.
+SETTLE_MAX_SPEED = 0.05        # m/s, the same stillness the marker fix asks for
+SETTLE_MAX_YAW_ERR_DEG = 2.0
+
+
+def waypoint_settled(alt_err, lateral, speed, yaw_err_deg):
+    """Whether the vehicle is where it was sent, and has stopped there."""
+    yaw_err = (yaw_err_deg + 180.0) % 360.0 - 180.0
+    return (abs(alt_err) < SETTLE_TOLERANCE
+            and lateral < SETTLE_LATERAL_M
+            and speed < SETTLE_MAX_SPEED
+            and abs(yaw_err) < SETTLE_MAX_YAW_ERR_DEG)
+
 # Vertical moves need their own, much slower rate. Measured with the horizontal
 # rate applied to both: a 0.65 m level change left the vehicle 0.65 m behind
 # the setpoint, and the error was still 0.35 m part way along the next aisle.
@@ -1684,8 +1703,12 @@ async def goto_waypoint(drone, index, total, x, y, z, yaw_deg):
                 lateral = math.sqrt(
                     (current_pos["n"] + drift_offset["n"] - target_n) ** 2 +
                     (current_pos["e"] + drift_offset["e"] - target_e) ** 2)
-                if (abs(-current_pos["d"] - z) < SETTLE_TOLERANCE
-                        and lateral < SETTLE_LATERAL_M):
+                # Altitude against the setpoint, both in the NED frame. The
+                # world height z is GROUND_OFFSET above that frame's origin,
+                # so comparing -d with z was out by that much.
+                if waypoint_settled(current_pos["d"] - target_d, lateral,
+                                    current_motion["speed"],
+                                    current_yaw["deg"] - yaw_deg):
                     break
                 await asyncio.sleep(dt)
                 settle += dt

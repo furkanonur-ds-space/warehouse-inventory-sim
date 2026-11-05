@@ -506,6 +506,15 @@ passed in 0.3 s, and a fix read while the vehicle was pitched to brake came
 out 1.02 m off and was applied. Sightings that are not applied are logged with
 `(not applied)`.
 
+The settle phase itself now asks for the same stillness, and for the heading:
+a waypoint counts as reached when the vehicle is within 5 cm of the commanded
+height and 8 cm sideways, below 0.05 m/s, and within 2 degrees of its heading
+(`waypoint_settled` in `scanner.py`), for up to the same 8 s. Position alone
+let the move into the 0.50 m aisle pass in 0.3 s on 5 November 2026, and the
+vehicle began the next leg 25 degrees off its heading and 15 cm off its lane,
+and lost three to seven codes on the top level of that aisle. A settle takes
+about 4.5 s after a cruise leg now, and the scan about a minute longer.
+
 The geometry works from the camera, not from `base_link`: the downward camera
 sits 59 mm behind the body centre and 11 mm to its left, and its height above
 the floor is the altitude since take-off plus `ground_offset`, less the 11 mm
@@ -667,7 +676,7 @@ succeeded.
 ./scripts/run_tests.sh
 ```
 
-Eight suites, seconds each, no simulator. They import the scanner, read the
+Nine suites, seconds each, no simulator. They import the scanner, read the
 layout, and work through the geometry, so they fail loudly on a virtualenv
 missing a package or a `setup_px4.sh` that did not finish, which are the two
 ways a fresh install goes wrong. `all suites passed` means the next thing to
@@ -787,7 +796,7 @@ measurement, so it was not short of the eight processors WSL is given.
 ./scripts/run_tests.sh
 ```
 
-Eight suites, seconds each, no simulator:
+Nine suites, seconds each, no simulator:
 
 - `test_pose_history.py` - that a code is filed against the pose its frame was
   taken at. Includes the case the whole thing exists for: a frame handled two
@@ -816,6 +825,9 @@ Eight suites, seconds each, no simulator:
   frame and the scaled one. This is the suite that would catch the scaling
   being taken too far, and it works on real pixels rather than on the
   arithmetic that chose the factor.
+- `test_settle.py` - when a waypoint counts as reached: in position, still,
+  and on its heading. Position alone let a leg of the 0.50 m aisle begin with
+  the vehicle 25 degrees off its heading.
 - `test_barcode_inventory.py` - that a barcode reading is filed against the
   box it names.
 
