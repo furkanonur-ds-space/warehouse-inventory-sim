@@ -75,11 +75,55 @@ pids=()
 
 SAVE_FRAMES="${SAVE_FRAMES:-0}"
 SHOTS="$HERE/out/barcode_frames"
+if [ "${SAVE_BOXES:-0}" != "0" ]; then
+    rm -rf "$HERE"/out/yolo_boxes_*
+    echo "  recording the box detector in out/yolo_boxes_<camera>[.jsonl]"
+fi
+if [ "${SAVE_CROPS:-0}" != "0" ]; then
+    # Same reason the readings are cleared: crops from an older run would be
+    # read as if they belonged to this one.
+    rm -rf "$HERE"/out/yolo_crops_*
+    echo "  keeping the crops the model framed in out/yolo_crops_<camera>"
+fi
 if [ "$SAVE_FRAMES" != "0" ]; then
     # Same reason the readings are cleared: frames from an older run would be
     # replayed as if they belonged to this one.
     rm -rf "$SHOTS"
     echo "  keeping unread-barcode frames in out/barcode_frames"
+fi
+
+# YOLO=1 puts the trained locator in front of zbar: it finds the qr and
+# barkod labels and each one is read from its own upscaled crop, after the
+# ordinary full-frame pass. It can only add readings.
+#
+# It is not free on a live run. ultralytics must be in THIS venv (the one that
+# reaches gz-transport, so `.venv/bin/pip install ultralytics`, which pulls
+# torch), and every frame then costs about 6 ms of the same GPU that is
+# rendering the world - twice over in "both" mode. The reader already costs
+# the run a few per cent of its frames by being a second subscriber; measure
+# before trusting a live comparison, and prefer the replay A/B, which gives
+# both passes identical pixels:
+#
+#   PY=~/Desktop/warehouse_dataset/.venv/bin/python ./scripts/yolo_replay_ab.sh
+YOLO="${YOLO:-0}"
+if [ "$YOLO" != "0" ]; then
+    # BEFORE ANYTHING IS LAUNCHED. On 2026-09-28 the driver was not ready,
+    # both readers raised on their first frame and died, and the vehicle flew
+    # the whole route anyway: 24 waypoints, 420 QRs, two empty barcode files,
+    # and nothing said so until the reports were run. Ten minutes for nothing.
+    # The check costs a second here and the flight is the expensive thing.
+    if ! "$PY" -c "
+import sys
+sys.path.insert(0, '$HERE/perception')
+import code_finder
+code_finder.require_device('${YOLO_DEVICE:-0}')
+"; then
+        echo
+        echo "not flying. Fix the GPU, or fly without the locator:"
+        echo "  SAVE_FRAMES=1 bash $0 ${MODE:-both}"
+        exit 1
+    fi
+    echo "  YOLO locating labels (weights: ${YOLO_WEIGHTS:-models/yolo26s_640/best.pt})"
 fi
 
 start_barcode() {
@@ -88,11 +132,42 @@ start_barcode() {
     if [ "$SAVE_FRAMES" != "0" ]; then
         shots=(--save-frames "$SHOTS")
     fi
+    local yolo=()
+    if [ "$YOLO" != "0" ]; then
+        yolo=(--yolo)
+        if [ -n "${YOLO_WEIGHTS:-}" ]; then
+            yolo+=(--yolo-weights "$YOLO_WEIGHTS")
+        fi
+        if [ -n "${YOLO_DEVICE:-}" ]; then
+            yolo+=(--yolo-device "$YOLO_DEVICE")
+        fi
+        # SAVE_CROPS=1 keeps what the model framed, per camera, so the boxes
+        # can be looked at rather than counted. Failures only by default, and
+        # capped, for the same reason SAVE_FRAMES is capped: a flight locates
+        # thousands of labels and lossless crops of all of them are a video
+        # nobody asked for.
+        if [ "${SAVE_CROPS:-0}" != "0" ]; then
+            yolo+=(--yolo-save-crops "$HERE/out/yolo_crops_$tag")
+            if [ "${SAVE_CROPS_ALL:-0}" != "0" ]; then
+                yolo+=(--yolo-save-all)
+            fi
+        fi
+        # SAVE_BOXES=1 records the box detector: a picture every so often of
+        # what it framed, and a line per frame with the boxes and the pose,
+        # which is what a later pass needs to follow one carton across the
+        # frames that saw it. The pictures are strided over the whole route
+        # rather than taken from the first aisle.
+        if [ "${SAVE_BOXES:-0}" != "0" ]; then
+            yolo+=(--yolo-save-boxes "$HERE/out/yolo_boxes_$tag"
+                   --yolo-boxes-log "$HERE/out/yolo_boxes_$tag.jsonl")
+        fi
+    fi
     "$PY" "$HERE/perception/barcode_scanner.py" --headless \
         --topic "$BASE/$link/sensor/camera/image" \
         --readings "$HERE/out/barcode_readings_$tag.jsonl" \
         --summary  "$HERE/out/barcode_inventory_$tag.json" \
         ${shots+"${shots[@]}"} \
+        ${yolo+"${yolo[@]}"} \
         > "$HERE/out/barcode_$tag.log" 2>&1 &
     pids+=($!)
     echo "  barcode on $tag -> out/barcode_readings_$tag.jsonl (pid ${pids[-1]})"

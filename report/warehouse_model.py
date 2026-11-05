@@ -510,8 +510,12 @@ def label_profile(code: dict, geometry: dict, flight_z: list[float],
     fov = hfov_deg if hfov_deg is not None else face["hfov_deg"]
     x, y, z = code["label_pose_xyzrpy"][:3]
     level_z = flight_z[code["level"] - 1] if code["level"] - 1 < len(flight_z) else None
-    px_per_module = (width_px / 2) / math.tan(math.radians(fov) / 2) \
-        * code["module_size_m"] / standoff
+    # A carton built with no code on it has no module to resolve, so this is
+    # None rather than a number - the view still wants its size, its height
+    # and which camera reads its face, all of which exist either way.
+    module_m = code.get("module_size_m")
+    px_per_module = None if module_m is None else (
+        (width_px / 2) / math.tan(math.radians(fov) / 2) * module_m / standoff)
     g = geometry.get(code["entity"].split("::")[-1], {})
     return {
         "size": g.get("size"),
@@ -520,7 +524,8 @@ def label_profile(code: dict, geometry: dict, flight_z: list[float],
         "axis_z": level_z,
         # Negative means the label sat below the optical axis.
         "z_offset_m": round(z - level_z, 3) if level_z is not None else None,
-        "px_per_module": round(px_per_module, 2),
+        "px_per_module": None if px_per_module is None
+        else round(px_per_module, 2),
         "standoff_m": round(standoff, 3),
         # Which of the two cameras read this face, since neither the distance
         # nor the frame means anything without it.

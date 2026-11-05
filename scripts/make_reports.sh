@@ -75,11 +75,44 @@ if ls out/barcode_readings*.jsonl >/dev/null 2>&1; then
   run report/view_inventory.py --inventory out/inventory_barcode.json \
       --code-type box_placard --out out/inventory_3d_barcode.html
   run report/barcode_vs_qr.py
+  # What the label locator did, when the run flew with one. Run
+  # unconditionally inside this block rather than guarded on a YOLO variable:
+  # the flag belongs to the flight and this is read afterwards, possibly in
+  # another shell, so the summary the flight left is the only honest witness
+  # to whether there was a locator. It says so itself when there was not.
+  run report/yolo_report.py --html out/yolo.html
 fi
+
+# The box detector as an inventory of cartons, when the flight kept a box log.
+# Separate from the barcode block above because it answers a different
+# question: not what was read, but what was THERE to read. Its ids are
+# assigned by proximity to ground truth and are not something the flight
+# decoded, which is why it writes its own inventory name and is never fed to
+# validate_inventory.py.
+if ls out/yolo_boxes_*.jsonl >/dev/null 2>&1; then
+  echo
+  echo "-- box detector --"
+  run report/box_inventory.py
+  run report/view_inventory.py --inventory out/inventory_boxes.json \
+      --out out/boxes_3d.html
+  # The experiment on its own page, when the world was built with cartons that
+  # carry no code. Twelve dots among nine hundred is not a picture anyone can
+  # read; scored against their own truth, the page answers one question.
+  if [ -s out/inventory_boxes_unlabelled.json ]; then
+    run report/view_inventory.py \
+        --inventory out/inventory_boxes_unlabelled.json \
+        --code-type box_unlabelled --out out/experiment_3d.html
+  fi
+fi
+
+# Last, because it reads what everything above wrote: every page in one file,
+# out/report.html, with a button per view and a line on what each shows. The
+# separate pages are embedded whole and then removed; --keep-parts keeps them.
+run report/report_page.py
 
 echo
 if [ "$failed" -eq 0 ]; then
-  echo "== all reports written to out/ =="
+  echo "== all reports written to out/ - open out/report.html =="
 else
   echo "== $failed report(s) failed =="
 fi
