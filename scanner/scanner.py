@@ -182,6 +182,22 @@ SETTLE_MAX_SPEED = 0.05        # m/s, the same stillness the marker fix asks for
 SETTLE_MAX_YAW_ERR_DEG = 2.0
 
 
+# The settle timeout and the still window after it are counted on the
+# vehicle's clock, the odometry timestamp in sim_now, not on the wall. In a
+# simulator running at 0.42 of real time, 8 wall seconds gave the vehicle 3.4
+# seconds to stop, and every waypoint of a scan in the realistic warehouse
+# timed out at "8.1 s" while the same waypoints settled in 4.5 s at full
+# speed. The wall still bounds the wait, in case the clock stops.
+SETTLE_WALL_CAP_S = 60.0
+
+
+def settle_elapsed(clock_start, clock_now, wall_elapsed):
+    """Seconds spent settling, on the vehicle's clock when it has one."""
+    if clock_start > 0.0 and clock_now >= clock_start:
+        return clock_now - clock_start
+    return wall_elapsed
+
+
 def waypoint_settled(alt_err, lateral, speed, yaw_err_deg):
     """Whether the vehicle is where it was sent, and has stopped there."""
     yaw_err = (yaw_err_deg + 180.0) % 360.0 - 180.0
@@ -1692,7 +1708,10 @@ async def goto_waypoint(drone, index, total, x, y, z, yaw_deg):
             # moment the setpoint arrives leaves residual error that carries
             # into the next leg, which is what pushed codes out of frame.
             settle = 0.0
-            while settle < SETTLE_TIMEOUT_S:
+            clock_start = sim_now["s"]
+            wall_start = time.monotonic()
+            while (settle < SETTLE_TIMEOUT_S
+                   and time.monotonic() - wall_start < SETTLE_WALL_CAP_S):
                 cn, ce = corrected(target_n, target_e)
                 await send_setpoint(drone, cn, ce, target_d, yaw_deg)
                 await poll_camera()
@@ -1711,18 +1730,23 @@ async def goto_waypoint(drone, index, total, x, y, z, yaw_deg):
                                     current_yaw["deg"] - yaw_deg):
                     break
                 await asyncio.sleep(dt)
-                settle += dt
-                
+                settle = settle_elapsed(clock_start, sim_now["s"],
+                                        time.monotonic() - wall_start)
+
             # Wait an extra 1.5 seconds for the drone to level out its roll/pitch 
             # after braking. We poll the camera during this time because the drone is 
             # flat and hovering, which gives us perfectly accurate ArUco drift readings.
             global is_settled
             is_settled = True
             elapsed_settle = 0.0
-            while elapsed_settle < 1.5:
+            clock_start = sim_now["s"]
+            wall_start = time.monotonic()
+            while (elapsed_settle < 1.5
+                   and time.monotonic() - wall_start < SETTLE_WALL_CAP_S):
                 await poll_camera()
                 await asyncio.sleep(dt)
-                elapsed_settle += dt
+                elapsed_settle = settle_elapsed(
+                    clock_start, sim_now["s"], time.monotonic() - wall_start)
             is_settled = False
 
             residual = -current_pos["d"] - z
