@@ -47,9 +47,10 @@ dragged a whole carton-pitch sideways is nearest to the neighbour, which is
 how the first attempt at this moved clusters onto the wrong carton.
 
 WHAT IT CANNOT DO. A corner seen in one frame has no motion to measure. The
-rear camera renders at 8 Hz and on the 0.50 m aisle a corner is in its frame
-for one or two frames, so face H gets few corners and keeps most of its old
-positions. That is a camera rate question, not a placement one.
+rear camera rendered at 8 Hz when this was written (12 since 5 November
+2026), and on the 0.50 m aisle a corner was in its frame for one or two
+frames, so face H gets few corners and keeps most of its old positions.
+That is a camera rate question, not a placement one.
 """
 
 from __future__ import annotations

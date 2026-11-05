@@ -1243,6 +1243,11 @@ Raising the rear camera from 8 Hz to 12 was tried against it. It halved the
 codes read once on face H, from 37 to 17, and left the barcode total where it
 was. See `build_c27_drone.py` REAR_RATE.
 
+It is 12 since 5 November 2026. In the realistic warehouse, with stretch
+film over most labels, each code on face H was in the rear camera's view in
+a single frame at 8 Hz, and the film decided that frame: three flights read
+414 and 415 of 432, every miss on H. At 12 Hz the same world read 432.
+
 **The drift injected is smooth, and real VIO is not.** It grows with distance
 along a heading that turns slowly, which is how a scale or heading error in an
 estimator behaves. It does not model the other failure: losing tracking

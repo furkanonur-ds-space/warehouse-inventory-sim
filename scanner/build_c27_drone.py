@@ -105,8 +105,16 @@ for _i, _a in enumerate(sys.argv):
 #
 # The vehicle runs this camera at 30 fps.
 #
-# Left at 8 until a flight says otherwise, the same way the hires was.
-REAR_RATE = 8
+# 12 since 5 November 2026, when a flight said so. In the realistic
+# warehouse (realism switches on in warehouse.yaml) most cartons wear
+# stretch film over their labels. At 8 Hz each code on face H was in the
+# rear camera's frame in a single frame, and the film decided that frame:
+# three flights read 414 and 415 of 432, every miss on H, a different two or
+# three bays each time. At 12 Hz the same world read 432. Measured against
+# the frames' real arrival, not their stamps (the simulator ran at 0.6 of
+# real time), the rear decoder was busy 22 per cent of the time on the
+# 0.50 m aisle and 55 to 59 on the wide ones, and shed 7 frames in the run.
+REAR_RATE = 12
 for _i, _a in enumerate(sys.argv):
     if _a == "--rear-rate" and _i + 1 < len(sys.argv):
         REAR_RATE = int(sys.argv[_i + 1])
