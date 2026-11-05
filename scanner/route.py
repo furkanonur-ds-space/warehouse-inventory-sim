@@ -79,21 +79,37 @@ REAR_MAX_STANDOFF = LAYOUT.get("rear_max_standoff", 1.10)
 SHELF_STANDOFF = LAYOUT.get("shelf_standoff", HIRES_MAX_STANDOFF)
 
 # How wide the vehicle is, so an aisle it does not fit down can be named
-# rather than flown into. The Starling 2 is 290 mm across at the propeller
-# tips.
+# rather than flown into. The Starling 2 is 252 mm front to back at the
+# propeller tips, which is the way it faces across an aisle.
 VEHICLE_HALF_SPAN = LAYOUT.get("vehicle_half_span", 0.0)
 
 # How much room to leave between a propeller tip and a shelf.
 AISLE_CLEARANCE_M = 0.05
 
-# Where each camera sits along the body, from build_c27_drone.py. The bearing
-# to a code is turned into a position using the distance from the camera to
-# the shelf, and the camera is not at base_link: the hires looks forward from
-# the front face and the rear camera looks back from the rear one, so each is
-# nearer its own shelf than base_link is. Leaving these out scaled every
-# lateral offset by eight per cent.
-HIRES_MOUNT_X = 0.06
-REAR_MOUNT_X = -0.055
+# Where each camera sits on the body, the same numbers build_c27_drone.py puts
+# in the model. The bearing to a code is turned into a position using the
+# distance from the camera to the shelf, and the camera is not at base_link:
+# the hires looks forward from the front face and the rear camera looks back
+# from the rear one, so each is nearer its own shelf than base_link is.
+# Leaving these out scaled every lateral offset by eight per cent.
+#
+# From the vehicle's own /etc/modalai/extrinsics.conf (body frame, x forward,
+# y right, z down), turned into x forward, y left, z up. A ruler on the
+# vehicle agrees: the hires 30 mm and the rear camera 45 mm above the table,
+# the body 33 mm, on 22 October 2026. Until then the model carried the C27
+# cameras where they sit on an x500, the rear one 27 mm too low.
+HIRES_MOUNT_X = 0.0683
+REAR_MOUNT_X = -0.0625
+# Heights against base_link. A code's height is the camera's height plus what
+# its elevation in the frame says, not base_link's.
+HIRES_MOUNT_Z = -0.0026
+REAR_MOUNT_Z = 0.0124
+# The downward camera reads the floor markers. It is 59 mm behind the body
+# centre and 11 mm to the left, so a marker under the camera is not under
+# base_link, and its height above the floor is base_link's less 11 mm.
+DOWN_MOUNT_X = -0.0588
+DOWN_MOUNT_Y = 0.011
+DOWN_MOUNT_Z = -0.0109
 
 # --- WHAT THE CAMERA CAN SEE VERTICALLY --------------------------------
 #

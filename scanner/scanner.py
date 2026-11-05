@@ -90,6 +90,11 @@ from route import (              # noqa: F401  (re-exported for the tests)
     AISLE_CLEARANCE_M,
     HIRES_MOUNT_X,
     REAR_MOUNT_X,
+    HIRES_MOUNT_Z,
+    REAR_MOUNT_Z,
+    DOWN_MOUNT_X,
+    DOWN_MOUNT_Y,
+    DOWN_MOUNT_Z,
     HIRES_FRAME_PX,
     REAR_FRAME_PX,
     USABLE_FRAME,
@@ -155,6 +160,36 @@ SETTLE_TOLERANCE = 0.05        # metres of altitude error before a leg counts as
 SETTLE_LATERAL_M = 0.08
 SETTLE_TIMEOUT_S = 8.0         # seconds allowed for settling
 
+# A floor marker is only trusted as a position fix when the vehicle is still
+# and level. The settle phase alone did not say so: it starts the moment the
+# vehicle is within SETTLE_TOLERANCE and SETTLE_LATERAL_M, which can be while
+# it is still braking. That went unseen while ground_offset was 27 mm wrong,
+# because the altitude test then never passed and every settle ran the full
+# 8 s timeout; with the right offset it passed in 0.3 s, a fix read while the
+# vehicle was pitched to brake came out 1.02 m off, and it was applied. A tilt
+# of 1 degree moves the point under a camera 4 m up by 7 cm.
+MARKER_MAX_SPEED = 0.05        # m/s
+MARKER_MAX_TILT_DEG = 1.0
+
+# A waypoint counts as reached only when the vehicle is also still and
+# facing the way it was told to. Position alone passed in 0.3 s at the end of
+# the move into the 0.50 m aisle, while the vehicle was still swinging: on
+# 5 November 2026 it began the next leg 25 degrees off its heading and 15 cm
+# off its lane, and lost the codes it passed in that state. Until 29 October
+# the altitude test could never pass (it was out by ground_offset), so every
+# waypoint sat out the full SETTLE_TIMEOUT_S and the swing died away unseen.
+SETTLE_MAX_SPEED = 0.05        # m/s, the same stillness the marker fix asks for
+SETTLE_MAX_YAW_ERR_DEG = 2.0
+
+
+def waypoint_settled(alt_err, lateral, speed, yaw_err_deg):
+    """Whether the vehicle is where it was sent, and has stopped there."""
+    yaw_err = (yaw_err_deg + 180.0) % 360.0 - 180.0
+    return (abs(alt_err) < SETTLE_TOLERANCE
+            and lateral < SETTLE_LATERAL_M
+            and speed < SETTLE_MAX_SPEED
+            and abs(yaw_err) < SETTLE_MAX_YAW_ERR_DEG)
+
 # Vertical moves need their own, much slower rate. Measured with the horizontal
 # rate applied to both: a 0.65 m level change left the vehicle 0.65 m behind
 # the setpoint, and the error was still 0.35 m part way along the next aisle.
@@ -191,6 +226,9 @@ os.makedirs(os.path.dirname(OUTPUT_JSON), exist_ok=True)
 # --- STATE -------------------------------------------------------------
 current_pos = {"n": 0.0, "e": 0.0, "d": 0.0}
 current_yaw = {"deg": 0.0}
+# Speed and tilt from the same odometry message, so a marker correction can
+# ask whether the vehicle is actually still rather than which phase it is in.
+current_motion = {"speed": 0.0, "tilt_deg": 0.0}
 origin_pos = None
 is_settled = False
 pending = deque()          # hits waiting to be recorded, each with its own pose
@@ -699,6 +737,11 @@ def on_down_image(msg):
 
         if alt < 0.2:
             return
+        # The camera's height above the floor. alt is base_link's height above
+        # where it was captured on the ground, which is GROUND_OFFSET above
+        # the floor, and the camera hangs DOWN_MOUNT_Z below base_link. Using
+        # alt alone scaled every offset read off the frame by the difference.
+        cam_h = alt + GROUND_OFFSET + DOWN_MOUNT_Z
 
         frame_h, frame_w = gray.shape[:2]
         h_fov = math.radians(DOWN_CAM_HFOV_DEG)
@@ -719,18 +762,22 @@ def on_down_image(msg):
             # offset is altitude times the tangent of the bearing.
             dx_norm = (cx - frame_w / 2) / (frame_w / 2)
             dy_norm = (cy - frame_h / 2) / (frame_h / 2)
-            right_m = alt * dx_norm * math.tan(h_fov / 2)
-            forward_m = -alt * dy_norm * math.tan(v_fov / 2)
+            right_m = cam_h * dx_norm * math.tan(h_fov / 2)
+            forward_m = -cam_h * dy_norm * math.tan(v_fov / 2)
 
             # Rotate that body-frame offset into the world frame
             yaw_rad = math.radians(yaw_deg)
             fx, fy = math.sin(yaw_rad), math.cos(yaw_rad)
             rx, ry = math.cos(yaw_rad), -math.sin(yaw_rad)
 
-            # The vehicle is offset from the marker by the negative of the
-            # marker's offset from the vehicle.
-            vehicle_x = known["x"] - (fx * forward_m + rx * right_m)
-            vehicle_y = known["y"] - (fy * forward_m + ry * right_m)
+            # The camera is offset from the marker by the negative of the
+            # marker's offset from the camera, and the vehicle centre is the
+            # camera less its mount: 59 mm behind and 11 mm to the left, which
+            # would otherwise be read as drift on every fix.
+            cam_x = known["x"] - (fx * forward_m + rx * right_m)
+            cam_y = known["y"] - (fy * forward_m + ry * right_m)
+            vehicle_x = cam_x - (fx * DOWN_MOUNT_X - rx * DOWN_MOUNT_Y)
+            vehicle_y = cam_y - (fy * DOWN_MOUNT_X - ry * DOWN_MOUNT_Y)
 
             fix_n, fix_e, _ = gazebo_to_ned(vehicle_x, vehicle_y, alt)
 
@@ -769,7 +816,9 @@ def on_down_image(msg):
             # Corrections are only taken while hovering. In motion the airframe
             # pitches, the downward camera tilts with it, and the geometry below
             # reads that tilt as position error.
-            if is_settled:
+            still = (current_motion["speed"] < MARKER_MAX_SPEED
+                     and current_motion["tilt_deg"] < MARKER_MAX_TILT_DEG)
+            if is_settled and still:
                 alpha = 0.5
                 drift_offset["n"] += alpha * (error_n - drift_offset["n"])
                 drift_offset["e"] += alpha * (error_e - drift_offset["e"])
@@ -789,7 +838,8 @@ def on_down_image(msg):
             })
             print(f"           MARKER {int(marker_id)} at "
                   f"({known['x']:+.1f}, {known['y']:+.1f})  "
-                  f"drift {error_mag:.3f} m  offset now {after:.3f} m")
+                  f"drift {error_mag:.3f} m  offset now {after:.3f} m"
+                  + ("" if is_settled and still else "  (not applied)"))
     except Exception:
         pass
 
@@ -1191,6 +1241,12 @@ async def track_odometry(drone):
             current_pos["e"] = o.position_body.y_m
             current_pos["d"] = o.position_body.z_m
             current_yaw["deg"] = yaw
+            v = o.velocity_body
+            current_motion["speed"] = math.sqrt(
+                v.x_m_s ** 2 + v.y_m_s ** 2 + v.z_m_s ** 2)
+            # The angle between the body's z axis and the vertical.
+            current_motion["tilt_deg"] = math.degrees(math.acos(max(-1.0, min(
+                1.0, 1 - 2 * (q.x * q.x + q.y * q.y)))))
             sim_now["s"] = when
 
             pose_history.append((when, current_pos["n"], current_pos["e"],
@@ -1269,7 +1325,13 @@ def record_detection(qr_id, cx_px, cy_px, frame_w, frame_h, pose,
 
     box_x = gx + forward_x * depth + right_x * lateral
     box_y = gy + forward_y * depth + right_y * lateral
-    box_z = gz + vertical
+    # From the camera's height, not base_link's: the rear camera sits 12 mm
+    # above it and the hires 3 mm below. The cameras' few millimetres to the
+    # side are left out; they move a code less than a centimetre along the
+    # aisle, and y is the one axis that is measured rather than snapped.
+    mount_z = {"camera_hires_link": HIRES_MOUNT_Z,
+               "camera_track_rear_link": REAR_MOUNT_Z}.get(camera, 0.0)
+    box_z = gz + mount_z + vertical
 
     # Snapped to the layout, because the vehicle pitches to fly and a tilted
     # camera reports a bearing and an elevation that are both slightly wrong.
@@ -1641,8 +1703,12 @@ async def goto_waypoint(drone, index, total, x, y, z, yaw_deg):
                 lateral = math.sqrt(
                     (current_pos["n"] + drift_offset["n"] - target_n) ** 2 +
                     (current_pos["e"] + drift_offset["e"] - target_e) ** 2)
-                if (abs(-current_pos["d"] - z) < SETTLE_TOLERANCE
-                        and lateral < SETTLE_LATERAL_M):
+                # Altitude against the setpoint, both in the NED frame. The
+                # world height z is GROUND_OFFSET above that frame's origin,
+                # so comparing -d with z was out by that much.
+                if waypoint_settled(current_pos["d"] - target_d, lateral,
+                                    current_motion["speed"],
+                                    current_yaw["deg"] - yaw_deg):
                     break
                 await asyncio.sleep(dt)
                 settle += dt

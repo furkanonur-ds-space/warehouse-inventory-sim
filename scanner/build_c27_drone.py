@@ -134,6 +134,18 @@ with open(os.path.join(model_dir, 'model.config'), 'w') as f:
     f.write(config)
 
 
+# What the vehicle's own sensors may see: everything except the bit the
+# vehicle's visuals carry (build_starling2.VEHICLE_VISUAL_FLAG, bit 1).
+#
+# The airframe can be drawn from ModalAI's CAD, and that body wraps the
+# sensors as the real one does: the downward camera looks straight at the
+# battery and the TOF fires into the front camera housing. Every scan result
+# so far was measured with sensors that saw past the vehicle, so they keep
+# doing so. Visuals that do not carry the bit, which is everything in the
+# warehouse, are unaffected: Gazebo's default flags are all ones.
+SENSOR_VISIBILITY_MASK = 0xFFFFFFFF & ~0x2
+
+
 def camera_block(link_name, joint_name, x_off, y_off, z_off,
                  roll, pitch, yaw, fov, width, height, update_rate=30):
     """
@@ -170,6 +182,7 @@ def camera_block(link_name, joint_name, x_off, y_off, z_off,
             <format>R8G8B8</format>
           </image>
           <clip><near>0.05</near><far>100</far></clip>
+          <visibility_mask>{SENSOR_VISIBILITY_MASK}</visibility_mask>
         </camera>
       </sensor>
     </link>'''
@@ -233,6 +246,7 @@ def range_block(link_name, joint_name, x_off, y_off, z_off,
           <range>
             <min>0.1</min><max>{max_range}</max><resolution>0.01</resolution>
           </range>
+          <visibility_mask>{SENSOR_VISIBILITY_MASK}</visibility_mask>
         </ray>
       </sensor>
     </link>'''
@@ -258,9 +272,16 @@ def range_block(link_name, joint_name, x_off, y_off, z_off,
 # but is purely elapsed time.
 #
 # At 20 Hz and the 1 m/s the scan cruises at, that is a frame every 5 cm.
+#
+# Where each sensor sits: the vehicle's own /etc/modalai/extrinsics.conf
+# (body frame, x forward, y right, z down) turned into x forward, y left,
+# z up, and the same numbers as the MOUNT constants in route.py. These were
+# x500 positions until 22 October 2026, which put the rear camera 27 mm too
+# low and the downward camera 59 mm too far forward; a ruler on the vehicle
+# agrees with the extrinsics.
 hires_front = camera_block(
     "camera_hires_link", "camera_hires_joint",
-    0.06, 0.0, 0.0, 0, 0, 0,
+    0.0683, 0.0065, -0.0026, 0, 0, 0,
     fov=1.0472, width=1024, height=768, update_rate=HIRES_RATE)
 
 # --- AR0144 tracking cameras -------------------------------------------
@@ -277,7 +298,7 @@ hires_front = camera_block(
 # memory that the run cannot spare.
 tracking_front = camera_block(
     "camera_track_front_link", "camera_track_front_joint",
-    0.055, 0.0, -0.015, 0, 0, 0,
+    0.0665, 0.0065, 0.0154, 0, 0, 0,
     fov=1.5708, width=1280, height=800, update_rate=1)
 
 # The rear camera is no longer decorative: it reads the shelf behind the
@@ -307,7 +328,7 @@ tracking_front = camera_block(
 # hardware. It costs 5.12 Mpx/s, paid for by the downward camera below.
 tracking_rear = camera_block(
     "camera_track_rear_link", "camera_track_rear_joint",
-    -0.055, 0.0, -0.015, 0, 0, 3.14159,
+    -0.0625, -0.0095, 0.0124, 0, 0, 3.14159,
     fov=1.5708, width=1280, height=800, update_rate=REAR_RATE)
 
 # The downward tracking camera doubles as the ArUco marker reader for drift
@@ -324,7 +345,7 @@ tracking_rear = camera_block(
 # was spending most of its frames on stretches where sightings are ignored.
 tracking_down = camera_block(
     "camera_track_down_link", "camera_track_down_joint",
-    0.0, 0.0, -0.025, 0, 1.5708, 0,
+    -0.0588, 0.011, -0.0109, 0, 1.5708, 0,
     fov=1.5708, width=1280, height=800, update_rate=5)
 
 # --- Sensors required for GPS-free position estimation -----------------
@@ -438,7 +459,7 @@ vio_odometry = '''
 # is ours alone, read straight from Gazebo.
 tof_front = range_block(
     "tof_link", "tof_joint",
-    0.06, 0.0, 0.0, 0, 0, 0,
+    0.066, -0.009, 0.012, 0, 0, 0,
     max_range=5.0)
 
 sdf = f'''<?xml version="1.0" encoding="UTF-8"?>

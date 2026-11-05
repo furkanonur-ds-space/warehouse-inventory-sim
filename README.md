@@ -316,6 +316,12 @@ formula allows 16.8 m and the run lost 4 codes without colliding, which is
 what being slightly over the line looks like. At 0.25% it allows 33.6 m and
 the run read all 432. That prediction was made before the flight.
 
+Those runs flew a vehicle 290 mm across, which came from the motor positions
+in ModalAI's PX4 parameters. The real airframe is narrower in that direction:
+252 mm from the CAD, about 260 with a ruler on the vehicle (see "What the
+vehicle looks like"). With 252 the clearance at face H is 0.103 m and the
+table becomes 10.3, 20.6 and 41.2 m. The experiment above stands as flown.
+
 This is the part that travels. Measure what `voxl-qvio-server` actually drifts
 over a known path, measure the clearance in the real aisles, and the marker
 spacing follows, before anybody marks a floor.
@@ -419,8 +425,29 @@ none left to gain from it.
 
 Mind that the distance that matters is to the lens, not to `base_link`. The
 setpoint puts `base_link` on the lane and the cameras are mounted ahead of and
-behind it, so on a 1.30 m standoff the hires sits at 1.24 m. Using
+behind it, so on a 1.30 m standoff the hires sits at 1.23 m. Using
 `base_link`'s distance scaled every lateral offset by eight per cent.
+
+Where the cameras are mounted comes from the vehicle itself: its
+`/etc/modalai/extrinsics.conf`, turned from ModalAI's x forward, y right,
+z down into the simulator's x forward, y left, z up, and checked with a ruler
+on 22 October 2026. Against `base_link`:
+
+| Sensor | x (forward) | y (left) | z (up) |
+|---|---|---|---|
+| hires | 68.3 mm | 6.5 mm | -2.6 mm |
+| front tracking | 66.5 mm | 6.5 mm | 15.4 mm |
+| rear tracking | -62.5 mm | -9.5 mm | 12.4 mm |
+| downward tracking | -58.8 mm | 11.0 mm | -10.9 mm |
+| ToF | 66.0 mm | -9.0 mm | 12.0 mm |
+
+Until then the model carried them where they sit on an x500: the rear camera
+27 mm too low and the downward one 59 mm too far forward. The same numbers are
+in `scanner/route.py` (`*_MOUNT_*`) and `vehicle/route.h`, and they are used
+in three places: the distance to a shelf (x), a code's height (z), and where
+the vehicle is when the downward camera sees a marker (x, y and z). The few
+millimetres the shelf cameras sit to the side are left out; they move a code
+less than a centimetre along the aisle.
 
 ### ground_offset
 
@@ -468,7 +495,33 @@ and the vehicle still arrives where it was asked to go.
 
 Corrections are only taken while hovering. In motion the airframe pitches and
 the downward camera tilts with it, and the geometry reads that tilt as position
-error.
+error. "Hovering" is measured, not assumed from the phase of the flight: the
+settle phase must be on and the vehicle must be below 0.05 m/s and 1 degree of
+tilt, both read from the same odometry message as the pose. The phase alone
+was not enough. It begins as soon as the vehicle is within 5 cm of height and
+8 cm sideways, which can be while it is still braking; that stayed hidden for
+as long as `ground_offset` was 27 mm wrong, because the height test then never
+passed and every settle ran its full 8 s timeout. With the offset right it
+passed in 0.3 s, and a fix read while the vehicle was pitched to brake came
+out 1.02 m off and was applied. Sightings that are not applied are logged with
+`(not applied)`.
+
+The settle phase itself now asks for the same stillness, and for the heading:
+a waypoint counts as reached when the vehicle is within 5 cm of the commanded
+height and 8 cm sideways, below 0.05 m/s, and within 2 degrees of its heading
+(`waypoint_settled` in `scanner.py`), for up to the same 8 s. Position alone
+let the move into the 0.50 m aisle pass in 0.3 s on 5 November 2026, and the
+vehicle began the next leg 25 degrees off its heading and 15 cm off its lane,
+and lost three to seven codes on the top level of that aisle. A settle takes
+about 4.5 s after a cruise leg now, and the scan about a minute longer.
+
+The geometry works from the camera, not from `base_link`: the downward camera
+sits 59 mm behind the body centre and 11 mm to its left, and its height above
+the floor is the altitude since take-off plus `ground_offset`, less the 11 mm
+it hangs below `base_link`. Until 22 October 2026 the camera was modelled at
+the centre and its height taken as the altitude alone, which together would
+have read about 6 cm of drift into every fix once the camera moved to where
+the vehicle has it.
 
 The correction converges on the measured error rather than accumulating it.
 Summing instead was a real defect: the offset was right after exactly two
@@ -481,6 +534,62 @@ and is what found it.
 ```sh
 ../.venv/bin/python test_drift_correction.py
 ```
+
+## What the vehicle looks like
+
+By default the Starling 2 is drawn as the boxes and discs its physics is
+made of. It can be drawn from ModalAI's own CAD instead (D0014 Starling 2,
+C27 cameras), which ModalAI supplies as a STEP file:
+
+```sh
+~/cad_venv/bin/python scanner/cad/step_to_stl.py \
+    "D0014 Starling 2-C27 HW Rev1.STEP" starling2_c27_body.stl --min-volume 100
+~/cad_venv/bin/python scanner/cad/drop_folded_propellers.py \
+    starling2_c27_body.stl starling2_c27_body_noprops.stl
+cd scanner
+../.venv/bin/python build_starling2.py --body-mesh ../starling2_c27_body_noprops.stl
+../.venv/bin/python build_c27_drone.py
+```
+
+The converter needs gmsh, which brings its own CAD kernel and installs
+without root into a virtualenv of its own (`python3 -m venv ~/cad_venv &&
+~/cad_venv/bin/pip install gmsh numpy`). Converting takes about eight
+minutes and gives a 547,000 triangle mesh. The STEP has the propellers
+folded back along the arms for transport; `drop_folded_propellers.py` finds
+the eight blades by shape and takes them out (519,000 triangles left), since
+the simulator draws each spinning propeller as a disc. The mesh is not in this
+repository: it is derived from ModalAI's file and this repository is
+public. `setup_px4.sh` builds the box version; rebuild with `--body-mesh`
+afterwards to keep the CAD one.
+
+Only the look changes: mass, inertia, collisions and rotor joints are the
+same in both builds, with the rotors where the CAD and the real vehicle have
+them (below). The CAD body wraps the sensors as the
+real one does, so it carries a visibility flag that the vehicle's own
+cameras and TOF are told to ignore; checked by rendering the vehicle both
+ways, the downward camera's frame is identical to the pixel.
+
+Two things the CAD showed, both left for a decision rather than changed:
+
+- **The box model's propellers were in its own camera frames.** Drawn as
+  solid discs, they covered about 10 per cent of the hires frame and 13 per
+  cent of the rear one, in the top corners, in every scan so far. The CAD
+  build hides them from the sensors, which is closer to a real propeller
+  spinning at speed, but it does change what the cameras see, so the first
+  scan with it is a measurement, not a formality.
+- **ModalAI's CAD and ModalAI's parameters disagree about the motors.** The
+  CAD puts them 66 mm fore and aft and 88 mm across; the PX4 parameters
+  (CA_ROTOR*_PX/PY) put them 85 and 62.5, the other way round. The front is
+  settled by ModalAI's camera extrinsics, which put the front cameras 66 to
+  68 mm ahead. A ruler on the real vehicle sides with the CAD: 140 mm
+  between motor centres fore and aft, 180 across, 230 on the diagonal. The
+  vehicle's own parameter file has the 85 and 62.5. So the physics now puts
+  the rotors where the CAD has them, and the simulated PX4 keeps the
+  parameters, because that pairing is what the real vehicle flies with. The
+  same extrinsics put the body 33 mm above the ground at rest, where the
+  model had 60 mm, and the cameras where the x500 carries them; both now
+  follow the vehicle (see "Mind that the distance that matters is to the
+  lens").
 
 ## Naming
 
@@ -567,7 +676,7 @@ succeeded.
 ./scripts/run_tests.sh
 ```
 
-Seven suites, seconds each, no simulator. They import the scanner, read the
+Nine suites, seconds each, no simulator. They import the scanner, read the
 layout, and work through the geometry, so they fail loudly on a virtualenv
 missing a package or a `setup_px4.sh` that did not finish, which are the two
 ways a fresh install goes wrong. `all suites passed` means the next thing to
@@ -603,7 +712,14 @@ export PX4_GZ_MODEL_POSE="-8.5,-9,0.30,0,0,0"   # must match layout.json
 make px4_sitl gz_x500_c27_warehouse
 ```
 
-Wait for `INFO [commander] Ready for takeoff!` before starting the scan.
+Give the simulator a minute or two before starting the scan. Do not wait for
+`INFO [commander] Ready for takeoff!`: PX4 prints it only once a ground
+station is connected, which is the scan itself, so until then the log shows
+`Preflight Fail: No connection to the GCS` and that is expected. What is not
+expected is `Accel Sensor 0 missing` or `Found 0 compass`: see `clean.sh`
+below, and if they persist after a clean start, the WSL GPU layer may have
+stalled (`dmesg` shows `dxg ... Ioctl failed: -75`); `wsl --shutdown` clears
+it.
 
 `HEADLESS=1` starts the server with no window. Everything still renders -
 the cameras are sensors, not a display - and a scan runs faster without the
@@ -687,7 +803,7 @@ measurement, so it was not short of the eight processors WSL is given.
 ./scripts/run_tests.sh
 ```
 
-Seven suites, seconds each, no simulator:
+Nine suites, seconds each, no simulator:
 
 - `test_pose_history.py` - that a code is filed against the pose its frame was
   taken at. Includes the case the whole thing exists for: a frame handled two
@@ -716,6 +832,9 @@ Seven suites, seconds each, no simulator:
   frame and the scaled one. This is the suite that would catch the scaling
   being taken too far, and it works on real pixels rather than on the
   arithmetic that chose the factor.
+- `test_settle.py` - when a waypoint counts as reached: in position, still,
+  and on its heading. Position alone let a leg of the 0.50 m aisle begin with
+  the vehicle 25 degrees off its heading.
 - `test_barcode_inventory.py` - that a barcode reading is filed against the
   box it names.
 

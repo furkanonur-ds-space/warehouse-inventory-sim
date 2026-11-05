@@ -293,9 +293,9 @@ def flight_altitudes(path: Path = LAYOUT) -> list[float]:
 # read from the model itself whenever it can be found.
 CAMERA_FALLBACK = {
     "hires": {"link": "camera_hires_link", "frame_px": (1024, 768),
-              "hfov_deg": 60.0, "mount_x": 0.06},
+              "hfov_deg": 60.0, "mount_x": 0.0683},
     "rear": {"link": "camera_track_rear_link", "frame_px": (1280, 800),
-             "hfov_deg": 90.0, "mount_x": 0.055},
+             "hfov_deg": 90.0, "mount_x": 0.0625},
 }
 
 _CAM_LINK = re.compile(

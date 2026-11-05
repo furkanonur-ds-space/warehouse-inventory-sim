@@ -71,6 +71,11 @@ run test_decode_scale.py
 # same functions, so a difference here is a difference there.
 run test_flight.py
 
+# When a waypoint counts as reached: in position, still, and on its heading.
+# Position alone let the vehicle start a leg of the 0.50 m aisle still
+# swinging, 25 degrees off its heading.
+run test_settle.py
+
 # The report layer has geometry of its own now: a barcode reading carries a
 # pose and a pixel position, and turning those into a box is the scanner's
 # arithmetic written against a different yaw convention. A sign error there
