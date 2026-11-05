@@ -495,7 +495,16 @@ and the vehicle still arrives where it was asked to go.
 
 Corrections are only taken while hovering. In motion the airframe pitches and
 the downward camera tilts with it, and the geometry reads that tilt as position
-error.
+error. "Hovering" is measured, not assumed from the phase of the flight: the
+settle phase must be on and the vehicle must be below 0.05 m/s and 1 degree of
+tilt, both read from the same odometry message as the pose. The phase alone
+was not enough. It begins as soon as the vehicle is within 5 cm of height and
+8 cm sideways, which can be while it is still braking; that stayed hidden for
+as long as `ground_offset` was 27 mm wrong, because the height test then never
+passed and every settle ran its full 8 s timeout. With the offset right it
+passed in 0.3 s, and a fix read while the vehicle was pitched to brake came
+out 1.02 m off and was applied. Sightings that are not applied are logged with
+`(not applied)`.
 
 The geometry works from the camera, not from `base_link`: the downward camera
 sits 59 mm behind the body centre and 11 mm to its left, and its height above

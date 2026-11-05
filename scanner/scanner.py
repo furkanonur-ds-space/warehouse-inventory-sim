@@ -160,6 +160,17 @@ SETTLE_TOLERANCE = 0.05        # metres of altitude error before a leg counts as
 SETTLE_LATERAL_M = 0.08
 SETTLE_TIMEOUT_S = 8.0         # seconds allowed for settling
 
+# A floor marker is only trusted as a position fix when the vehicle is still
+# and level. The settle phase alone did not say so: it starts the moment the
+# vehicle is within SETTLE_TOLERANCE and SETTLE_LATERAL_M, which can be while
+# it is still braking. That went unseen while ground_offset was 27 mm wrong,
+# because the altitude test then never passed and every settle ran the full
+# 8 s timeout; with the right offset it passed in 0.3 s, a fix read while the
+# vehicle was pitched to brake came out 1.02 m off, and it was applied. A tilt
+# of 1 degree moves the point under a camera 4 m up by 7 cm.
+MARKER_MAX_SPEED = 0.05        # m/s
+MARKER_MAX_TILT_DEG = 1.0
+
 # Vertical moves need their own, much slower rate. Measured with the horizontal
 # rate applied to both: a 0.65 m level change left the vehicle 0.65 m behind
 # the setpoint, and the error was still 0.35 m part way along the next aisle.
@@ -196,6 +207,9 @@ os.makedirs(os.path.dirname(OUTPUT_JSON), exist_ok=True)
 # --- STATE -------------------------------------------------------------
 current_pos = {"n": 0.0, "e": 0.0, "d": 0.0}
 current_yaw = {"deg": 0.0}
+# Speed and tilt from the same odometry message, so a marker correction can
+# ask whether the vehicle is actually still rather than which phase it is in.
+current_motion = {"speed": 0.0, "tilt_deg": 0.0}
 origin_pos = None
 is_settled = False
 pending = deque()          # hits waiting to be recorded, each with its own pose
@@ -783,7 +797,9 @@ def on_down_image(msg):
             # Corrections are only taken while hovering. In motion the airframe
             # pitches, the downward camera tilts with it, and the geometry below
             # reads that tilt as position error.
-            if is_settled:
+            still = (current_motion["speed"] < MARKER_MAX_SPEED
+                     and current_motion["tilt_deg"] < MARKER_MAX_TILT_DEG)
+            if is_settled and still:
                 alpha = 0.5
                 drift_offset["n"] += alpha * (error_n - drift_offset["n"])
                 drift_offset["e"] += alpha * (error_e - drift_offset["e"])
@@ -803,7 +819,8 @@ def on_down_image(msg):
             })
             print(f"           MARKER {int(marker_id)} at "
                   f"({known['x']:+.1f}, {known['y']:+.1f})  "
-                  f"drift {error_mag:.3f} m  offset now {after:.3f} m")
+                  f"drift {error_mag:.3f} m  offset now {after:.3f} m"
+                  + ("" if is_settled and still else "  (not applied)"))
     except Exception:
         pass
 
@@ -1205,6 +1222,12 @@ async def track_odometry(drone):
             current_pos["e"] = o.position_body.y_m
             current_pos["d"] = o.position_body.z_m
             current_yaw["deg"] = yaw
+            v = o.velocity_body
+            current_motion["speed"] = math.sqrt(
+                v.x_m_s ** 2 + v.y_m_s ** 2 + v.z_m_s ** 2)
+            # The angle between the body's z axis and the vertical.
+            current_motion["tilt_deg"] = math.degrees(math.acos(max(-1.0, min(
+                1.0, 1 - 2 * (q.x * q.x + q.y * q.y)))))
             sim_now["s"] = when
 
             pose_history.append((when, current_pos["n"], current_pos["e"],

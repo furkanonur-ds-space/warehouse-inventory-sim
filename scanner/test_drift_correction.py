@@ -103,6 +103,7 @@ def reset_state(est_n, est_e, altitude, yaw_deg):
     ws.origin_pos = {"n": ws.SPAWN_Y, "e": ws.SPAWN_X, "d": 0.0}
     ws.current_pos = {"n": est_n, "e": est_e, "d": -altitude}
     ws.current_yaw = {"deg": yaw_deg}
+    ws.current_motion = {"speed": 0.0, "tilt_deg": 0.0}
     ws.drift_offset = {"n": 0.0, "e": 0.0}
     ws.marker_events = []
     ws.last_correction_time = [0.0]
@@ -163,6 +164,31 @@ def run_case(name, err_n, err_e, yaw_deg=0.0, altitude=1.8,
     return ok
 
 
+def check_not_still(name, motion, err_n=0.50):
+    """
+    A fix read while the vehicle is moving or tilted must leave the offset
+    alone, even inside the settle phase. On 29 October 2026 the settle phase
+    began while the vehicle was still braking and a 1.02 m fix was applied.
+    """
+    marker = ws.marker_map_for_test["1"]
+    true_n, true_e = marker["y"], marker["x"]
+    est_n, est_e = true_n + err_n, true_e
+    reset_state(est_n, est_e, 1.8, 0.0)
+    frame = render_marker_frame(1, marker["x"], marker["y"], 1.8, 0.0,
+                                marker["x"], marker["y"])
+    msg = FakeImage(frame)
+    for _ in range(6):
+        ws.last_correction_time[0] = 0.0
+        ws.current_motion = dict(motion)
+        ws.on_down_image(msg)
+    offset = math.hypot(ws.drift_offset["n"], ws.drift_offset["e"])
+    ok = offset == 0.0 and len(ws.marker_events) > 0
+    print(f"  [{'PASS' if ok else 'FAIL'}] {name}: fix must not be applied")
+    print(f"          sightings seen {len(ws.marker_events)}, "
+          f"offset {offset:.3f} m (expected 0)")
+    return ok
+
+
 def main():
     # Keep a pristine copy: reset_state rewrites ws.marker_map each time.
     ws.marker_map_for_test = {"1": {"x": -6.0, "y": -8.0},
@@ -188,6 +214,10 @@ def main():
                             0.45, 0.0, marker_id=5))
     results.append(run_case("3.0 m error is implausible, must be rejected",
                             3.0, 0.0, expect_rejected=True))
+    results.append(check_not_still("still braking, 0.3 m/s",
+                                   {"speed": 0.3, "tilt_deg": 0.2}))
+    results.append(check_not_still("still pitched, 4 deg",
+                                   {"speed": 0.01, "tilt_deg": 4.0}))
 
     results.extend(check_drift_model())
 
