@@ -425,8 +425,29 @@ none left to gain from it.
 
 Mind that the distance that matters is to the lens, not to `base_link`. The
 setpoint puts `base_link` on the lane and the cameras are mounted ahead of and
-behind it, so on a 1.30 m standoff the hires sits at 1.24 m. Using
+behind it, so on a 1.30 m standoff the hires sits at 1.23 m. Using
 `base_link`'s distance scaled every lateral offset by eight per cent.
+
+Where the cameras are mounted comes from the vehicle itself: its
+`/etc/modalai/extrinsics.conf`, turned from ModalAI's x forward, y right,
+z down into the simulator's x forward, y left, z up, and checked with a ruler
+on 22 October 2026. Against `base_link`:
+
+| Sensor | x (forward) | y (left) | z (up) |
+|---|---|---|---|
+| hires | 68.3 mm | 6.5 mm | -2.6 mm |
+| front tracking | 66.5 mm | 6.5 mm | 15.4 mm |
+| rear tracking | -62.5 mm | -9.5 mm | 12.4 mm |
+| downward tracking | -58.8 mm | 11.0 mm | -10.9 mm |
+| ToF | 66.0 mm | -9.0 mm | 12.0 mm |
+
+Until then the model carried them where they sit on an x500: the rear camera
+27 mm too low and the downward one 59 mm too far forward. The same numbers are
+in `scanner/route.py` (`*_MOUNT_*`) and `vehicle/route.h`, and they are used
+in three places: the distance to a shelf (x), a code's height (z), and where
+the vehicle is when the downward camera sees a marker (x, y and z). The few
+millimetres the shelf cameras sit to the side are left out; they move a code
+less than a centimetre along the aisle.
 
 ### ground_offset
 
@@ -475,6 +496,14 @@ and the vehicle still arrives where it was asked to go.
 Corrections are only taken while hovering. In motion the airframe pitches and
 the downward camera tilts with it, and the geometry reads that tilt as position
 error.
+
+The geometry works from the camera, not from `base_link`: the downward camera
+sits 59 mm behind the body centre and 11 mm to its left, and its height above
+the floor is the altitude since take-off plus `ground_offset`, less the 11 mm
+it hangs below `base_link`. Until 22 October 2026 the camera was modelled at
+the centre and its height taken as the altitude alone, which together would
+have read about 6 cm of drift into every fix once the camera moved to where
+the vehicle has it.
 
 The correction converges on the measured error rather than accumulating it.
 Summing instead was a real defect: the offset was right after exactly two
@@ -539,9 +568,10 @@ Two things the CAD showed, both left for a decision rather than changed:
   vehicle's own parameter file has the 85 and 62.5. So the physics now puts
   the rotors where the CAD has them, and the simulated PX4 keeps the
   parameters, because that pairing is what the real vehicle flies with. The
-  same extrinsics put the body 33 mm above the ground at rest, against 60 mm
-  here, and the hires 15 mm below the rear camera rather than above it;
-  both are still open.
+  same extrinsics put the body 33 mm above the ground at rest, where the
+  model had 60 mm, and the cameras where the x500 carries them; both now
+  follow the vehicle (see "Mind that the distance that matters is to the
+  lens").
 
 ## Naming
 

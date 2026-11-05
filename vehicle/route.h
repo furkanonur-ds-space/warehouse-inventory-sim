@@ -27,9 +27,10 @@
 
 /* Where each camera sits along the body: the hires looks forward from the
  * front face, the rear camera back from the rear one, so each is nearer its
- * own shelf than base_link is. */
-#define HIRES_MOUNT_X 0.06
-#define REAR_MOUNT_X (-0.055)
+ * own shelf than base_link is. Same values as scanner/route.py, from the
+ * vehicle's extrinsics. */
+#define HIRES_MOUNT_X 0.0683
+#define REAR_MOUNT_X (-0.0625)
 
 #define ROUTE_MAX_FACES 64
 #define ROUTE_MAX_LEVELS 16

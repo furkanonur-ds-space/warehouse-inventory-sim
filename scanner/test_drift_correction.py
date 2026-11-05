@@ -47,14 +47,21 @@ def render_marker_frame(marker_id, vehicle_x, vehicle_y, altitude, yaw_deg,
     h_fov = math.radians(ws.DOWN_CAM_HFOV_DEG)
     v_fov = 2 * math.atan(math.tan(h_fov / 2) * height / width)
 
-    # Offset from vehicle to marker, in the world frame
-    dx_world = marker_x - vehicle_x
-    dy_world = marker_y - vehicle_y
-
-    # Rotate into the body frame. Yaw 0 is north, which is +Y in Gazebo.
+    # Yaw 0 is north, which is +Y in Gazebo.
     yaw_rad = math.radians(yaw_deg)
     fx, fy = math.sin(yaw_rad), math.cos(yaw_rad)
     rx, ry = math.cos(yaw_rad), -math.sin(yaw_rad)
+
+    # The camera is not at the vehicle centre: DOWN_MOUNT_X forward and
+    # DOWN_MOUNT_Y to the left of it, and DOWN_MOUNT_Z below base_link, which
+    # itself rests GROUND_OFFSET above the floor when altitude reads zero.
+    cam_x = vehicle_x + fx * ws.DOWN_MOUNT_X - rx * ws.DOWN_MOUNT_Y
+    cam_y = vehicle_y + fy * ws.DOWN_MOUNT_X - ry * ws.DOWN_MOUNT_Y
+    altitude = altitude + ws.GROUND_OFFSET + ws.DOWN_MOUNT_Z
+
+    # Offset from camera to marker, rotated into the body frame
+    dx_world = marker_x - cam_x
+    dy_world = marker_y - cam_y
     forward_m = fx * dx_world + fy * dy_world
     right_m = rx * dx_world + ry * dy_world
 

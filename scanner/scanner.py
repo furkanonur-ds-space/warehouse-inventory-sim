@@ -90,6 +90,11 @@ from route import (              # noqa: F401  (re-exported for the tests)
     AISLE_CLEARANCE_M,
     HIRES_MOUNT_X,
     REAR_MOUNT_X,
+    HIRES_MOUNT_Z,
+    REAR_MOUNT_Z,
+    DOWN_MOUNT_X,
+    DOWN_MOUNT_Y,
+    DOWN_MOUNT_Z,
     HIRES_FRAME_PX,
     REAR_FRAME_PX,
     USABLE_FRAME,
@@ -699,6 +704,11 @@ def on_down_image(msg):
 
         if alt < 0.2:
             return
+        # The camera's height above the floor. alt is base_link's height above
+        # where it was captured on the ground, which is GROUND_OFFSET above
+        # the floor, and the camera hangs DOWN_MOUNT_Z below base_link. Using
+        # alt alone scaled every offset read off the frame by the difference.
+        cam_h = alt + GROUND_OFFSET + DOWN_MOUNT_Z
 
         frame_h, frame_w = gray.shape[:2]
         h_fov = math.radians(DOWN_CAM_HFOV_DEG)
@@ -719,18 +729,22 @@ def on_down_image(msg):
             # offset is altitude times the tangent of the bearing.
             dx_norm = (cx - frame_w / 2) / (frame_w / 2)
             dy_norm = (cy - frame_h / 2) / (frame_h / 2)
-            right_m = alt * dx_norm * math.tan(h_fov / 2)
-            forward_m = -alt * dy_norm * math.tan(v_fov / 2)
+            right_m = cam_h * dx_norm * math.tan(h_fov / 2)
+            forward_m = -cam_h * dy_norm * math.tan(v_fov / 2)
 
             # Rotate that body-frame offset into the world frame
             yaw_rad = math.radians(yaw_deg)
             fx, fy = math.sin(yaw_rad), math.cos(yaw_rad)
             rx, ry = math.cos(yaw_rad), -math.sin(yaw_rad)
 
-            # The vehicle is offset from the marker by the negative of the
-            # marker's offset from the vehicle.
-            vehicle_x = known["x"] - (fx * forward_m + rx * right_m)
-            vehicle_y = known["y"] - (fy * forward_m + ry * right_m)
+            # The camera is offset from the marker by the negative of the
+            # marker's offset from the camera, and the vehicle centre is the
+            # camera less its mount: 59 mm behind and 11 mm to the left, which
+            # would otherwise be read as drift on every fix.
+            cam_x = known["x"] - (fx * forward_m + rx * right_m)
+            cam_y = known["y"] - (fy * forward_m + ry * right_m)
+            vehicle_x = cam_x - (fx * DOWN_MOUNT_X - rx * DOWN_MOUNT_Y)
+            vehicle_y = cam_y - (fy * DOWN_MOUNT_X - ry * DOWN_MOUNT_Y)
 
             fix_n, fix_e, _ = gazebo_to_ned(vehicle_x, vehicle_y, alt)
 
@@ -1269,7 +1283,13 @@ def record_detection(qr_id, cx_px, cy_px, frame_w, frame_h, pose,
 
     box_x = gx + forward_x * depth + right_x * lateral
     box_y = gy + forward_y * depth + right_y * lateral
-    box_z = gz + vertical
+    # From the camera's height, not base_link's: the rear camera sits 12 mm
+    # above it and the hires 3 mm below. The cameras' few millimetres to the
+    # side are left out; they move a code less than a centimetre along the
+    # aisle, and y is the one axis that is measured rather than snapped.
+    mount_z = {"camera_hires_link": HIRES_MOUNT_Z,
+               "camera_track_rear_link": REAR_MOUNT_Z}.get(camera, 0.0)
+    box_z = gz + mount_z + vertical
 
     # Snapped to the layout, because the vehicle pitches to fly and a tilted
     # camera reports a bearing and an elevation that are both slightly wrong.

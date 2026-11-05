@@ -70,7 +70,14 @@ BODY_X, BODY_Y, BODY_Z = 0.110, 0.085, 0.045
 # commands is measured from the spawn point and the world is not, so this
 # number has to match reality; measure it in the simulator rather than trust
 # it, as ground_offset in layout.json has been wrong before.
-REST_HEIGHT_M = 0.060
+#
+# 33 mm, the body-to-ground offset in the vehicle's own extrinsics.conf, which
+# is where ModalAI puts the body origin at rest. A ruler on the vehicle agrees
+# through the cameras the same file places: hires 30 mm, rear 45 mm above the
+# table. The CAD agrees too: its feet are 29.7 mm below its origin, so with
+# base_link at 33 mm the two origins are 3 mm apart. It was 60 mm until
+# 22 October 2026.
+REST_HEIGHT_M = 0.033
 
 # --- WHAT IT LOOKS LIKE ---------------------------------------------------
 # By default the vehicle is drawn as the boxes and discs its physics is made
@@ -97,9 +104,7 @@ CAD_MOTOR_LAT = 0.088
 CAD_FEET_BELOW_ORIGIN = 0.0297
 CAD_PROP_PLANE = 0.018          # propeller plane above the file's origin
 # Feet on the ground: base_link rests REST_HEIGHT_M up, the CAD's feet are
-# CAD_FEET_BELOW_ORIGIN below its origin. ModalAI's extrinsics put the real
-# body 33 mm above the ground, against REST_HEIGHT_M here; left alone for now
-# because it moves every commanded altitude.
+# CAD_FEET_BELOW_ORIGIN below its origin.
 MESH_Z = -(REST_HEIGHT_M - CAD_FEET_BELOW_ORIGIN)
 # Y up and -Z forward in the file, to x forward, y left, z up here: roll 90
 # degrees about x, then yaw -90 about z.

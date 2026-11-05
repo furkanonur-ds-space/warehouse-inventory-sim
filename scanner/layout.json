@@ -282,9 +282,14 @@
     "",
     "It cost 63 percent of a scan. Labels sat 0.16 to 0.26 m below the optical",
     "axis instead of on it, so only the topmost of the three box heights fell",
-    "inside the 0.234 m half-frame; the other two read 22 and 0 percent."
+    "inside the 0.234 m half-frame; the other two read 22 and 0 percent.",
+    "",
+    "0.033 for the Starling 2 since 22 October 2026: the body-to-ground",
+    "offset in the vehicle's own extrinsics.conf, agreed by a ruler and the",
+    "CAD. The cameras sit a few millimetres above or below base_link",
+    "(route.py, *_MOUNT_Z), so base_link's height is no longer quite theirs."
   ],
-  "ground_offset": 0.06,
+  "ground_offset": 0.033,
   "aruco_dictionary": "DICT_5X5_100",
   "marker_map": "../warehouse/generated/out/marker_map.json",
   "output": "../out/inventory_scanned.json",
@@ -292,7 +297,8 @@
   "_merge_note": [
     "The warehouse comes from warehouse_ibrahim; the vehicle from",
     "starling2_furkan. ground_offset is the airframe's, not the building's:",
-    "0.060 for the Starling 2 where the x500 measured 0.227.",
+    "0.033 for the Starling 2 (0.060 until 22 October 2026) where the x500",
+    "measured 0.227.",
     "",
     "vehicle_half_span is 0.126, half of the Starling's 252 mm front to back",
     "across the propeller tips (CAD; about 260 with a ruler), the way it faces",
