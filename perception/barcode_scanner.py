@@ -303,6 +303,7 @@ class YoloDecoder(Decoder):
         self.frames_with_uncovered = 0
         # This frame's boxes, for the caller to log beside the pose.
         self.last_boxes: list[dict] = []
+        self.last_labels: list[dict] = []
         self.saved_box_frames = 0
         self.box_frame_seen = 0
         self.seen = collections.Counter()      # by class: qr, barkod
@@ -318,12 +319,23 @@ class YoloDecoder(Decoder):
         qrs, bars = super().__call__(frame_bgr)
         self.last_recovered = set()
         self.last_boxes = []
-        regions = self._finder(frame_bgr)
+        self.last_labels = []
+        # Everything the model returned, down to its log threshold, and the
+        # part of it that clears the working one. Only the second is cropped
+        # and counted, so a run with --yolo-log-conf reads exactly as one
+        # without; the first goes to the box log. See CodeFinder.log_conf.
+        logged = self._finder(frame_bgr)
+        regions = [r for r in logged if r["conf"] >= self._finder.conf]
         self.yolo_ms = self._finder.ms
         for r in regions:
             if r["cls"] in code_finder.CODE_CLASSES:
                 self.seen[r["cls"]] += 1
+        self.last_labels = code_finder.label_regions(logged)
         if not regions:
+            if logged:
+                self.last_boxes, _ = code_finder.coverage(
+                    logged, [poly for _, poly, _ in qrs]
+                    + [poly for _, poly, _ in bars])
             return qrs, bars
 
         have = {p for p, _, _ in qrs} | {p for p, _, _ in bars}
@@ -360,8 +372,10 @@ class YoloDecoder(Decoder):
         # After the crop pass, so a box whose code only a crop read counts as
         # covered. Doing it before would blame the locator's own successes.
         polys = [poly for _, poly, _ in qrs] + [poly for _, poly, _ in bars]
-        self.last_boxes, uncovered = code_finder.coverage(regions, polys)
-        self.boxes_seen += len(self.last_boxes)
+        # The counters keep the working threshold; the log gets every box.
+        counted, uncovered = code_finder.coverage(regions, polys)
+        self.last_boxes, _ = code_finder.coverage(logged, polys)
+        self.boxes_seen += len(counted)
         self.boxes_uncovered += uncovered
         if uncovered:
             self.frames_with_uncovered += 1
@@ -581,13 +595,15 @@ class Session:
         self._boxes_fh = path.open("w", encoding="utf-8")
 
     def record_boxes(self, frame_no, boxes, pose=None, taken_at=None,
-                     frame_size=None) -> None:
+                     frame_size=None, labels=None) -> None:
         """The cartons this frame saw, with where the vehicle was."""
-        if self._boxes_fh is None or not boxes:
+        if self._boxes_fh is None or not (boxes or labels):
             return
         row = {"frame": frame_no, "camera_link": self.camera_link,
                "boxes": boxes,
                "uncovered": sum(1 for b in boxes if not b["covered"])}
+        if labels:
+            row["labels"] = labels
         if taken_at is not None:
             row["sim_t"] = round(float(taken_at), 3)
         if pose is not None:
@@ -1053,7 +1069,8 @@ def step(frame, decoder, linker, session, args, wait: int = 1,
     if isinstance(decoder, YoloDecoder):
         session.record_boxes(session.frames, decoder.last_boxes, pose=pose,
                              taken_at=taken_at,
-                             frame_size=(frame.shape[1], frame.shape[0]))
+                             frame_size=(frame.shape[1], frame.shape[0]),
+                             labels=decoder.last_labels)
         save_box_frame(frame, decoder, args, session)
 
     qr_polys = [(payload, poly) for payload, poly, _ in qrs]
@@ -1153,6 +1170,10 @@ def main() -> int:
                          "that trained them, outside this repository)")
     ap.add_argument("--yolo-conf", type=float, default=code_finder.DEFAULT_CONF,
                     help="confidence below which a label is not a label")
+    ap.add_argument("--yolo-log-conf", type=float, default=None,
+                    help="also write boxes and labels down to this "
+                         "confidence to the box log, unused for reading "
+                         "(default: the same as --yolo-conf)")
     ap.add_argument("--yolo-margin", type=float,
                     default=code_finder.DEFAULT_MARGIN,
                     help="how much to grow a box before cropping, as a "
@@ -1199,7 +1220,7 @@ def main() -> int:
         try:
             finder = code_finder.CodeFinder(
                 args.yolo_weights, conf=args.yolo_conf,
-                device=args.yolo_device)
+                device=args.yolo_device, log_conf=args.yolo_log_conf)
         except FileNotFoundError as exc:
             print(exc)
             return 1

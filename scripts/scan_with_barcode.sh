@@ -141,6 +141,12 @@ start_barcode() {
         if [ -n "${YOLO_DEVICE:-}" ]; then
             yolo+=(--yolo-device "$YOLO_DEVICE")
         fi
+        # YOLO_LOG_CONF=0.10 also writes the low-confidence boxes and the
+        # labels to the box log (SAVE_BOXES=1), without reading from them;
+        # report/box_inventory.py --min-conf then chooses. See code_finder.py.
+        if [ -n "${YOLO_LOG_CONF:-}" ]; then
+            yolo+=(--yolo-log-conf "$YOLO_LOG_CONF")
+        fi
         # SAVE_CROPS=1 keeps what the model framed, per camera, so the boxes
         # can be looked at rather than counted. Failures only by default, and
         # capped, for the same reason SAVE_FRAMES is capped: a flight locates

@@ -132,7 +132,7 @@ class CodeFinder:
 
     def __init__(self, weights: Path | str = DEFAULT_WEIGHTS,
                  conf: float = DEFAULT_CONF, imgsz: int = 640,
-                 device: str | int = 0):
+                 device: str | int = 0, log_conf: float | None = None):
         weights = Path(weights)
         if not weights.exists():
             raise FileNotFoundError(
@@ -145,6 +145,15 @@ class CodeFinder:
         self._model = YOLO(str(weights))
         self._names = self._model.names
         self.conf = conf
+        # The model is asked for everything down to log_conf, but only what
+        # clears conf is used for cropping and counting; the rest is for the
+        # box log alone. Seen from 0.2 m in the 0.50 m aisle, a carton fills
+        # the hires frame and the model, trained on warehouse photographs taken
+        # from further back, boxes it at 0.10 to 0.20 or not at all (the label
+        # on it at 0.92); on 7 November 2026 that left 12 to 13 cartons of face
+        # G never found. Logging the low ones lets report/box_inventory.py
+        # choose its own threshold from one flight. Unset, nothing changes.
+        self.log_conf = conf if log_conf is None else min(conf, log_conf)
         self.imgsz = imgsz
         self.device = device
         self.ms = 0.0                          # last call, for the HUD
@@ -152,8 +161,9 @@ class CodeFinder:
     def __call__(self, frame_bgr: np.ndarray) -> list[dict]:
         """Every label the model sees, in frame coordinates."""
         t0 = time.perf_counter()
-        r = self._model.predict(frame_bgr, conf=self.conf, imgsz=self.imgsz,
-                                device=self.device, verbose=False)[0]
+        r = self._model.predict(frame_bgr, conf=self.log_conf,
+                                imgsz=self.imgsz, device=self.device,
+                                verbose=False)[0]
         self.ms = (time.perf_counter() - t0) * 1e3
         out = []
         for box, cls, conf in zip(r.boxes.xyxy.tolist(),
@@ -237,3 +247,17 @@ def coverage(regions: list[dict], polys) -> tuple[list[dict], int]:
         boxes.append({"box": [round(v, 1) for v in r["box"]],
                       "conf": round(r["conf"], 3), "covered": hit})
     return boxes, uncovered
+
+
+def label_regions(regions: list[dict]) -> list[dict]:
+    """
+    The labels the model located in a frame, for the box log.
+
+    A label is on a carton, so where one is seen a carton is. That matters
+    exactly where the carton itself is not boxed: in the 0.50 m aisle the
+    hires frame is all one carton and the model finds its label at 0.92
+    while boxing the carton at 0.11 or not at all.
+    """
+    return [{"cls": r["cls"], "box": [round(v, 1) for v in r["box"]],
+             "conf": round(r["conf"], 3)}
+            for r in regions if r["cls"] != BOX_CLASS]
