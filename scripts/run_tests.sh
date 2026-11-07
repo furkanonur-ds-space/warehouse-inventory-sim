@@ -87,6 +87,11 @@ run test_barcode_inventory.py
 # Skips itself, rather than failing, on a checkout that has never flown with
 # SAVE_BOXES=1 and so has no box log to work from.
 run test_box_inventory.py
+# A carton counted from its QR (box_inventory --use-labels): with the carton
+# boxes taken out of a copy of the log, nothing may be found with labels off,
+# the labelled cartons must be found with them on, and none of the cartons
+# built with no code. Skips itself on a log flown without YOLO_LOG_CONF.
+run test_box_labels.py
 
 if [ "$failed" -eq 0 ]; then
     echo "all suites passed"

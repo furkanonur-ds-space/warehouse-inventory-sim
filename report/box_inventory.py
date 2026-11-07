@@ -141,7 +141,32 @@ def box_logs(out: Path) -> list[Path]:
     return sorted(out.glob("yolo_boxes_*.jsonl"))
 
 
-def sightings(paths, min_area: float) -> tuple[list[dict], int]:
+# The lowest detector confidence a box is used at. 0.25 is what the flight's
+# own detector works at (code_finder.DEFAULT_CONF), so on a log written
+# without --yolo-log-conf this changes nothing. A log written with it carries
+# boxes down to that lower figure, and this is where one of them is chosen;
+# see code_finder.CodeFinder.log_conf for why the near cartons of face G
+# need it.
+MIN_CONF = 0.25
+
+# A QR the detector located is a carton there, whether or not the carton
+# itself was boxed. In the 0.50 m aisle the hires frame is one carton from
+# side to side and the model boxes it at 0.1 or not at all while finding its
+# QR at 0.92, so with --use-labels those QRs are sightings too. Only `qr`:
+# it is the class the model is surest of and the one whose size is known,
+# 70 mm (warehouse.yaml, codes.box_label.code), which is what judges whether
+# it stands on the face or deeper in the rack, as the carton's height does
+# for a box. The area threshold applies to them as to boxes, so a QR far
+# down an aisle, too small to place, is not used. They are never fed to the
+# corner tracking, which follows carton edges. Off by default; it needs a
+# log flown with YOLO_LOG_CONF, which is what records labels.
+LABEL_CLASS = "qr"
+LABEL_CONF = 0.50
+LABEL_SIZE_M = 0.070
+
+
+def sightings(paths, min_area: float, min_conf: float = MIN_CONF,
+              use_labels: bool = False) -> tuple[list[dict], int]:
     """
     Every carton sighting big enough to be worth placing, and how many were
     not. Returned rather than yielded: the counts are only true once the last
@@ -156,7 +181,13 @@ def sightings(paths, min_area: float) -> tuple[list[dict], int]:
                 continue
             row = json.loads(line)
             frame_w, frame_h = row.get("frame_px") or (math.inf, math.inf)
-            for b in row.get("boxes", []):
+            seen = [(b, False) for b in row.get("boxes", [])
+                    if b.get("conf", 1.0) >= min_conf]
+            if use_labels:
+                seen += [(b, True) for b in row.get("labels", [])
+                         if b.get("cls") == LABEL_CLASS
+                         and b.get("conf", 0.0) >= LABEL_CONF]
+            for b, from_label in seen:
                 x0, y0, x1, y1 = b["box"]
                 area = (x1 - x0) * (y1 - y0)
                 if area < min_area:
@@ -177,6 +208,7 @@ def sightings(paths, min_area: float) -> tuple[list[dict], int]:
                     "area": area,
                     "conf": b.get("conf", 0.0),
                     "covered": bool(b.get("covered")),
+                    "from_label": from_label,
                     "frame": row.get("frame"),
                 })
     return kept, dropped
@@ -210,7 +242,8 @@ def too_far(s: dict, spot: dict, geometry: dict, gate: float) -> bool:
     focal = (s["frame_px"][0] / 2) / math.tan(math.radians(spec["hfov_deg"]) / 2)
     face = geometry["faces"][spot["shelf"]]
     depth = abs(face["face_x"] - s["uav"]["x"]) - spec["mount_x"]
-    looks = geometry["shortest_carton_m"] * focal / s["height_px"]
+    size = LABEL_SIZE_M if s.get("from_label") else geometry["shortest_carton_m"]
+    looks = size * focal / s["height_px"]
     return looks > gate * depth
 
 
@@ -379,14 +412,15 @@ def match(clusters: list[dict], cartons: list[dict], limit: float):
 
 def build(out_dir: Path, min_area: float, radius: float, limit: float,
           code_radius: float = CODE_RADIUS_M,
-          gate: float = RANGE_GATE) -> dict:
+          gate: float = RANGE_GATE, min_conf: float = MIN_CONF,
+          use_labels: bool = False) -> dict:
     paths = box_logs(out_dir)
     if not paths:
         return {"used": False}
 
     geometry = geometry_of()
     ground = min(geometry["flight_z"]) - LANE_MARGIN_M
-    raw, dropped = sightings(paths, min_area)
+    raw, dropped = sightings(paths, min_area, min_conf, use_labels)
     spots, placed_from, off_lane, unplaced, behind = [], [], 0, 0, 0
     for s in raw:
         uav = s.get("uav")
@@ -406,8 +440,12 @@ def build(out_dir: Path, min_area: float, radius: float, limit: float,
         placed_from.append(s)
 
     clusters = cluster(spots, radius)
-    corners, of_sid = carton_edges.corners(placed_from, spots, geometry,
-                                           EDGE_PX)
+    # Carton edges only: a QR's edges are not its carton's.
+    box_only = [(s, p) for s, p in zip(placed_from, spots)
+                if not s.get("from_label")]
+    corners, of_sid = carton_edges.corners([s for s, _ in box_only],
+                                           [p for _, p in box_only],
+                                           geometry, EDGE_PX)
     from_corners, of_corner = carton_edges.cartons_from(corners)
     moved = carton_edges.replace(clusters, from_corners, of_corner, of_sid)
     cartons = true_cartons()
@@ -475,7 +513,8 @@ def build(out_dir: Path, min_area: float, radius: float, limit: float,
         "logs": [p.name for p in paths],
         "settings": {"min_area_px": min_area, "cluster_m": radius,
                      "match_m": limit, "range_gate": gate,
-                     "edge_px": EDGE_PX},
+                     "edge_px": EDGE_PX, "min_conf": min_conf,
+                     "use_labels": use_labels},
         "sightings": {"kept": len(raw), "below_area": dropped,
                       "off_lane": off_lane, "unplaceable": unplaced,
                       "behind_the_face": behind,
@@ -611,6 +650,13 @@ def main() -> int:
     ap.add_argument("--range-gate", type=float, default=RANGE_GATE,
                     help=f"drop a box that looks this many times further away "
                          f"than the face (default {RANGE_GATE})")
+    ap.add_argument("--min-conf", type=float, default=MIN_CONF,
+                    help=f"lowest detector confidence a box is used at "
+                         f"(default {MIN_CONF}; lower needs a log flown with "
+                         f"YOLO_LOG_CONF)")
+    ap.add_argument("--use-labels", action="store_true",
+                    help="also count a carton where the detector located its "
+                         "QR (needs a log flown with YOLO_LOG_CONF)")
     ap.add_argument("--json", type=Path, default=OUT / "box_report.json")
     ap.add_argument("--experiment-inventory", type=Path,
                     default=OUT / "inventory_boxes_unlabelled.json",
@@ -624,7 +670,8 @@ def main() -> int:
     args = ap.parse_args()
 
     data = build(args.out_dir, args.min_area, args.cluster, args.match,
-                 args.code_radius, args.range_gate)
+                 args.code_radius, args.range_gate, args.min_conf,
+                 args.use_labels)
     print(render(data))
     args.json.parent.mkdir(parents=True, exist_ok=True)
     args.json.write_text(json.dumps(data, indent=2, ensure_ascii=False))
